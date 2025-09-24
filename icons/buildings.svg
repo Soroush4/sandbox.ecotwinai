@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon">
+  <path d="M3 21h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18v-2H3v2zm0-4h18V7H3v2zm0-6v2h18V3H3z"/>
+  <rect x="5" y="5" width="3" height="12" fill="currentColor"/>
+  <rect x="10" y="8" width="3" height="9" fill="currentColor"/>
+  <rect x="15" y="6" width="3" height="11" fill="currentColor"/>
+</svg>

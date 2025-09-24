@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" id="icon">
+  <circle cx="12" cy="12" r="5" fill="currentColor" opacity="0.3"/>
+  <ellipse cx="12" cy="16" rx="8" ry="3" fill="currentColor" opacity="0.2"/>
+  <circle cx="12" cy="12" r="3" fill="currentColor"/>
+</svg>

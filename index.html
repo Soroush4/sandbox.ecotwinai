@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eco Digital Twin Sandbox</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Menu Bar -->
+        <nav class="menu-bar">
+            <div class="menu-item">
+                <span class="menu-label">File</span>
+                <div class="menu-dropdown">
+                    <div class="menu-option" data-action="new-scene">New Scene</div>
+                    <div class="menu-option" data-action="save-scene">Save Scene</div>
+                    <div class="menu-option" data-action="load-scene">Load Scene</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-option" data-action="export-stl">Export STL</div>
+                    <div class="menu-option" data-action="export-obj">Export OBJ</div>
+                </div>
+            </div>
+            <div class="menu-item">
+                <span class="menu-label">Edit</span>
+                <div class="menu-dropdown">
+                    <div class="menu-option" data-action="undo">Undo</div>
+                    <div class="menu-option" data-action="redo">Redo</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-option" data-action="select-all">Select All</div>
+                    <div class="menu-option" data-action="clear-selection">Clear Selection</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-option" data-action="delete-selected">Delete Selected</div>
+                </div>
+            </div>
+            <div class="menu-item">
+                <span class="menu-label">Settings</span>
+                <div class="menu-dropdown">
+                    <div class="menu-option" data-action="scene-settings">Scene Settings</div>
+                    <div class="menu-option" data-action="render-settings">Render Settings</div>
+                    <div class="menu-option" data-action="camera-settings">Camera Settings</div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-option" data-action="preferences">Preferences</div>
+                    <div class="menu-option" data-action="about">About</div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Drawing Tools Panel -->
+        <div id="drawingPanel" class="drawing-panel">
+            <div class="panel-header">
+                <h3>Drawing</h3>
+            </div>
+            <div class="drawing-tools">
+                <div class="tool-item" data-tool="rectangle" title="Rectangle">
+                    <img src="icons/rectangle.svg" alt="Rectangle" class="tool-icon">
+                </div>
+                <div class="tool-item" data-tool="circle" title="Circle">
+                    <img src="icons/circle.svg" alt="Circle" class="tool-icon">
+                </div>
+            </div>
+        </div>
+
+        <!-- Transform Tools Panel -->
+        <div id="transformPanel" class="transform-panel">
+            <div class="transform-tools">
+                <div class="tool-item active" data-tool="select" title="Select">
+                    <img class="tool-icon" src="icons/select.svg" alt="Select" width="20" height="20">
+                </div>
+                <div class="tool-item" data-tool="move" title="Move">
+                    <img class="tool-icon" src="icons/move.svg" alt="Move" width="20" height="20">
+                </div>
+                <div class="tool-item" data-tool="rotate" title="Rotate">
+                    <img class="tool-icon" src="icons/rotate.svg" alt="Rotate" width="20" height="20">
+                </div>
+                <div class="tool-item" data-tool="scale" title="Scale">
+                    <img class="tool-icon" src="icons/scale.svg" alt="Scale" width="20" height="20">
+                </div>
+                <div class="tool-item" data-tool="coordinate-toggle" title="Toggle Local/Global Coordinates" id="coordinateToggle">
+                    <img class="tool-icon" src="icons/global.svg" alt="Global" width="20" height="20" id="coordinateIcon">
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Sidebar (Hidden - moved to preferences) -->
+            <aside class="sidebar" style="display: none;">
+                <div class="sidebar-section">
+                    <h3>Scene Controls</h3>
+                    <div class="control-group">
+                        <label for="gridToggle">Show Grid</label>
+                        <button id="gridToggle" class="toggle-btn active">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <use href="icons/grid.svg#icon"></use>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="control-group">
+                        <label for="shadowsToggle">Shadows</label>
+                        <button id="shadowsToggle" class="toggle-btn active">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <use href="icons/shadow.svg#icon"></use>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>Building Settings</h3>
+                    <div class="control-group">
+                        <label for="buildingCount">Building Count</label>
+                        <input type="range" id="buildingCount" min="1" max="20" value="10">
+                        <span id="buildingCountValue">10</span>
+                    </div>
+                    <div class="control-group">
+                        <label for="minHeight">Min Height (m)</label>
+                        <input type="range" id="minHeight" min="2" max="10" value="4">
+                        <span id="minHeightValue">4</span>
+                    </div>
+                    <div class="control-group">
+                        <label for="maxHeight">Max Height (m)</label>
+                        <input type="range" id="maxHeight" min="10" max="30" value="20">
+                        <span id="maxHeightValue">20</span>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <h3>Camera Controls</h3>
+                    <div class="control-group">
+                        <button id="resetCamera" class="btn btn-small">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <use href="icons/camera.svg#icon"></use>
+                            </svg>
+                            Reset Camera
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 3D Canvas -->
+            <div class="canvas-container">
+                <canvas id="renderCanvas"></canvas>
+                <div class="canvas-overlay">
+                    <div class="loading" id="loading">
+                        <div class="spinner"></div>
+                        <p>Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Preferences Overlay -->
+    <div id="preferencesOverlay" class="preferences-overlay"></div>
+
+    <!-- Preferences Window -->
+    <div id="preferencesWindow" class="preferences-window">
+        <div class="preferences-header">
+            <h3>Preferences</h3>
+            <button id="closePreferences" class="close-btn">&times;</button>
+        </div>
+        <div class="preferences-content">
+            <!-- Scene Controls -->
+            <div class="preferences-section">
+                <h4>Scene Controls</h4>
+                <div class="control-group">
+                    <label for="gridTogglePref">Show Grid</label>
+                    <button id="gridTogglePref" class="toggle-btn active">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/grid.svg#icon"></use>
+                        </svg>
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="shadowsTogglePref">Shadows</label>
+                    <button id="shadowsTogglePref" class="toggle-btn active">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/shadow.svg#icon"></use>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Building Settings -->
+            <div class="preferences-section">
+                <h4>Building Settings</h4>
+                <div class="control-group">
+                    <label for="buildingCountPref">Building Count</label>
+                    <input type="range" id="buildingCountPref" min="1" max="20" value="10">
+                    <span id="buildingCountValuePref">10</span>
+                </div>
+                <div class="control-group">
+                    <label for="minHeightPref">Min Height (m)</label>
+                    <input type="range" id="minHeightPref" min="2" max="10" value="4">
+                    <span id="minHeightValuePref">4</span>
+                </div>
+                <div class="control-group">
+                    <label for="maxHeightPref">Max Height (m)</label>
+                    <input type="range" id="maxHeightPref" min="10" max="30" value="20">
+                    <span id="maxHeightValuePref">20</span>
+                </div>
+            </div>
+
+            <!-- Camera Controls -->
+            <div class="preferences-section">
+                <h4>Camera Controls</h4>
+                <div class="control-group">
+                    <button id="resetCameraPref" class="btn btn-small">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/camera.svg#icon"></use>
+                        </svg>
+                        Reset Camera
+                    </button>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="preferences-section">
+                <h4>Actions</h4>
+                <div class="control-group">
+                    <button id="generateBuildingsPref" class="btn btn-primary">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/buildings.svg#icon"></use>
+                        </svg>
+                        Generate Buildings
+                    </button>
+                </div>
+                <div class="control-group">
+                    <button id="resetScenePref" class="btn btn-secondary">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/reset.svg#icon"></use>
+                        </svg>
+                        Reset Scene
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compass -->
+    <div id="compass" class="compass">
+        <div class="compass-inner">
+            <div class="compass-needle" id="compassNeedle"></div>
+            <div class="compass-labels">
+                <div class="compass-label compass-north">N</div>
+                <div class="compass-label compass-east">E</div>
+                <div class="compass-label compass-south">S</div>
+                <div class="compass-label compass-west">W</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/libs/babylon.js"></script>
+    <script src="js/libs/babylonjs.materials.min.js"></script>
+    <script src="js/modules/SceneManager.js?v=2"></script>
+    <script src="js/modules/BuildingGenerator.js"></script>
+    <script src="js/modules/LightingManager.js"></script>
+    <script src="js/modules/CameraController.js?v=5"></script>
+    <script src="js/modules/GridManager.js"></script>
+    <script src="js/modules/SelectionManager.js"></script>
+    <script src="js/modules/MoveManager.js"></script>
+    <script src="js/modules/RotateManager.js"></script>
+    <script src="js/modules/ScaleManager.js"></script>
+    <script src="js/modules/Shape2DManager.js"></script>
+    <script src="js/modules/UIManager.js"></script>
+    <!-- Properties Popup -->
+    <div id="propertiesPopup" class="properties-popup">
+        <div class="properties-header">
+            <h3>Shape Properties</h3>
+            <button class="close-btn" id="closeProperties">&times;</button>
+        </div>
+        <div class="properties-content">
+            <div class="property-group">
+                <label>Name:</label>
+                <input type="text" id="shapeName" readonly>
+            </div>
+            <div class="property-group">
+                <label>Type:</label>
+                <select id="shapeType">
+                    <option value="building">Building</option>
+                    <option value="land">Land</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Color:</label>
+                <input type="color" id="shapeColor">
+            </div>
+            <div class="property-group">
+                <label>Length:</label>
+                <input type="number" id="shapeLength" step="0.1" min="0">
+            </div>
+            <div class="property-group">
+                <label>Width:</label>
+                <input type="number" id="shapeWidth" step="0.1" min="0">
+            </div>
+            <div class="property-group" id="heightGroup" style="display: none;">
+                <label>Height:</label>
+                <input type="number" id="shapeHeight" step="0.1" min="0">
+            </div>
+            <div class="property-group" id="radiusGroup" style="display: none;">
+                <label>Radius:</label>
+                <input type="number" id="shapeRadius" step="0.1" min="0">
+            </div>
+        </div>
+        <div class="properties-footer">
+            <button class="btn btn-primary" id="saveProperties">Save</button>
+            <button class="btn btn-secondary" id="cancelProperties">Cancel</button>
+        </div>
+    </div>
+
+    <script src="js/app.js?v=2"></script>
+</body>
+</html>

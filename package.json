@@ -1,0 +1,21 @@
+{
+  "name": "digitaltwin-stl-editor",
+  "version": "1.0.0",
+  "description": "3D Digital Twin STL Editor with Babylon.js",
+  "main": "index.html",
+  "scripts": {
+    "start": "live-server --port=8080 --open=/index.html",
+    "dev": "live-server --port=8080 --open=/index.html --cors"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^6.0.0",
+    "@babylonjs/loaders": "^6.0.0",
+    "@babylonjs/materials": "^6.0.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  },
+  "keywords": ["babylonjs", "3d", "digital-twin", "stl", "editor"],
+  "author": "Digital Twin Developer",
+  "license": "MIT"
+}
