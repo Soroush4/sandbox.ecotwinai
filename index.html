@@ -60,6 +60,23 @@
                 <div class="tool-item" data-tool="circle" title="Circle">
                     <img src="icons/circle.svg" alt="Circle" class="tool-icon">
                 </div>
+                <div class="tool-item" data-tool="tree" title="Tree" id="treeTool">
+                    <img src="icons/tree.svg" alt="Tree" class="tool-icon">
+                </div>
+            </div>
+            <div class="tree-submenu" id="treeSubmenu" style="display: none;">
+                <div class="tree-option" data-tree-type="1" title="Tree Type 1">
+                    <img src="icons/tree1.svg" alt="Tree 1" class="tree-icon">
+                </div>
+                <div class="tree-option" data-tree-type="2" title="Tree Type 2">
+                    <img src="icons/tree2.svg" alt="Tree 2" class="tree-icon">
+                </div>
+                <div class="tree-option" data-tree-type="3" title="Tree Type 3">
+                    <img src="icons/tree3.svg" alt="Tree 3" class="tree-icon">
+                </div>
+                <div class="tree-option" data-tree-type="4" title="Tree Type 4">
+                    <img src="icons/tree4.svg" alt="Tree 4" class="tree-icon">
+                </div>
             </div>
         </div>
 
@@ -256,6 +273,7 @@
     <!-- Scripts -->
     <script src="js/libs/babylon.js"></script>
     <script src="js/libs/babylonjs.materials.min.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
     <script src="js/modules/SceneManager.js?v=2"></script>
     <script src="js/modules/BuildingGenerator.js"></script>
     <script src="js/modules/LightingManager.js"></script>
@@ -266,6 +284,7 @@
     <script src="js/modules/RotateManager.js"></script>
     <script src="js/modules/ScaleManager.js"></script>
     <script src="js/modules/Shape2DManager.js"></script>
+    <script src="js/modules/TreeManager.js"></script>
     <script src="js/modules/UIManager.js"></script>
     <!-- Properties Popup -->
     <div id="propertiesPopup" class="properties-popup">

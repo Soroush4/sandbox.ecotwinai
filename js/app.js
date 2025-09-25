@@ -62,6 +62,7 @@ class DigitalTwinApp {
                 this.selectionManager
             );
             this.shape2DManager = new Shape2DManager(this.sceneManager.getScene(), this.selectionManager);
+            this.treeManager = new TreeManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
             
             // Setup shadows for ground
             this.lightingManager.addShadowReceiver(this.sceneManager.getGround());
@@ -77,7 +78,8 @@ class DigitalTwinApp {
                 this.moveManager,
                 this.rotateManager,
                 this.scaleManager,
-                this.shape2DManager
+                this.shape2DManager,
+                this.treeManager
             );
             
             // Auto-generate buildings on page load
@@ -189,6 +191,7 @@ class DigitalTwinApp {
             buildings: this.buildingGenerator.getStats(),
             lighting: this.lightingManager.getStats(),
             camera: this.cameraController.getStats(),
+            trees: this.treeManager ? this.treeManager.getStats() : null,
             grid: {
                 visible: this.gridManager.isGridVisible()
             }
@@ -213,6 +216,9 @@ class DigitalTwinApp {
         }
         if (this.shape2DManager) {
             this.shape2DManager.dispose();
+        }
+        if (this.treeManager) {
+            this.treeManager.dispose();
         }
         if (this.selectionManager) {
             this.selectionManager.dispose();
@@ -283,6 +289,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.checkMouseState = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.cameraController) {
             window.digitalTwinApp.cameraController.checkMouseState();
+        }
+    };
+    
+    window.testTree = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            return window.digitalTwinApp.treeManager.testTreePlacement();
         }
     };
     

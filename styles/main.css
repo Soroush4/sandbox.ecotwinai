@@ -673,6 +673,62 @@ input[type="range"]::-moz-range-thumb {
     filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%);
 }
 
+/* Tree Tool Styles - removed tool-label styles since tree button doesn't have text */
+
+/* Tree Submenu Styles */
+.tree-submenu {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    margin-left: 8px;
+    background: rgba(20, 20, 20, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 6px;
+    min-width: 60px;
+    z-index: 1001;
+}
+
+.tree-option {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: 4px;
+}
+
+.tree-option:last-child {
+    margin-bottom: 0;
+}
+
+.tree-option:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
+}
+
+.tree-option.active {
+    background: rgba(52, 152, 219, 0.3);
+    border-color: rgba(52, 152, 219, 0.6);
+    box-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
+}
+
+.tree-option .tree-icon {
+    width: 16px;
+    height: 16px;
+    filter: brightness(0) saturate(100%) invert(100%);
+}
+
+.tree-option.active .tree-icon {
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%);
+}
+
 /* Transform Tools Panel Styles */
 .transform-panel {
     position: fixed;

@@ -144,7 +144,7 @@ class SelectionManager {
 
         // Perform raycast
         const pickResult = this.scene.pick(x, y, (mesh) => {
-            // Select building meshes, 2D shapes, and extrusions, not ground or other utility meshes
+            // Select building meshes, 2D shapes, extrusions, and trees, not ground or other utility meshes
             return mesh.name && (
                 mesh.name.startsWith('building_') ||
                 mesh.name.includes('rectangle') ||
@@ -154,7 +154,10 @@ class SelectionManager {
                 mesh.name.includes('polygon') ||
                 mesh.name.startsWith('polyline') ||
                 mesh.name.startsWith('line') ||
-                mesh.name.includes('_extrusion') // Include extrusion meshes
+                mesh.name.includes('_extrusion') || // Include extrusion meshes
+                mesh.name.startsWith('tree_') || // Include tree parent nodes
+                mesh.name.includes('_tree_') || // Include tree meshes
+                mesh.name.startsWith('simple_tree_') // Include simple tree meshes
             );
         });
 

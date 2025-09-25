@@ -2,7 +2,7 @@
  * UIManager - Manages user interface interactions
  */
 class UIManager {
-    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager) {
+    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager, treeManager) {
         this.sceneManager = sceneManager;
         this.buildingGenerator = buildingGenerator;
         this.lightingManager = lightingManager;
@@ -13,6 +13,7 @@ class UIManager {
         this.rotateManager = rotateManager;
         this.scaleManager = scaleManager;
         this.shape2DManager = shape2DManager;
+        this.treeManager = treeManager;
         
         this.isInitialized = false;
         this.statsInterval = null;
@@ -27,6 +28,7 @@ class UIManager {
     init() {
         this.setupEventListeners();
         this.setupPropertiesPopup();
+        this.setupTreeEventListeners();
         this.startStatsUpdate();
         this.updateCoordinateToggleUI(); // Initialize coordinate toggle UI
         this.isInitialized = true;
@@ -150,6 +152,9 @@ class UIManager {
             return;
         }
 
+        // Deactivate tree placement when switching to transform tools
+        this.deactivateTreePlacement();
+
         // Remove active class from all transform tools (except coordinate toggle)
         const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
         allTransformTools.forEach(tool => tool.classList.remove('active'));
@@ -193,9 +198,50 @@ class UIManager {
     }
 
     /**
+     * Setup tree event listeners
+     */
+    setupTreeEventListeners() {
+        // Tree tool click
+        const treeTool = document.getElementById('treeTool');
+        if (treeTool) {
+            treeTool.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleTreeSubmenu();
+            });
+        }
+
+        // Tree option clicks
+        const treeOptions = document.querySelectorAll('.tree-option');
+        treeOptions.forEach(option => {
+            option.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const treeType = option.getAttribute('data-tree-type');
+                this.selectTreeType(treeType);
+            });
+        });
+
+        // Click outside to close tree submenu
+        document.addEventListener('click', (e) => {
+            const treeSubmenu = document.getElementById('treeSubmenu');
+            const treeTool = document.getElementById('treeTool');
+            
+            if (treeSubmenu && treeTool && 
+                !treeSubmenu.contains(e.target) && 
+                !treeTool.contains(e.target)) {
+                this.hideTreeSubmenu();
+            }
+        });
+    }
+
+    /**
      * Select drawing tool
      */
     selectDrawingTool(toolName) {
+        // Deactivate tree placement when switching to other drawing tools
+        if (toolName !== 'tree') {
+            this.deactivateTreePlacement();
+        }
+
         // Remove active class from all drawing tools
         const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
         allDrawingTools.forEach(tool => tool.classList.remove('active'));
@@ -267,6 +313,9 @@ class UIManager {
             case 'circle':
                 this.createCircle();
                 break;
+            case 'tree':
+                // Tree tool is handled separately in tree event listeners
+                break;
             case 'clear-drawings':
                 this.clear2DShapes();
                 break;
@@ -274,9 +323,81 @@ class UIManager {
     }
 
     /**
+     * Toggle tree submenu visibility
+     */
+    toggleTreeSubmenu() {
+        const treeSubmenu = document.getElementById('treeSubmenu');
+        if (treeSubmenu) {
+            const isVisible = treeSubmenu.style.display !== 'none';
+            treeSubmenu.style.display = isVisible ? 'none' : 'block';
+        }
+    }
+
+    /**
+     * Hide tree submenu
+     */
+    hideTreeSubmenu() {
+        const treeSubmenu = document.getElementById('treeSubmenu');
+        if (treeSubmenu) {
+            treeSubmenu.style.display = 'none';
+        }
+    }
+
+    /**
+     * Select tree type and start placement
+     */
+    selectTreeType(treeType) {
+        if (!this.treeManager) {
+            console.log('TreeManager not available');
+            return;
+        }
+
+        // Hide submenu
+        this.hideTreeSubmenu();
+
+        // Remove active class from all tree options
+        const treeOptions = document.querySelectorAll('.tree-option');
+        treeOptions.forEach(option => option.classList.remove('active'));
+
+        // Add active class to selected option
+        const selectedOption = document.querySelector(`[data-tree-type="${treeType}"]`);
+        if (selectedOption) {
+            selectedOption.classList.add('active');
+        }
+
+        // Start tree placement
+        this.treeManager.startTreePlacement(treeType);
+        console.log(`Tree placement mode activated for tree type: ${treeType}`);
+    }
+
+    /**
+     * Deactivate tree placement mode
+     */
+    deactivateTreePlacement() {
+        if (!this.treeManager) {
+            return;
+        }
+
+        // Stop tree placement
+        this.treeManager.stopTreePlacement();
+
+        // Remove active class from all tree options
+        const treeOptions = document.querySelectorAll('.tree-option');
+        treeOptions.forEach(option => option.classList.remove('active'));
+
+        // Hide tree submenu
+        this.hideTreeSubmenu();
+
+        console.log('Tree placement mode deactivated');
+    }
+
+    /**
      * Reset to select tool (default state)
      */
     resetToSelectTool() {
+        // Deactivate tree placement when resetting to select tool
+        this.deactivateTreePlacement();
+
         // Remove active class from all drawing tools
         const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
         allDrawingTools.forEach(tool => tool.classList.remove('active'));
@@ -988,6 +1109,22 @@ class UIManager {
 
         // Mouse down
         canvas.addEventListener('pointerdown', (event) => {
+            // Handle tree placement
+            if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Get ground intersection point
+                const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
+                    return mesh.name === 'ground';
+                });
+                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
+                    const point = pickResult.pickedPoint;
+                    this.treeManager.placeTree(point);
+                }
+                return;
+            }
+
             if (!this.shape2DManager || !this.shape2DManager.isCurrentlyDrawing()) return;
 
             // Prevent camera movement during drawing
@@ -1064,7 +1201,7 @@ class UIManager {
                 return;
             }
 
-            // Handle Escape key for drawing
+            // Handle Escape key for drawing and tree placement
             if (this.shape2DManager && this.shape2DManager.isCurrentlyDrawing()) {
                 if (event.key === 'Escape') {
                     this.shape2DManager.stopInteractiveDrawing();
@@ -1079,6 +1216,16 @@ class UIManager {
                     }
                     
                     console.log('Drawing cancelled');
+                }
+            } else if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
+                if (event.key === 'Escape') {
+                    this.treeManager.stopTreePlacement();
+                    
+                    // Remove active class from tree options
+                    const treeOptions = document.querySelectorAll('.tree-option');
+                    treeOptions.forEach(option => option.classList.remove('active'));
+                    
+                    console.log('Tree placement cancelled');
                 }
             }
         });
@@ -1128,6 +1275,9 @@ class UIManager {
         if (activeTool) {
             activeTool.classList.remove('active');
         }
+        
+        // Also deactivate tree placement when deactivating drawing tools
+        this.deactivateTreePlacement();
     }
 
     /**
