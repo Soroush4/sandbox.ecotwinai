@@ -101,6 +101,13 @@ body {
     border-radius: 0 0 4px 4px;
 }
 
+.menu-option .shortcut {
+    float: right;
+    color: #999;
+    font-size: 12px;
+    margin-left: 20px;
+}
+
 .menu-separator {
     height: 1px;
     background-color: rgba(0, 0, 0, 0.1);

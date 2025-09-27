@@ -948,6 +948,26 @@ class UIManager {
     }
 
     /**
+     * Select all 3D models except ground
+     */
+    selectAll() {
+        if (this.selectionManager) {
+            this.selectionManager.selectAll();
+            console.log('Select All: All 3D models selected except ground');
+        }
+    }
+
+    /**
+     * Clear all selections
+     */
+    clearSelection() {
+        if (this.selectionManager) {
+            this.selectionManager.clearSelection();
+            console.log('Clear Selection: All selections cleared');
+        }
+    }
+
+    /**
      * Import STL file
      */
     importSTL() {
@@ -1798,6 +1818,20 @@ class UIManager {
                     this.deactivateTreePlacement();
                     console.log('Tree placement cancelled');
                 }
+            }
+
+            // Handle Shift+A for Select All
+            if (event.shiftKey && event.key === 'A') {
+                event.preventDefault(); // Prevent default browser behavior
+                this.selectAll();
+                return;
+            }
+
+            // Handle Shift+D for Clear Selection
+            if (event.shiftKey && event.key === 'D') {
+                event.preventDefault(); // Prevent default browser behavior
+                this.clearSelection();
+                return;
             }
         });
     }

@@ -573,11 +573,39 @@ class SelectionManager {
      * Clear all selections
      */
     clearSelection() {
+        console.log(`Clearing selection of ${this.selectedObjects.length} objects`);
         this.selectedObjects.forEach(mesh => {
             this.removeHighlight(mesh);
         });
         this.selectedObjects = [];
         this.onSelectionChanged();
+        console.log('Selection cleared');
+    }
+    
+    /**
+     * Force cleanup all wireframe meshes in the scene
+     */
+    forceCleanupAllWireframes() {
+        const wireframeMeshes = this.scene.meshes.filter(mesh => 
+            mesh.name && mesh.name.includes('_edge_wireframe')
+        );
+        
+        console.log(`Force cleaning up ${wireframeMeshes.length} wireframe meshes`);
+        wireframeMeshes.forEach(mesh => {
+            if (mesh.material) {
+                mesh.material.dispose();
+            }
+            mesh.dispose();
+        });
+        
+        // Also clear any remaining wireframe references
+        this.scene.meshes.forEach(mesh => {
+            if (mesh.wireframeClone) {
+                mesh.wireframeClone = null;
+            }
+        });
+        
+        return wireframeMeshes.length;
     }
 
     /**
@@ -586,6 +614,12 @@ class SelectionManager {
     highlightObject(mesh) {
         if (!mesh) {
             console.warn('Cannot highlight: mesh is null or undefined');
+            return;
+        }
+        
+        // Don't create wireframe if one already exists
+        if (mesh.wireframeClone) {
+            console.log(`Wireframe already exists for ${mesh.name}, skipping`);
             return;
         }
         
@@ -606,8 +640,9 @@ class SelectionManager {
         wireframeClone.scaling = mesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
         
         // Store the wireframe clone reference
-        this.originalMaterials.set(wireframeClone, null); // Mark as wireframe clone
         mesh.wireframeClone = wireframeClone;
+        
+        console.log(`Created wireframe for ${mesh.name}`);
     }
 
     /**
@@ -619,8 +654,11 @@ class SelectionManager {
             return;
         }
         
+        console.log(`Removing highlight from ${mesh.name}`);
+        
         // Remove wireframe clone if it exists
         if (mesh.wireframeClone) {
+            console.log(`Disposing wireframe clone for ${mesh.name}`);
             // Dispose of the wireframe clone's material
             if (mesh.wireframeClone.material) {
                 mesh.wireframeClone.material.dispose();
@@ -628,7 +666,6 @@ class SelectionManager {
             // Dispose of the wireframe clone mesh
             mesh.wireframeClone.dispose();
             mesh.wireframeClone = null;
-            this.originalMaterials.delete(mesh.wireframeClone);
         }
         
         // Restore original material (the original mesh material should already be correct)
@@ -637,6 +674,8 @@ class SelectionManager {
             mesh.material = originalMaterial;
             this.originalMaterials.delete(mesh);
         }
+        
+        console.log(`Highlight removed from ${mesh.name}`);
     }
 
 
@@ -662,21 +701,44 @@ class SelectionManager {
     }
 
     /**
-     * Select all building objects
+     * Select all 3D models except ground
      */
     selectAll() {
-        this.clearSelection();
+        // Clear previous selection first (without calling onSelectionChanged)
+        this.selectedObjects.forEach(mesh => {
+            this.removeHighlight(mesh);
+        });
+        this.selectedObjects = [];
         
-        // Find all building meshes
-        const buildingMeshes = this.scene.meshes.filter(mesh => 
-            mesh.name && mesh.name.startsWith('building_')
-        );
+        // Find all selectable meshes (buildings, trees, 2D shapes, polygons, etc.) but exclude ground
+        const selectableMeshes = this.scene.meshes.filter(mesh => {
+            return mesh.name && 
+                   !mesh.name.includes('_wireframe') && // Exclude wireframe clones
+                   !mesh.name.includes('_edge_wireframe') && // Exclude edge wireframe clones
+                   mesh.name !== 'ground' && // Exclude ground
+                   (
+                       mesh.name.startsWith('building_') ||
+                       mesh.name.includes('rectangle') ||
+                       mesh.name.includes('circle') ||
+                       mesh.name.includes('triangle') ||
+                       mesh.name.includes('text') ||
+                       mesh.name.includes('polygon') ||
+                       mesh.name.startsWith('polyline') ||
+                       mesh.name.startsWith('line') ||
+                       mesh.name.includes('_extrusion') || // Include extrusion meshes
+                       mesh.name.startsWith('tree_') || // Include tree parent nodes
+                       mesh.name.includes('_tree_') || // Include tree meshes
+                       mesh.name.startsWith('simple_tree_') // Include simple tree meshes
+                   );
+        });
         
-        buildingMeshes.forEach(mesh => {
+        // Add all selectable meshes to selection
+        selectableMeshes.forEach(mesh => {
             this.selectedObjects.push(mesh);
             this.highlightObject(mesh);
         });
         
+        // Notify that selection has changed (only once at the end)
         this.onSelectionChanged();
     }
 

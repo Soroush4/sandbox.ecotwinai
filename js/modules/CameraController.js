@@ -235,6 +235,11 @@ class CameraController {
             const speed = 2;
             const camera = this.camera;
 
+            // Don't rotate camera with A/D when Shift is pressed (for selection shortcuts)
+            if (event.shiftKey && (event.key.toLowerCase() === 'a' || event.key.toLowerCase() === 'd')) {
+                return; // Let UIManager handle Shift+A and Shift+D
+            }
+
             switch (event.key.toLowerCase()) {
                 case 'w':
                 case 'arrowup':

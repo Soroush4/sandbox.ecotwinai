@@ -385,6 +385,64 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
+    window.testWireframeIssue = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.selectionManager) {
+            console.log('=== Testing Wireframe Issue ===');
+            
+            // Test 1: Select All
+            console.log('1. Testing SelectAll...');
+            window.digitalTwinApp.selectionManager.selectAll();
+            const afterSelectAll = window.digitalTwinApp.selectionManager.getSelectionCount();
+            console.log(`After SelectAll: ${afterSelectAll} objects selected`);
+            
+            // Test 2: Check wireframes
+            const scene = window.digitalTwinApp.sceneManager.getScene();
+            const wireframes = scene.meshes.filter(m => m.name && m.name.includes('_edge_wireframe'));
+            console.log(`Wireframes in scene: ${wireframes.length}`);
+            
+            // Test 3: Clear Selection
+            console.log('2. Testing ClearSelection...');
+            window.digitalTwinApp.selectionManager.clearSelection();
+            const afterClear = window.digitalTwinApp.selectionManager.getSelectionCount();
+            console.log(`After ClearSelection: ${afterClear} objects selected`);
+            
+            // Test 4: Check wireframes after clear
+            const wireframesAfterClear = scene.meshes.filter(m => m.name && m.name.includes('_edge_wireframe'));
+            console.log(`Wireframes after clear: ${wireframesAfterClear.length}`);
+            
+            return `Test completed: ${afterSelectAll} -> ${afterClear} objects, ${wireframes.length} -> ${wireframesAfterClear.length} wireframes`;
+        }
+    };
+    
+    window.forceCleanupWireframes = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.selectionManager) {
+            const cleanedCount = window.digitalTwinApp.selectionManager.forceCleanupAllWireframes();
+            return `Force cleanup completed: ${cleanedCount} wireframe meshes disposed`;
+        }
+    };
+    
+    window.debugWireframeState = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.selectionManager) {
+            const scene = window.digitalTwinApp.sceneManager.getScene();
+            const selectionManager = window.digitalTwinApp.selectionManager;
+            
+            console.log('=== Wireframe Debug State ===');
+            console.log(`Selected objects: ${selectionManager.getSelectionCount()}`);
+            console.log('Selected objects:', selectionManager.getSelectedObjects().map(obj => obj.name));
+            
+            const wireframes = scene.meshes.filter(m => m.name && m.name.includes('_edge_wireframe'));
+            console.log(`Wireframe meshes in scene: ${wireframes.length}`);
+            console.log('Wireframe meshes:', wireframes.map(m => m.name));
+            
+            // Check wireframe references
+            const meshesWithWireframes = scene.meshes.filter(m => m.wireframeClone);
+            console.log(`Meshes with wireframe references: ${meshesWithWireframes.length}`);
+            console.log('Meshes with wireframes:', meshesWithWireframes.map(m => `${m.name} -> ${m.wireframeClone ? m.wireframeClone.name : 'null'}`));
+            
+            return `Debug: ${selectionManager.getSelectionCount()} selected, ${wireframes.length} wireframes, ${meshesWithWireframes.length} references`;
+        }
+    };
+    
     // Note: testMouseClick method was removed as it only contained console.log statements
     
     // Note: testCanvasEvents method was removed as it only contained console.log statements
