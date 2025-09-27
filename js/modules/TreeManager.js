@@ -126,6 +126,13 @@ class TreeManager {
                 mesh.castShadows = true;
             });
 
+            // Add random rotation around Y axis (vertical)
+            treeParent.rotation.y = this.getRandomTreeRotation();
+            
+            // Add random scale (90% to 110%)
+            const randomScale = this.getRandomTreeScale();
+            treeParent.scaling = new BABYLON.Vector3(randomScale, randomScale, randomScale);
+
             // Store tree reference
             const treeData = {
                 id: this.treeCounter,
@@ -152,6 +159,8 @@ class TreeManager {
 
             console.log(`Tree placed at position:`, position);
             console.log(`Tree parent position:`, treeParent.position);
+            console.log(`Tree rotation:`, treeParent.rotation.y, 'radians');
+            console.log(`Tree scale:`, randomScale);
             console.log(`Cloned meshes count:`, clonedMeshes.length);
             return treeData;
 
@@ -207,6 +216,13 @@ class TreeManager {
             const treeParent = new BABYLON.TransformNode(treeName, this.scene);
             treeParent.position = position.clone();
             
+            // Add random rotation around Y axis (vertical)
+            treeParent.rotation.y = this.getRandomTreeRotation();
+            
+            // Add random scale (90% to 110%)
+            const randomScale = this.getRandomTreeScale();
+            treeParent.scaling = new BABYLON.Vector3(randomScale, randomScale, randomScale);
+            
             // Parent meshes to tree
             trunk.setParent(treeParent);
             leaves.setParent(treeParent);
@@ -239,6 +255,8 @@ class TreeManager {
             }
 
             console.log(`Simple tree created at position:`, position);
+            console.log(`Simple tree rotation:`, treeParent.rotation.y, 'radians');
+            console.log(`Simple tree scale:`, randomScale);
             return treeData;
             
         } catch (error) {
@@ -312,6 +330,20 @@ class TreeManager {
      */
     getCurrentTreeType() {
         return this.selectedTreeType;
+    }
+
+    /**
+     * Get random rotation for trees
+     */
+    getRandomTreeRotation() {
+        return Math.random() * Math.PI * 2; // 0 to 2π radians (0 to 360 degrees)
+    }
+
+    /**
+     * Get random scale for trees (90% to 110%)
+     */
+    getRandomTreeScale() {
+        return 0.9 + Math.random() * 0.2; // 0.9 to 1.1 (90% to 110%)
     }
 
     /**

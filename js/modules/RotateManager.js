@@ -112,9 +112,15 @@ class RotateManager {
             // Store original rotations for multi-object rotation
             this.originalRotations = new Map();
             selectedObjects.forEach(obj => {
-                // Only store rotations for base shapes, not extrusions
-                if (!obj.name.includes('_extrusion')) {
-                    this.originalRotations.set(obj, obj.rotation.clone());
+                // Store rotations for all objects (including extrusions)
+                this.originalRotations.set(obj, obj.rotation.clone());
+                
+                // If this is an extrusion, also store parent shape rotation
+                if (obj.name.includes('_extrusion')) {
+                    const parentShape = obj.parent;
+                    if (parentShape && !this.originalRotations.has(parentShape)) {
+                        this.originalRotations.set(parentShape, parentShape.rotation.clone());
+                    }
                 }
             });
             this.originalCenter = this.multiObjectCenter.position.clone();
@@ -135,20 +141,35 @@ class RotateManager {
             
             // Apply rotation to all selected objects
             selectedObjects.forEach(obj => {
-                // Only apply rotation to base shapes, not extrusions
-                if (!obj.name.includes('_extrusion')) {
-                    const originalRot = this.originalRotations.get(obj);
-                    if (originalRot) {
-                        if (this.isGlobalMode) {
-                            // Global mode: rotate around world center
-                            obj.rotation = originalRot.add(rotationDelta);
-                        } else {
-                            // Local mode: rotate around object's own center
-                            obj.rotation = originalRot.add(rotationDelta);
+                const originalRot = this.originalRotations.get(obj);
+                if (originalRot) {
+                    if (this.isGlobalMode) {
+                        // Global mode: rotate around world center
+                        obj.rotation = originalRot.add(rotationDelta);
+                    } else {
+                        // Local mode: rotate around object's own center
+                        obj.rotation = originalRot.add(rotationDelta);
+                    }
+                    
+                    // If this is an extrusion, also rotate the parent shape
+                    if (obj.name.includes('_extrusion')) {
+                        const parentShape = obj.parent;
+                        if (parentShape) {
+                            // Get parent original rotation, or use current rotation if not stored
+                            let parentOriginalRot = this.originalRotations.get(parentShape);
+                            if (!parentOriginalRot) {
+                                // If parent rotation not stored, use current rotation as original
+                                parentOriginalRot = parentShape.rotation.clone();
+                                this.originalRotations.set(parentShape, parentOriginalRot);
+                            }
+                            if (this.isGlobalMode) {
+                                parentShape.rotation = parentOriginalRot.add(rotationDelta);
+                            } else {
+                                parentShape.rotation = parentOriginalRot.add(rotationDelta);
+                            }
                         }
                     }
                 }
-                // Note: Extrusions are child meshes, so they rotate automatically with their parent
             });
         }
     }
@@ -264,10 +285,29 @@ class RotateManager {
         let objectCount = 0;
         
         selectedObjects.forEach(obj => {
-            // Only consider base shapes (not extrusions) for center calculation
-            if (!obj.name.includes('_extrusion')) {
+            // For extrusions, use their actual position for center calculation
+            if (obj.name.includes('_extrusion')) {
                 center.addInPlace(obj.position);
                 objectCount++;
+                console.log(`Adding extrusion ${obj.name} to center calculation at position:`, obj.position);
+            } else {
+                // For regular shapes, calculate center based on shape type
+                let shapeCenter = obj.position.clone();
+                
+                // For rectangles, calculate center position for gizmo
+                if (obj.userData && obj.userData.shapeType === 'rectangle') {
+                    const dimensions = obj.userData.dimensions;
+                    if (dimensions) {
+                        // Calculate center position for gizmo (same as extrusion center)
+                        shapeCenter.x += dimensions.width / 2;
+                        shapeCenter.z += dimensions.height / 2;
+                        console.log(`Calculated rectangle center for gizmo: ${shapeCenter}`);
+                    }
+                }
+                
+                center.addInPlace(shapeCenter);
+                objectCount++;
+                console.log(`Adding shape ${obj.name} to center calculation at position:`, shapeCenter);
             }
         });
         

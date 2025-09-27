@@ -113,9 +113,15 @@ class ScaleManager {
             // Store original scales for multi-object scaling
             this.originalScales = new Map();
             selectedObjects.forEach(obj => {
-                // Only store scales for base shapes, not extrusions
-                if (!obj.name.includes('_extrusion')) {
-                    this.originalScales.set(obj, obj.scaling.clone());
+                // Store scales for all objects (including extrusions)
+                this.originalScales.set(obj, obj.scaling.clone());
+                
+                // If this is an extrusion, also store parent shape scale
+                if (obj.name.includes('_extrusion')) {
+                    const parentShape = obj.parent;
+                    if (parentShape && !this.originalScales.has(parentShape)) {
+                        this.originalScales.set(parentShape, parentShape.scaling.clone());
+                    }
                 }
             });
             this.originalCenter = this.multiObjectCenter.position.clone();
@@ -136,30 +142,55 @@ class ScaleManager {
             
             // Apply scaling to all selected objects
             selectedObjects.forEach(obj => {
-                // Only apply scaling to base shapes, not extrusions
-                if (!obj.name.includes('_extrusion')) {
-                    const originalScale = this.originalScales.get(obj);
-                    if (originalScale) {
-                        if (this.isGlobalMode) {
-                            // Global mode: scale uniformly in world space
-                            if (this.uniformScale) {
-                                const avgScale = (scaleDelta.x + scaleDelta.y + scaleDelta.z) / 3;
-                                obj.scaling = originalScale.add(new BABYLON.Vector3(avgScale, avgScale, avgScale));
-                            } else {
-                                obj.scaling = originalScale.add(scaleDelta);
-                            }
+                const originalScale = this.originalScales.get(obj);
+                if (originalScale) {
+                    if (this.isGlobalMode) {
+                        // Global mode: scale uniformly in world space
+                        if (this.uniformScale) {
+                            const avgScale = (scaleDelta.x + scaleDelta.y + scaleDelta.z) / 3;
+                            obj.scaling = originalScale.add(new BABYLON.Vector3(avgScale, avgScale, avgScale));
                         } else {
-                            // Local mode: scale in object's local space
-                            if (this.uniformScale) {
-                                const avgScale = (scaleDelta.x + scaleDelta.y + scaleDelta.z) / 3;
-                                obj.scaling = originalScale.add(new BABYLON.Vector3(avgScale, avgScale, avgScale));
+                            obj.scaling = originalScale.add(scaleDelta);
+                        }
+                    } else {
+                        // Local mode: scale in object's local space
+                        if (this.uniformScale) {
+                            const avgScale = (scaleDelta.x + scaleDelta.y + scaleDelta.z) / 3;
+                            obj.scaling = originalScale.add(new BABYLON.Vector3(avgScale, avgScale, avgScale));
+                        } else {
+                            obj.scaling = originalScale.add(scaleDelta);
+                        }
+                    }
+                    
+                    // If this is an extrusion, also scale the parent shape
+                    if (obj.name.includes('_extrusion')) {
+                        const parentShape = obj.parent;
+                        if (parentShape) {
+                            // Get parent original scale, or use current scale if not stored
+                            let parentOriginalScale = this.originalScales.get(parentShape);
+                            if (!parentOriginalScale) {
+                                // If parent scale not stored, use current scale as original
+                                parentOriginalScale = parentShape.scaling.clone();
+                                this.originalScales.set(parentShape, parentOriginalScale);
+                            }
+                            if (this.isGlobalMode) {
+                                if (this.uniformScale) {
+                                    const avgScale = (scaleDelta.x + scaleDelta.y + scaleDelta.z) / 3;
+                                    parentShape.scaling = parentOriginalScale.add(new BABYLON.Vector3(avgScale, avgScale, avgScale));
+                                } else {
+                                    parentShape.scaling = parentOriginalScale.add(scaleDelta);
+                                }
                             } else {
-                                obj.scaling = originalScale.add(scaleDelta);
+                                if (this.uniformScale) {
+                                    const avgScale = (scaleDelta.x + scaleDelta.y + scaleDelta.z) / 3;
+                                    parentShape.scaling = parentOriginalScale.add(new BABYLON.Vector3(avgScale, avgScale, avgScale));
+                                } else {
+                                    parentShape.scaling = parentOriginalScale.add(scaleDelta);
+                                }
                             }
                         }
                     }
                 }
-                // Note: Extrusions are child meshes, so they scale automatically with their parent
             });
         }
     }
@@ -275,10 +306,29 @@ class ScaleManager {
         let objectCount = 0;
         
         selectedObjects.forEach(obj => {
-            // Only consider base shapes (not extrusions) for center calculation
-            if (!obj.name.includes('_extrusion')) {
+            // For extrusions, use their actual position for center calculation
+            if (obj.name.includes('_extrusion')) {
                 center.addInPlace(obj.position);
                 objectCount++;
+                console.log(`Adding extrusion ${obj.name} to center calculation at position:`, obj.position);
+            } else {
+                // For regular shapes, calculate center based on shape type
+                let shapeCenter = obj.position.clone();
+                
+                // For rectangles, calculate center position for gizmo
+                if (obj.userData && obj.userData.shapeType === 'rectangle') {
+                    const dimensions = obj.userData.dimensions;
+                    if (dimensions) {
+                        // Calculate center position for gizmo (same as extrusion center)
+                        shapeCenter.x += dimensions.width / 2;
+                        shapeCenter.z += dimensions.height / 2;
+                        console.log(`Calculated rectangle center for gizmo: ${shapeCenter}`);
+                    }
+                }
+                
+                center.addInPlace(shapeCenter);
+                objectCount++;
+                console.log(`Adding shape ${obj.name} to center calculation at position:`, shapeCenter);
             }
         });
         

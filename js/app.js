@@ -63,6 +63,7 @@ class DigitalTwinApp {
             );
             this.shape2DManager = new Shape2DManager(this.sceneManager.getScene(), this.selectionManager);
             this.treeManager = new TreeManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
+            this.polygonManager = new PolygonManager(this.sceneManager.getScene(), this.selectionManager);
             
             // Setup shadows for ground
             this.lightingManager.addShadowReceiver(this.sceneManager.getGround());
@@ -79,7 +80,8 @@ class DigitalTwinApp {
                 this.rotateManager,
                 this.scaleManager,
                 this.shape2DManager,
-                this.treeManager
+                this.treeManager,
+                this.polygonManager
             );
             
             // Auto-generate buildings on page load
@@ -192,6 +194,7 @@ class DigitalTwinApp {
             lighting: this.lightingManager.getStats(),
             camera: this.cameraController.getStats(),
             trees: this.treeManager ? this.treeManager.getStats() : null,
+            polygons: this.polygonManager ? this.polygonManager.getStats() : null,
             grid: {
                 visible: this.gridManager.isGridVisible()
             }
@@ -219,6 +222,9 @@ class DigitalTwinApp {
         }
         if (this.treeManager) {
             this.treeManager.dispose();
+        }
+        if (this.polygonManager) {
+            this.polygonManager.dispose();
         }
         if (this.selectionManager) {
             this.selectionManager.dispose();
@@ -295,6 +301,87 @@ document.addEventListener('DOMContentLoaded', () => {
     window.testTree = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
             return window.digitalTwinApp.treeManager.testTreePlacement();
+        }
+    };
+    
+    window.testTreeRotation = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            console.log('Random tree rotation:', window.digitalTwinApp.treeManager.getRandomTreeRotation());
+            return window.digitalTwinApp.treeManager.getRandomTreeRotation();
+        }
+    };
+    
+    window.testTreeScale = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            console.log('Random tree scale:', window.digitalTwinApp.treeManager.getRandomTreeScale());
+            return window.digitalTwinApp.treeManager.getRandomTreeScale();
+        }
+    };
+    
+    window.testGroundDetection = (x = 400, y = 300) => {
+        if (window.digitalTwinApp && window.digitalTwinApp.sceneManager) {
+            const pickResult = window.digitalTwinApp.sceneManager.getScene().pick(x, y, (mesh) => {
+                return mesh.name === 'ground';
+            });
+            const isOnGround = pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground';
+            console.log(`Point (${x}, ${y}) is on ground:`, isOnGround);
+            if (pickResult && pickResult.hit) {
+                console.log('Hit mesh:', pickResult.pickedMesh.name);
+            }
+            return isOnGround;
+        }
+    };
+    
+    window.testMeshDetection = (x = 400, y = 300) => {
+        if (window.digitalTwinApp && window.digitalTwinApp.sceneManager) {
+            const pickResult = window.digitalTwinApp.sceneManager.getScene().pick(x, y);
+            if (pickResult && pickResult.hit && pickResult.pickedMesh) {
+                console.log(`Point (${x}, ${y}) is over mesh:`, pickResult.pickedMesh.name);
+                return pickResult.pickedMesh.name;
+            } else {
+                console.log(`Point (${x}, ${y}) is over: nothing`);
+                return null;
+            }
+        }
+    };
+    
+    window.testTreePlacementPath = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            console.log('Testing tree placement path...');
+            console.log('1. Start tree placement mode first by clicking tree tool');
+            console.log('2. Then test these coordinates:');
+            console.log('   - Ground area: testMeshDetection(400, 300)');
+            console.log('   - Building area: testMeshDetection(200, 200)');
+            console.log('   - Empty area: testMeshDetection(50, 50)');
+            return 'Tree placement path test ready';
+        }
+    };
+    
+    window.testPolygonCreation = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.testPolygonCreation();
+        }
+    };
+    
+    window.testPolygonSnap = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.testSnapFunctionality();
+        }
+    };
+    
+    window.setPolygonSnapDistance = (distance) => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.setSnapDistance(distance);
+        }
+    };
+    
+    window.flipPolygonNormals = (polygonMesh) => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            if (polygonMesh) {
+                return window.digitalTwinApp.polygonManager.flipPolygonNormals(polygonMesh);
+            } else {
+                return window.digitalTwinApp.polygonManager.flipCurrentPolygonNormals();
+            }
         }
     };
     

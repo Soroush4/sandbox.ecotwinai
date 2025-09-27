@@ -2,7 +2,7 @@
  * UIManager - Manages user interface interactions
  */
 class UIManager {
-    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager, treeManager) {
+    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager, treeManager, polygonManager) {
         this.sceneManager = sceneManager;
         this.buildingGenerator = buildingGenerator;
         this.lightingManager = lightingManager;
@@ -14,6 +14,7 @@ class UIManager {
         this.scaleManager = scaleManager;
         this.shape2DManager = shape2DManager;
         this.treeManager = treeManager;
+        this.polygonManager = polygonManager;
         
         this.isInitialized = false;
         this.statsInterval = null;
@@ -154,6 +155,9 @@ class UIManager {
 
         // Deactivate tree placement when switching to transform tools
         this.deactivateTreePlacement();
+        
+        // Deactivate polygon drawing when switching to transform tools
+        this.stopPolygonDrawing();
 
         // Remove active class from all transform tools (except coordinate toggle)
         const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
@@ -241,6 +245,12 @@ class UIManager {
         if (toolName !== 'tree') {
             this.deactivateTreePlacement();
         }
+        
+        // Deactivate polygon drawing when switching to other drawing tools
+        if (toolName !== 'polygon') {
+            this.stopPolygonDrawing();
+            this.hidePolygonDrawingInstructions();
+        }
 
         // Remove active class from all drawing tools
         const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
@@ -313,12 +323,314 @@ class UIManager {
             case 'circle':
                 this.createCircle();
                 break;
+            case 'polygon':
+                this.startPolygonDrawing();
+                break;
             case 'tree':
                 // Tree tool is handled separately in tree event listeners
                 break;
             case 'clear-drawings':
                 this.clear2DShapes();
                 break;
+        }
+    }
+
+    /**
+     * Start polygon drawing
+     */
+    startPolygonDrawing() {
+        if (this.polygonManager) {
+            // Set up callbacks for polygon completion and cancellation
+            this.polygonManager.onPolygonCompleted = () => {
+                this.enableCameraControls();
+                this.hidePolygonDrawingInstructions();
+                this.deactivatePolygonTool();
+                this.activateSelectTool();
+                console.log('Polygon completed via callback');
+            };
+            
+            this.polygonManager.onPolygonCancelled = () => {
+                this.enableCameraControls();
+                this.hidePolygonDrawingInstructions();
+                this.deactivatePolygonTool();
+                this.activateSelectTool();
+                console.log('Polygon cancelled via callback');
+            };
+            
+            this.polygonManager.startDrawing();
+            this.disableCameraControls();
+            this.showPolygonDrawingInstructions();
+            console.log('Polygon drawing started');
+        }
+    }
+
+    /**
+     * Show polygon drawing instructions
+     */
+    showPolygonDrawingInstructions() {
+        // Only show if polygon tool is active
+        const polygonTool = document.querySelector('#drawingPanel [data-tool="polygon"]');
+        if (!polygonTool || !polygonTool.classList.contains('active')) {
+            return;
+        }
+
+        // Create or update instruction panel
+        let instructionPanel = document.getElementById('polygon-instructions');
+        if (!instructionPanel) {
+            instructionPanel = document.createElement('div');
+            instructionPanel.id = 'polygon-instructions';
+            instructionPanel.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 15px;
+                border-radius: 8px;
+                font-family: Arial, sans-serif;
+                font-size: 14px;
+                z-index: 1000;
+                max-width: 250px;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            `;
+            document.body.appendChild(instructionPanel);
+        }
+
+        instructionPanel.innerHTML = `
+            <div style="font-weight: bold; margin-bottom: 10px; color: #4CAF50;">🎯 Polygon Drawing</div>
+            <div style="margin-bottom: 8px;">• Click to add points</div>
+            <div style="margin-bottom: 8px;">• <kbd style="background: #333; padding: 2px 6px; border-radius: 3px;">Backspace</kbd> to remove last point</div>
+            <div style="margin-bottom: 8px;">• <kbd style="background: #333; padding: 2px 6px; border-radius: 3px;">Enter</kbd> to complete</div>
+            <div style="margin-bottom: 8px;">• <kbd style="background: #333; padding: 2px 6px; border-radius: 3px;">Escape</kbd> to cancel</div>
+            <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #555;">
+                <div style="font-size: 11px; color: #ccc; margin-bottom: 5px;">Test Concave Polygons:</div>
+                <div style="margin-bottom: 5px;">
+                    <button id="test-negative-z" style="background: #FF5722; color: white; border: none; padding: 4px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; margin-right: 5px;">Test -Z</button>
+                    <button id="test-negative-x" style="background: #9C27B0; color: white; border: none; padding: 4px 8px; border-radius: 3px; font-size: 11px; cursor: pointer;">Test -X</button>
+                </div>
+                <div>
+                    <button id="test-positive-z" style="background: #4CAF50; color: white; border: none; padding: 4px 8px; border-radius: 3px; font-size: 11px; cursor: pointer; margin-right: 5px;">Test +Z</button>
+                    <button id="test-positive-x" style="background: #2196F3; color: white; border: none; padding: 4px 8px; border-radius: 3px; font-size: 11px; cursor: pointer;">Test +X</button>
+                </div>
+            </div>
+            <div id="polygon-stats" style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #555; font-size: 12px; color: #ccc;">
+                Points: <span id="point-count">0</span> | Status: <span id="polygon-status">Drawing</span>
+            </div>
+        `;
+        
+        // Add event listeners for test buttons
+        const testNegativeZBtn = document.getElementById('test-negative-z');
+        const testNegativeXBtn = document.getElementById('test-negative-x');
+        const testPositiveZBtn = document.getElementById('test-positive-z');
+        const testPositiveXBtn = document.getElementById('test-positive-x');
+        
+        if (testNegativeZBtn) {
+            testNegativeZBtn.addEventListener('click', () => {
+                this.testNegativeZConcavePolygon();
+            });
+        }
+        
+        if (testNegativeXBtn) {
+            testNegativeXBtn.addEventListener('click', () => {
+                this.testNegativeXConcavePolygon();
+            });
+        }
+        
+        if (testPositiveZBtn) {
+            testPositiveZBtn.addEventListener('click', () => {
+                this.testPositiveZConcavePolygon();
+            });
+        }
+        
+        if (testPositiveXBtn) {
+            testPositiveXBtn.addEventListener('click', () => {
+                this.testPositiveXConcavePolygon();
+            });
+        }
+        
+        // Start updating stats
+        this.startPolygonStatsUpdate();
+    }
+
+    /**
+     * Hide polygon drawing instructions
+     */
+    hidePolygonDrawingInstructions() {
+        const instructionPanel = document.getElementById('polygon-instructions');
+        if (instructionPanel) {
+            instructionPanel.remove();
+        }
+        this.stopPolygonStatsUpdate();
+    }
+
+    /**
+     * Start updating polygon statistics
+     */
+    startPolygonStatsUpdate() {
+        this.stopPolygonStatsUpdate(); // Clear any existing interval
+        
+        this.polygonStatsInterval = setInterval(() => {
+            this.updatePolygonStats();
+        }, 100); // Update every 100ms
+    }
+
+    /**
+     * Stop updating polygon statistics
+     */
+    stopPolygonStatsUpdate() {
+        if (this.polygonStatsInterval) {
+            clearInterval(this.polygonStatsInterval);
+            this.polygonStatsInterval = null;
+        }
+    }
+
+    /**
+     * Update polygon statistics display
+     */
+    updatePolygonStats() {
+        // Only update if polygon tool is active and drawing
+        const polygonTool = document.querySelector('#drawingPanel [data-tool="polygon"]');
+        if (!polygonTool || !polygonTool.classList.contains('active')) {
+            return;
+        }
+
+        if (!this.polygonManager || !this.polygonManager.isCurrentlyDrawing) {
+            return;
+        }
+
+        const stats = this.polygonManager.getCurrentStats();
+        const pointCountElement = document.getElementById('point-count');
+        const statusElement = document.getElementById('polygon-status');
+
+        if (pointCountElement) {
+            pointCountElement.textContent = stats.pointCount;
+        }
+
+        if (statusElement) {
+            let status = 'Drawing';
+            if (stats.canComplete) {
+                status = 'Ready to complete';
+            } else if (stats.pointCount === 0) {
+                status = 'Start drawing';
+            } else if (stats.pointCount < 3) {
+                status = 'Need more points';
+            }
+            
+            if (stats.isSnapped) {
+                status += ' (snapped to first)';
+            }
+            
+            statusElement.textContent = status;
+        }
+    }
+
+    /**
+     * Test E-shape polygon creation
+     */
+    testEShapePolygon() {
+        if (this.polygonManager) {
+            console.log('Testing E-shape polygon from UI...');
+            this.polygonManager.testEShapePolygon();
+        }
+    }
+
+    /**
+     * Test complex polygon creation
+     */
+    testComplexPolygon() {
+        if (this.polygonManager) {
+            console.log('Testing complex polygon from UI...');
+            this.polygonManager.testComplexPolygon();
+        }
+    }
+
+    /**
+     * Stop polygon drawing
+     */
+    stopPolygonDrawing() {
+        if (this.polygonManager) {
+            this.polygonManager.stopDrawing();
+            this.enableCameraControls();
+            this.hidePolygonDrawingInstructions();
+            console.log('Polygon drawing stopped');
+        }
+    }
+
+    /**
+     * Complete polygon drawing
+     */
+    completePolygonDrawing() {
+        if (this.polygonManager) {
+            this.polygonManager.completePolygon();
+            // Callbacks will handle the rest
+            console.log('Polygon drawing completed');
+        }
+    }
+
+    /**
+     * Cancel polygon drawing
+     */
+    cancelPolygonDrawing() {
+        if (this.polygonManager) {
+            this.polygonManager.cancelDrawing();
+            // Callbacks will handle the rest
+            console.log('Polygon drawing cancelled');
+        }
+    }
+
+    /**
+     * Deactivate polygon tool
+     */
+    deactivatePolygonTool() {
+        const polygonTool = document.querySelector('#drawingPanel [data-tool="polygon"]');
+        if (polygonTool) {
+            polygonTool.classList.remove('active');
+        }
+    }
+
+    /**
+     * Activate select tool
+     */
+    activateSelectTool() {
+        const selectTool = document.querySelector('#transformPanel [data-tool="select"]');
+        if (selectTool) {
+            selectTool.classList.add('active');
+        }
+    }
+
+    /**
+     * Test negative Z concave polygon
+     */
+    testNegativeZConcavePolygon() {
+        if (this.polygonManager) {
+            this.polygonManager.testNegativeZConcavePolygon();
+        }
+    }
+
+    /**
+     * Test negative X concave polygon
+     */
+    testNegativeXConcavePolygon() {
+        if (this.polygonManager) {
+            this.polygonManager.testNegativeXConcavePolygon();
+        }
+    }
+
+    /**
+     * Test positive Z concave polygon
+     */
+    testPositiveZConcavePolygon() {
+        if (this.polygonManager) {
+            this.polygonManager.testPositiveZConcavePolygon();
+        }
+    }
+
+    /**
+     * Test positive X concave polygon
+     */
+    testPositiveXConcavePolygon() {
+        if (this.polygonManager) {
+            this.polygonManager.testPositiveXConcavePolygon();
         }
     }
 
@@ -365,6 +677,9 @@ class UIManager {
             selectedOption.classList.add('active');
         }
 
+        // Disable camera controls during tree placement
+        this.disableCameraControls();
+
         // Start tree placement
         this.treeManager.startTreePlacement(treeType);
         console.log(`Tree placement mode activated for tree type: ${treeType}`);
@@ -388,6 +703,10 @@ class UIManager {
         // Hide tree submenu
         this.hideTreeSubmenu();
 
+        // Re-enable camera controls
+        this.enableCameraControls();
+
+        // Reset drag variables (they will be reset in the next mouse event)
         console.log('Tree placement mode deactivated');
     }
 
@@ -570,8 +889,11 @@ class UIManager {
      */
     handleMenuAction(action) {
         switch (action) {
-            case 'new-scene':
-                this.resetScene();
+            case 'empty-scene':
+                this.createEmptyScene();
+                break;
+            case 'default-scene':
+                this.createDefaultScene();
                 break;
             case 'save-scene':
                 this.saveScene();
@@ -582,8 +904,8 @@ class UIManager {
             case 'export-stl':
                 this.exportSTL();
                 break;
-            case 'export-obj':
-                this.exportOBJ();
+            case 'import-stl':
+                this.importSTL();
                 break;
             case 'undo':
                 this.undo();
@@ -599,15 +921,6 @@ class UIManager {
                 break;
             case 'delete-selected':
                 this.deleteSelected();
-                break;
-            case 'scene-settings':
-                this.openSceneSettings();
-                break;
-            case 'render-settings':
-                this.openRenderSettings();
-                break;
-            case 'camera-settings':
-                this.openCameraSettings();
                 break;
             case 'preferences':
                 this.openPreferences();
@@ -632,6 +945,61 @@ class UIManager {
 
     showAbout() {
         alert('Eco Digital Twin Sandbox\nVersion 1.0\nPowered by Babylon.js\n\nA 3D environment for creating and visualizing digital twin models.');
+    }
+
+    /**
+     * Import STL file
+     */
+    importSTL() {
+        // Create file input element
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.stl';
+        fileInput.style.display = 'none';
+        
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                this.loadSTLFile(file);
+            }
+        });
+        
+        // Trigger file selection
+        document.body.appendChild(fileInput);
+        fileInput.click();
+        document.body.removeChild(fileInput);
+    }
+
+    /**
+     * Load STL file and add to scene
+     */
+    loadSTLFile(file) {
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            try {
+                // For now, show a placeholder message
+                // In a real implementation, you would parse the STL file and create a mesh
+                alert(`STL file "${file.name}" selected. STL import functionality will be implemented in a future version.`);
+                
+                // TODO: Implement actual STL parsing and mesh creation
+                // This would involve:
+                // 1. Parsing the STL file format (binary or ASCII)
+                // 2. Creating a Babylon.js mesh from the STL data
+                // 3. Adding the mesh to the scene
+                // 4. Positioning it appropriately
+                
+            } catch (error) {
+                console.error('Error loading STL file:', error);
+                alert('Error loading STL file. Please try again.');
+            }
+        };
+        
+        reader.onerror = () => {
+            alert('Error reading file. Please try again.');
+        };
+        
+        reader.readAsArrayBuffer(file);
     }
 
     /**
@@ -838,6 +1206,59 @@ class UIManager {
         document.getElementById('maxHeight').value = 20;
         document.getElementById('maxHeightValue').textContent = '20';
 
+    }
+
+    /**
+     * Create empty scene with only ground
+     */
+    createEmptyScene() {
+        // Clear all buildings
+        this.sceneManager.clearBuildings();
+        this.buildingGenerator.clearBuildings();
+
+        // Reset camera
+        this.cameraController.resetCamera();
+
+        // Reset UI values
+        document.getElementById('buildingCount').value = 10;
+        document.getElementById('buildingCountValue').textContent = '10';
+        document.getElementById('minHeight').value = 4;
+        document.getElementById('minHeightValue').textContent = '4';
+        document.getElementById('maxHeight').value = 20;
+        document.getElementById('maxHeightValue').textContent = '20';
+
+        // Ensure ground is visible
+        if (!this.sceneManager.getGround()) {
+            this.sceneManager.createGround();
+        }
+    }
+
+    /**
+     * Create default scene with ground and 10 random buildings
+     */
+    createDefaultScene() {
+        // Clear all buildings first
+        this.sceneManager.clearBuildings();
+        this.buildingGenerator.clearBuildings();
+
+        // Reset camera
+        this.cameraController.resetCamera();
+
+        // Reset UI values
+        document.getElementById('buildingCount').value = 10;
+        document.getElementById('buildingCountValue').textContent = '10';
+        document.getElementById('minHeight').value = 4;
+        document.getElementById('minHeightValue').textContent = '4';
+        document.getElementById('maxHeight').value = 20;
+        document.getElementById('maxHeightValue').textContent = '20';
+
+        // Ensure ground is visible
+        if (!this.sceneManager.getGround()) {
+            this.sceneManager.createGround();
+        }
+
+        // Generate 10 random buildings
+        this.buildingGenerator.generateBuildings(10);
     }
 
     /**
@@ -1106,11 +1527,31 @@ class UIManager {
         const canvas = this.sceneManager.canvas;
         let isMouseDown = false;
         let isDragging = false;
+        let lastTreePosition = null;
+        let treePlacementInterval = null;
+        const TREE_PLACEMENT_DISTANCE = 2; // Minimum distance between trees in units
+
+        // Helper function to check if point is on ground
+        const isPointOnGround = (x, y) => {
+            const pickResult = this.sceneManager.getScene().pick(x, y, (mesh) => {
+                return mesh.name === 'ground';
+            });
+            return pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground';
+        };
+
+        // Helper function to get what mesh is under the mouse
+        const getMeshUnderMouse = (x, y) => {
+            const pickResult = this.sceneManager.getScene().pick(x, y);
+            if (pickResult && pickResult.hit && pickResult.pickedMesh) {
+                return pickResult.pickedMesh.name;
+            }
+            return null;
+        };
 
         // Mouse down
         canvas.addEventListener('pointerdown', (event) => {
-            // Handle tree placement
-            if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
+            // Handle polygon drawing - only left click
+            if (this.polygonManager && this.polygonManager.isCurrentlyDrawing && event.button === 0) {
                 event.preventDefault();
                 event.stopPropagation();
 
@@ -1120,7 +1561,35 @@ class UIManager {
                 });
                 if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
                     const point = pickResult.pickedPoint;
+                    this.polygonManager.addPoint(point);
+                }
+                return;
+            }
+
+            // Handle tree placement - only left click
+            if (this.treeManager && this.treeManager.isCurrentlyPlacing() && event.button === 0) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Check if point is on ground
+                if (isPointOnGround(event.offsetX, event.offsetY)) {
+                    // Get ground intersection point
+                    const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
+                        return mesh.name === 'ground';
+                    });
+                    const point = pickResult.pickedPoint;
+                    
+                    // Place first tree
                     this.treeManager.placeTree(point);
+                    lastTreePosition = point.clone();
+                    
+                    // Start dragging for continuous tree placement
+                    isMouseDown = true;
+                    isDragging = false;
+                } else {
+                    // If not on ground, don't start dragging
+                    const meshName = getMeshUnderMouse(event.offsetX, event.offsetY);
+                    console.log(`Tree placement blocked - mouse over: ${meshName || 'nothing'}`);
                 }
                 return;
             }
@@ -1147,6 +1616,57 @@ class UIManager {
 
         // Mouse move
         canvas.addEventListener('pointermove', (event) => {
+            // Handle polygon preview
+            if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Get ground intersection point for preview
+                const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
+                    return mesh.name === 'ground';
+                });
+                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
+                    const point = pickResult.pickedPoint;
+                    this.polygonManager.updatePreview(point);
+                }
+                return;
+            }
+
+            // Handle continuous tree placement during drag
+            if (this.treeManager && this.treeManager.isCurrentlyPlacing() && isMouseDown) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Check if point is on ground
+                if (isPointOnGround(event.offsetX, event.offsetY)) {
+                    // Get ground intersection point
+                    const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
+                        return mesh.name === 'ground';
+                    });
+                    const point = pickResult.pickedPoint;
+                    
+                    // Check if we should place a new tree (minimum distance)
+                    if (lastTreePosition && BABYLON.Vector3.Distance(point, lastTreePosition) > TREE_PLACEMENT_DISTANCE) {
+                        this.treeManager.placeTree(point);
+                        lastTreePosition = point.clone();
+                        isDragging = true;
+                    }
+                } else {
+                    // If not on ground (on building), don't place trees during drag
+                    // But continue dragging to allow resuming when back on ground
+                    const meshName = getMeshUnderMouse(event.offsetX, event.offsetY);
+                    console.log(`Tree placement blocked during drag - mouse over: ${meshName || 'nothing'}`);
+                }
+                return;
+            }
+
+            // Prevent camera movement during tree placement
+            if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+
             if (!this.shape2DManager || !this.shape2DManager.isCurrentlyDrawing()) return;
 
             // Only handle mouse move if mouse is down (dragging)
@@ -1171,6 +1691,27 @@ class UIManager {
 
         // Mouse up
         canvas.addEventListener('pointerup', (event) => {
+            // Handle tree placement drag end
+            if (this.treeManager && this.treeManager.isCurrentlyPlacing() && isMouseDown) {
+                event.preventDefault();
+                event.stopPropagation();
+                
+                // End dragging
+                isMouseDown = false;
+                isDragging = false;
+                lastTreePosition = null;
+                
+                console.log('Tree placement drag ended');
+                return;
+            }
+
+            // Prevent camera movement during tree placement
+            if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+
             if (!this.shape2DManager || !this.shape2DManager.isCurrentlyDrawing()) return;
 
             // Prevent camera movement during drawing
@@ -1195,13 +1736,48 @@ class UIManager {
 
         // Keyboard events
         document.addEventListener('keydown', (event) => {
-            // Handle Delete key for selected objects
+            // Handle polygon drawing specific keys first
+            if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
+                if (event.key === 'Backspace') {
+                    // Remove last point during polygon drawing
+                    const removed = this.polygonManager.removeLastPoint();
+                    if (removed) {
+                        console.log('Last point removed from polygon');
+                        event.preventDefault(); // Prevent default browser behavior
+                    }
+                    return;
+                } else if (event.key === 'Escape') {
+                    this.cancelPolygonDrawing();
+                    
+                    // Deactivate drawing tool
+                    const activeTool = document.querySelector('#drawingPanel .tool-item.active');
+                    if (activeTool) {
+                        activeTool.classList.remove('active');
+                    }
+                    
+                    console.log('Polygon drawing cancelled');
+                    return;
+                } else if (event.key === 'Enter') {
+                    this.completePolygonDrawing();
+                    
+                    // Deactivate drawing tool
+                    const activeTool = document.querySelector('#drawingPanel .tool-item.active');
+                    if (activeTool) {
+                        activeTool.classList.remove('active');
+                    }
+                    
+                    console.log('Polygon drawing completed');
+                    return;
+                }
+            }
+
+            // Handle Delete key for selected objects (only when not drawing polygon)
             if (event.key === 'Delete' || event.key === 'Backspace') {
                 this.deleteSelectedObjects();
                 return;
             }
 
-            // Handle Escape key for drawing and tree placement
+            // Handle Escape key for other drawing modes
             if (this.shape2DManager && this.shape2DManager.isCurrentlyDrawing()) {
                 if (event.key === 'Escape') {
                     this.shape2DManager.stopInteractiveDrawing();
@@ -1219,12 +1795,7 @@ class UIManager {
                 }
             } else if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
                 if (event.key === 'Escape') {
-                    this.treeManager.stopTreePlacement();
-                    
-                    // Remove active class from tree options
-                    const treeOptions = document.querySelectorAll('.tree-option');
-                    treeOptions.forEach(option => option.classList.remove('active'));
-                    
+                    this.deactivateTreePlacement();
                     console.log('Tree placement cancelled');
                 }
             }
@@ -1328,6 +1899,7 @@ class UIManager {
 
         document.getElementById('shapeHeight').addEventListener('input', () => {
             this.updateShapeInRealTime();
+            this.previewHeightChanges();
         });
 
         document.getElementById('shapeRadius').addEventListener('input', () => {
@@ -1385,6 +1957,9 @@ class UIManager {
      * Hide properties popup
      */
     hidePropertiesPopup() {
+        // Remove preview extrusion when hiding popup
+        this.removePreviewExtrusion();
+        
         document.getElementById('propertiesPopup').classList.remove('show');
         this.currentShape = null;
     }
@@ -1400,7 +1975,7 @@ class UIManager {
         const color = document.getElementById('shapeColor').value;
         const length = parseFloat(document.getElementById('shapeLength').value) || 0;
         const width = parseFloat(document.getElementById('shapeWidth').value) || 0;
-        const height = parseFloat(document.getElementById('shapeHeight').value) || 0;
+        const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0, 0.001);
         const radius = parseFloat(document.getElementById('shapeRadius').value) || 0;
 
         // Update material color
@@ -1436,12 +2011,12 @@ class UIManager {
             }
         }
 
-        // Update geometry based on shape type
+        // Update geometry based on shape type (excluding height changes)
         this.updateShapeGeometry(this.currentShape, {
             type: type,
             length: length,
             width: width,
-            height: height,
+            height: this.currentShape.userData?.dimensions?.buildingHeight || 0, // Keep current height
             radius: radius
         });
 
@@ -1460,6 +2035,555 @@ class UIManager {
             this.updateRectangleGeometry(shape, properties);
         } else if (shapeType === 'circle') {
             this.updateCircleGeometry(shape, properties);
+        } else if (shapeType === 'polygon') {
+            this.updatePolygonGeometry(shape, properties);
+        }
+    }
+
+    /**
+     * Update polygon geometry
+     */
+    updatePolygonGeometry(shape, properties) {
+        // Store current position and material
+        const currentPosition = shape.position.clone();
+        const currentMaterial = shape.material;
+        const currentName = shape.name;
+        const currentUserData = shape.userData || {};
+        const currentPoints = currentUserData.points || [];
+
+        // Dispose old mesh
+        shape.dispose();
+
+        if (properties.type === 'building' && properties.height > 0.001) {
+            // Create extrusion for building
+            this.createPolygonExtrusion(currentName, currentPoints, properties.height, currentPosition, currentMaterial, currentUserData);
+        } else {
+            // Keep as 2D polygon
+            this.createPolygonMesh(currentName, currentPoints, currentPosition, currentMaterial, currentUserData);
+        }
+    }
+
+    /**
+     * Create polygon mesh (2D)
+     */
+    createPolygonMesh(name, points, position, material, userData) {
+        if (points.length < 3) return;
+
+        // Calculate center and relative points
+        const center = BABYLON.Vector3.Zero();
+        points.forEach(point => center.addInPlace(point));
+        center.scaleInPlace(1 / points.length);
+        center.y = 0;
+
+        const relativePoints = points.map(point => point.subtract(center));
+
+        // Create polygon mesh using PolygonManager's method
+        const mesh = this.createCustomPolygonMesh(relativePoints);
+        mesh.name = name;
+        mesh.material = material;
+        mesh.renderingGroupId = 1;
+        mesh.receiveShadows = true;
+        mesh.castShadows = true;
+        mesh.position = center;
+        mesh.userData = userData;
+
+        // Add to selection manager
+        if (this.selectionManager) {
+            this.selectionManager.addSelectableObject(mesh);
+        }
+    }
+
+    /**
+     * Create polygon extrusion (3D building)
+     */
+    createPolygonExtrusion(name, points, height, position, material, userData) {
+        if (points.length < 3) return;
+
+        console.log(`Creating polygon extrusion for ${name} with ${points.length} points`);
+
+        // Create 2D polygon base
+        this.createPolygonMesh(name, points, position, material, userData);
+
+        // Ensure points are in the correct order (same as the base polygon)
+        const correctedPoints = this.ensureCounterClockwiseForExtrusion(points);
+        console.log(`Using ${correctedPoints.length} corrected points for extrusion`);
+
+        // Create extrusion using custom method with corrected points
+        const extrusionName = name + '_extrusion';
+        const extrusion = this.createCustomPolygonExtrusion(extrusionName, correctedPoints, height);
+
+        // Calculate center of polygon for positioning
+        const centerX = correctedPoints.reduce((sum, p) => sum + p.x, 0) / correctedPoints.length;
+        const centerZ = correctedPoints.reduce((sum, p) => sum + p.z, 0) / correctedPoints.length;
+        
+        extrusion.position = new BABYLON.Vector3(centerX, position.y, centerZ);
+        // Keep extrusion at the same Y level as the base polygon
+        extrusion.material = material;
+        extrusion.renderingGroupId = 1;
+        extrusion.receiveShadows = true;
+        extrusion.castShadows = true;
+        extrusion.userData = {
+            ...userData,
+            type: 'building',
+            buildingHeight: height
+        };
+
+        // Link extrusion to base polygon
+        const scene = this.sceneManager.getScene();
+        const basePolygon = scene.getMeshByName(name);
+        if (basePolygon) {
+            basePolygon.extrusion = extrusion;
+            extrusion.basePolygon = basePolygon;
+            
+            // Make extrusion a child of base polygon for transform synchronization
+            extrusion.setParent(basePolygon);
+        }
+
+        // Add to selection manager
+        if (this.selectionManager) {
+            this.selectionManager.addSelectableObject(extrusion);
+        }
+    }
+
+    /**
+     * Create custom polygon mesh (helper method)
+     */
+    createCustomPolygonMesh(relativePoints) {
+        const positions = [];
+        const indices = [];
+        const normals = [];
+        const uvs = [];
+
+        // Add polygon vertices
+        relativePoints.forEach((point, index) => {
+            positions.push(point.x, 0.01, point.z);
+            normals.push(0, 1, 0); // Normal pointing upward
+            
+            const u = (point.x + 1) / 2;
+            const v = (point.z + 1) / 2;
+            uvs.push(u, v);
+        });
+
+        // Triangulate polygon
+        this.triangulatePolygon(relativePoints, indices);
+
+        const scene = this.sceneManager.getScene();
+        const mesh = new BABYLON.Mesh("polygon", scene);
+        mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
+        mesh.setIndices(indices);
+
+        return mesh;
+    }
+
+    /**
+     * Triangulate polygon (helper method)
+     */
+    triangulatePolygon(points, indices) {
+        if (points.length < 3) return;
+        
+        if (points.length === 3) {
+            indices.push(0, 2, 1); // Reverse order for upward normals
+            return;
+        }
+        
+        if (points.length === 4) {
+            indices.push(0, 2, 1); // Reverse order for upward normals
+            indices.push(0, 3, 2);
+            return;
+        }
+        
+        const vertexIndices = [];
+        for (let i = 0; i < points.length; i++) {
+            vertexIndices.push(i);
+        }
+        
+        let attempts = 0;
+        const maxAttempts = vertexIndices.length * 2; // Prevent infinite loops
+        
+        while (vertexIndices.length > 3 && attempts < maxAttempts) {
+            let earFound = false;
+            
+            for (let i = 0; i < vertexIndices.length; i++) {
+                const prev = vertexIndices[(i - 1 + vertexIndices.length) % vertexIndices.length];
+                const curr = vertexIndices[i];
+                const next = vertexIndices[(i + 1) % vertexIndices.length];
+                
+                if (this.isEar(points, vertexIndices, prev, curr, next)) {
+                    indices.push(prev, next, curr); // Reverse order for upward normals
+                    vertexIndices.splice(i, 1);
+                    earFound = true;
+                    break;
+                }
+            }
+            
+            if (!earFound) {
+                // Try to find any convex vertex and force triangulation
+                let convexFound = false;
+                for (let i = 0; i < vertexIndices.length; i++) {
+                    const prev = vertexIndices[(i - 1 + vertexIndices.length) % vertexIndices.length];
+                    const curr = vertexIndices[i];
+                    const next = vertexIndices[(i + 1) % vertexIndices.length];
+                    
+                    if (this.isConvex(points, prev, curr, next)) {
+                        indices.push(prev, next, curr);
+                        vertexIndices.splice(i, 1);
+                        convexFound = true;
+                        break;
+                    }
+                }
+                
+                if (!convexFound) {
+                    // Force triangulation from first vertex
+                    for (let i = 1; i < vertexIndices.length - 1; i++) {
+                        indices.push(vertexIndices[0], vertexIndices[i + 1], vertexIndices[i]);
+                    }
+                    break;
+                }
+            }
+            
+            attempts++;
+        }
+        
+        if (vertexIndices.length === 3) {
+            indices.push(vertexIndices[0], vertexIndices[2], vertexIndices[1]); // Reverse order for upward normals
+        }
+    }
+
+    /**
+     * Check if vertex is an ear (helper method)
+     */
+    isEar(points, vertexIndices, prev, curr, next) {
+        const p1 = points[prev];
+        const p2 = points[curr];
+        const p3 = points[next];
+        
+        const cross = (p2.x - p1.x) * (p3.z - p1.z) - (p2.z - p1.z) * (p3.x - p1.x);
+        if (cross <= 0) return false; // Not convex
+        
+        for (let i = 0; i < vertexIndices.length; i++) {
+            const idx = vertexIndices[i];
+            if (idx === prev || idx === curr || idx === next) continue;
+            
+            const point = points[idx];
+            if (this.isPointInTriangle(point, p1, p2, p3)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Check if vertex is convex (helper method)
+     */
+    isConvex(points, prev, curr, next) {
+        const p1 = points[prev];
+        const p2 = points[curr];
+        const p3 = points[next];
+        
+        // Check if the triangle is convex (counter-clockwise)
+        const cross = (p2.x - p1.x) * (p3.z - p1.z) - (p2.z - p1.z) * (p3.x - p1.x);
+        return cross > 0; // Convex if counter-clockwise
+    }
+
+    /**
+     * Check if point is inside triangle (helper method)
+     */
+    isPointInTriangle(point, a, b, c) {
+        const denom = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+        if (Math.abs(denom) < 0.0001) return false;
+        
+        const alpha = ((b.z - c.z) * (point.x - c.x) + (c.x - b.x) * (point.z - c.z)) / denom;
+        const beta = ((c.z - a.z) * (point.x - c.x) + (a.x - c.x) * (point.z - c.z)) / denom;
+        const gamma = 1 - alpha - beta;
+        
+        return alpha >= 0 && beta >= 0 && gamma >= 0;
+    }
+
+    /**
+     * Create custom polygon extrusion (3D building)
+     */
+    createCustomPolygonExtrusion(name, points, height) {
+        console.log(`Creating extrusion for ${name} with ${points.length} points and height ${height}`);
+        
+        const positions = [];
+        const indices = [];
+        const normals = [];
+        const uvs = [];
+
+        // Calculate center of polygon
+        const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+        const centerZ = points.reduce((sum, p) => sum + p.z, 0) / points.length;
+
+        // Create bottom face (same as 2D polygon)
+        points.forEach((point, index) => {
+            const relativeX = point.x - centerX;
+            const relativeZ = point.z - centerZ;
+            positions.push(relativeX, 0, relativeZ);
+            normals.push(0, 1, 0); // Bottom face normals point up (inverted)
+            uvs.push(relativeX, relativeZ);
+        });
+
+        // Create top face with actual height
+        points.forEach((point, index) => {
+            const relativeX = point.x - centerX;
+            const relativeZ = point.z - centerZ;
+            positions.push(relativeX, height, relativeZ); // Use actual height
+            normals.push(0, -1, 0); // Top face normals point down (inverted)
+            uvs.push(relativeX, relativeZ);
+        });
+
+        // Use the same triangulation method as PolygonManager for consistency
+        const bottomIndices = [];
+        this.triangulatePolygonForExtrusionConsistent(points, bottomIndices, false);
+        indices.push(...bottomIndices);
+
+        // Triangulate top face (reverse order for downward normals)
+        const topIndices = [];
+        this.triangulatePolygonForExtrusionConsistent(points, topIndices, true);
+        indices.push(...topIndices.map(i => i + points.length));
+
+        // Create side faces
+        for (let i = 0; i < points.length; i++) {
+            const next = (i + 1) % points.length;
+            const bottom1 = i;
+            const bottom2 = next;
+            const top1 = i + points.length;
+            const top2 = next + points.length;
+
+            // Create two triangles for each side face
+            indices.push(bottom1, top1, bottom2);
+            indices.push(bottom2, top1, top2);
+
+            // Calculate side face normal
+            const p1 = points[i];
+            const p2 = points[next];
+            const sideNormal = new BABYLON.Vector3(p2.z - p1.z, 0, p1.x - p2.x).normalize();
+            
+            // Add side face normals
+            normals[bottom1 * 3 + 0] = sideNormal.x;
+            normals[bottom1 * 3 + 1] = sideNormal.y;
+            normals[bottom1 * 3 + 2] = sideNormal.z;
+            
+            normals[top1 * 3 + 0] = sideNormal.x;
+            normals[top1 * 3 + 1] = sideNormal.y;
+            normals[top1 * 3 + 2] = sideNormal.z;
+        }
+
+        // Create mesh
+        const scene = this.sceneManager.getScene();
+        const mesh = new BABYLON.Mesh(name, scene);
+        mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
+        mesh.setIndices(indices);
+
+        console.log(`Extrusion created with ${positions.length / 3} vertices and ${indices.length / 3} triangles`);
+        return mesh;
+    }
+
+    /**
+     * Triangulate polygon for extrusion using the same method as PolygonManager
+     */
+    triangulatePolygonForExtrusionConsistent(points, indices, reverse = false) {
+        if (points.length < 3) return;
+        
+        // Use the same triangulation logic as PolygonManager
+        if (points.length === 3) {
+            if (reverse) {
+                indices.push(0, 2, 1);
+            } else {
+                indices.push(0, 1, 2);
+            }
+            return;
+        }
+        
+        if (points.length === 4) {
+            if (reverse) {
+                indices.push(0, 2, 1);
+                indices.push(0, 3, 2);
+            } else {
+                indices.push(0, 1, 2);
+                indices.push(0, 2, 3);
+            }
+            return;
+        }
+        
+        // For complex polygons, use ear clipping algorithm (same as PolygonManager)
+        const vertexIndices = [];
+        for (let i = 0; i < points.length; i++) {
+            vertexIndices.push(i);
+        }
+        
+        let iterations = 0;
+        const maxIterations = points.length * 2;
+        
+        while (vertexIndices.length > 3 && iterations < maxIterations) {
+            let earFound = false;
+            iterations++;
+            
+            for (let i = 0; i < vertexIndices.length; i++) {
+                const prev = vertexIndices[(i - 1 + vertexIndices.length) % vertexIndices.length];
+                const curr = vertexIndices[i];
+                const next = vertexIndices[(i + 1) % vertexIndices.length];
+                
+                if (this.isEarForExtrusion(points, vertexIndices, prev, curr, next)) {
+                    if (reverse) {
+                        indices.push(prev, next, curr);
+                    } else {
+                        indices.push(prev, curr, next);
+                    }
+                    
+                    vertexIndices.splice(i, 1);
+                    earFound = true;
+                    break;
+                }
+            }
+            
+            if (!earFound) {
+                // Fallback to fan triangulation
+                console.warn('Ear clipping failed in extrusion, using fan triangulation');
+                for (let i = 1; i < vertexIndices.length - 1; i++) {
+                    if (reverse) {
+                        indices.push(vertexIndices[0], vertexIndices[i + 1], vertexIndices[i]);
+                    } else {
+                        indices.push(vertexIndices[0], vertexIndices[i], vertexIndices[i + 1]);
+                    }
+                }
+                break;
+            }
+        }
+        
+        // Add the final triangle
+        if (vertexIndices.length === 3) {
+            if (reverse) {
+                indices.push(vertexIndices[0], vertexIndices[2], vertexIndices[1]);
+            } else {
+                indices.push(vertexIndices[0], vertexIndices[1], vertexIndices[2]);
+            }
+        }
+    }
+
+    /**
+     * Check if a vertex is an ear for extrusion triangulation
+     */
+    isEarForExtrusion(points, vertexIndices, prev, curr, next) {
+        const p1 = points[prev];
+        const p2 = points[curr];
+        const p3 = points[next];
+        
+        // Check if the triangle is convex (counter-clockwise)
+        const cross = this.calculateCrossProductForExtrusion(p1, p2, p3);
+        if (cross <= 0) return false; // Not convex
+        
+        // Check if any other vertex is inside the triangle
+        for (let i = 0; i < vertexIndices.length; i++) {
+            const idx = vertexIndices[i];
+            if (idx === prev || idx === curr || idx === next) continue;
+            
+            const point = points[idx];
+            if (this.isPointInTriangleForExtrusion(point, p1, p2, p3)) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    /**
+     * Calculate cross product for extrusion triangulation
+     */
+    calculateCrossProductForExtrusion(p1, p2, p3) {
+        const v1x = p2.x - p1.x;
+        const v1z = p2.z - p1.z;
+        const v2x = p3.x - p1.x;
+        const v2z = p3.z - p1.z;
+        
+        const cross = v1x * v2z - v1z * v2x;
+        
+        const epsilon = 1e-10;
+        if (Math.abs(cross) < epsilon) {
+            return 0;
+        }
+        
+        return cross;
+    }
+
+    /**
+     * Check if a point is inside a triangle for extrusion
+     */
+    isPointInTriangleForExtrusion(point, a, b, c) {
+        const denom = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+        if (Math.abs(denom) < 0.0001) {
+            return false;
+        }
+        
+        const alpha = ((b.z - c.z) * (point.x - c.x) + (c.x - b.x) * (point.z - c.z)) / denom;
+        const beta = ((c.z - a.z) * (point.x - c.x) + (a.x - c.x) * (point.z - c.z)) / denom;
+        const gamma = 1 - alpha - beta;
+        
+        return alpha >= 0 && beta >= 0 && gamma >= 0;
+    }
+
+    /**
+     * Ensure polygon has counter-clockwise winding order for extrusion
+     * @param {BABYLON.Vector3[]} points - Polygon points
+     * @returns {BABYLON.Vector3[]} Points with correct winding order
+     */
+    ensureCounterClockwiseForExtrusion(points) {
+        let totalCross = 0;
+        for (let i = 0; i < points.length; i++) {
+            const prev = points[(i - 1 + points.length) % points.length];
+            const curr = points[i];
+            const next = points[(i + 1) % points.length];
+            
+            const cross = this.calculateCrossProductForExtrusion(prev, curr, next);
+            totalCross += cross;
+        }
+        
+        // If clockwise, reverse the order
+        if (totalCross < 0) {
+            console.log('Reversing polygon winding order for extrusion to counter-clockwise');
+            return points.slice().reverse();
+        }
+        
+        return points;
+    }
+
+    /**
+     * Triangulate polygon for extrusion (legacy method)
+     */
+    triangulatePolygonForExtrusion(points, indices, reverse = false) {
+        if (points.length < 3) return;
+        
+        if (points.length === 3) {
+            if (reverse) {
+                indices.push(0, 2, 1);
+            } else {
+                indices.push(0, 1, 2);
+            }
+            return;
+        }
+        
+        if (points.length === 4) {
+            if (reverse) {
+                indices.push(0, 2, 1);
+                indices.push(0, 3, 2);
+            } else {
+                indices.push(0, 1, 2);
+                indices.push(0, 2, 3);
+            }
+            return;
+        }
+        
+        // For more complex polygons, use fan triangulation
+        for (let i = 1; i < points.length - 1; i++) {
+            if (reverse) {
+                indices.push(0, i + 1, i);
+            } else {
+                indices.push(0, i, i + 1);
+            }
         }
     }
 
@@ -1481,7 +2605,7 @@ class UIManager {
             width: properties.length,
             height: properties.width,
             subdivisions: 1
-        }, this.scene);
+        }, this.sceneManager.getScene());
 
         // Create new material (clone the old one to avoid sharing)
         const newMaterial = currentMaterial.clone(`${currentName}Material`);
@@ -1555,7 +2679,7 @@ class UIManager {
         const newMesh = BABYLON.MeshBuilder.CreateDisc(currentName, {
             radius: properties.radius,
             tessellation: 32
-        }, this.scene);
+        }, this.sceneManager.getScene());
 
         // Create new material (clone the old one to avoid sharing)
         const newMaterial = currentMaterial.clone(`${currentName}Material`);
@@ -1616,12 +2740,427 @@ class UIManager {
      * Extrude shape to create 3D building
      */
     extrudeShape(shape, height) {
-        // Remove existing extrusion if any
+        console.log(`Extruding shape ${shape.name} to height ${height}`);
+        
+        if (height <= 0) {
+            // Remove existing extrusion if height is 0 or negative
         this.removeExtrusion(shape);
+            return;
+        }
 
-        if (height <= 0) return;
+        // Clean up all duplicate extrusions in the scene first
+        this.cleanupAllDuplicateExtrusions();
+        // Clean up all extra meshes
+        this.cleanupAllExtraMeshes();
+        
+        const shapeType = this.getShapeType(shape);
+        
+        // Check if extrusion already exists
+        if (shape.extrusion) {
+            console.log(`Updating existing extrusion for ${shape.name}`);
+            this.updateExistingExtrusion(shape, height);
+        } else {
+            console.log(`Creating new extrusion for ${shape.name}`);
+            this.createNewExtrusion(shape, height);
+        }
+    }
 
-        // Create extrusion mesh
+    /**
+     * Check for duplicate extrusions and clean them up
+     */
+    cleanupDuplicateExtrusions(shape) {
+        const scene = this.sceneManager.getScene();
+        const extrusionName = `${shape.name}_extrusion`;
+        
+        // Find all meshes with the same extrusion name
+        const duplicateExtrusions = scene.meshes.filter(mesh => 
+            mesh.name === extrusionName && mesh !== shape.extrusion
+        );
+        
+        if (duplicateExtrusions.length > 0) {
+            console.log(`Found ${duplicateExtrusions.length} duplicate extrusions for ${shape.name}, cleaning up...`);
+            
+            duplicateExtrusions.forEach(duplicate => {
+                console.log(`Disposing duplicate extrusion: ${duplicate.name}`);
+                
+                // Remove from selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(duplicate);
+                }
+                
+                // Remove from shape2DManager
+                if (this.shape2DManager) {
+                    const index = this.shape2DManager.shapes.indexOf(duplicate);
+                    if (index !== -1) {
+                        this.shape2DManager.shapes.splice(index, 1);
+                    }
+                }
+                
+                // Remove from parent
+                duplicate.setParent(null);
+                
+                // Dispose material
+                if (duplicate.material) {
+                    duplicate.material.dispose();
+                }
+                
+                // Dispose mesh
+                duplicate.dispose();
+            });
+            
+            console.log(`Cleaned up ${duplicateExtrusions.length} duplicate extrusions`);
+        }
+        
+        // Also clean up any meshes that might be related to this shape
+        const relatedMeshes = scene.meshes.filter(mesh => 
+            mesh.name.includes(shape.name) && 
+            mesh.name !== shape.name && 
+            mesh !== shape.extrusion &&
+            (mesh.name.includes('_extrusion') || mesh.name.includes('_box') || mesh.name.includes('_copy'))
+        );
+        
+        if (relatedMeshes.length > 0) {
+            console.log(`Found ${relatedMeshes.length} related meshes for ${shape.name}, cleaning up...`);
+            
+            relatedMeshes.forEach(mesh => {
+                console.log(`Disposing related mesh: ${mesh.name}`);
+                
+                // Remove from selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(mesh);
+                }
+                
+                // Remove from shape2DManager
+                if (this.shape2DManager) {
+                    const index = this.shape2DManager.shapes.indexOf(mesh);
+                    if (index !== -1) {
+                        this.shape2DManager.shapes.splice(index, 1);
+                    }
+                }
+                
+                // Remove from parent
+                mesh.setParent(null);
+                
+                // Dispose material
+                if (mesh.material) {
+                    mesh.material.dispose();
+                }
+                
+                // Dispose mesh
+                mesh.dispose();
+            });
+            
+            console.log(`Cleaned up ${relatedMeshes.length} related meshes`);
+        }
+    }
+
+    /**
+     * Clean up all duplicate extrusions in the scene
+     */
+    cleanupAllDuplicateExtrusions() {
+        const scene = this.sceneManager.getScene();
+        
+        // Log all meshes in scene for debugging
+        console.log('All meshes in scene:');
+        scene.meshes.forEach(mesh => {
+            console.log(`- ${mesh.name} (type: ${mesh.constructor.name})`);
+        });
+        
+        // Find all extrusion meshes
+        const extrusionMeshes = scene.meshes.filter(mesh => 
+            mesh.name.includes('_extrusion') || 
+            mesh.name.includes('_box') || 
+            mesh.name.includes('_copy') ||
+            mesh.name.includes('polygon') && mesh.name !== 'polygon'
+        );
+        
+        if (extrusionMeshes.length > 0) {
+            console.log(`Found ${extrusionMeshes.length} duplicate extrusions in scene, cleaning up...`);
+            
+            extrusionMeshes.forEach(mesh => {
+                console.log(`Disposing duplicate extrusion: ${mesh.name}`);
+                
+                // Remove from selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(mesh);
+                }
+                
+                // Remove from shape2DManager
+                if (this.shape2DManager) {
+                    const index = this.shape2DManager.shapes.indexOf(mesh);
+                    if (index !== -1) {
+                        this.shape2DManager.shapes.splice(index, 1);
+                    }
+                }
+                
+                // Remove from parent
+                mesh.setParent(null);
+                
+                // Dispose material
+                if (mesh.material) {
+                    mesh.material.dispose();
+                }
+                
+                // Dispose mesh
+                mesh.dispose();
+            });
+            
+            console.log(`Cleaned up ${extrusionMeshes.length} duplicate extrusions`);
+        }
+    }
+
+    /**
+     * Clean up all duplicate and related meshes for a shape
+     */
+    cleanupAllRelatedMeshes(shape) {
+        const scene = this.sceneManager.getScene();
+        const shapeName = shape.name;
+        
+        // Find all meshes that are related to this shape
+        const relatedMeshes = scene.meshes.filter(mesh => 
+            mesh.name.includes(shapeName) && 
+            mesh.name !== shapeName && 
+            mesh !== shape.extrusion &&
+            mesh !== shape // Also exclude the shape itself
+        );
+        
+        if (relatedMeshes.length > 0) {
+            console.log(`Found ${relatedMeshes.length} related meshes for ${shapeName}, cleaning up all...`);
+            
+            relatedMeshes.forEach(mesh => {
+                console.log(`Disposing related mesh: ${mesh.name}`);
+                
+                // Remove from selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(mesh);
+                }
+                
+                // Remove from shape2DManager
+                if (this.shape2DManager) {
+                    const index = this.shape2DManager.shapes.indexOf(mesh);
+                    if (index !== -1) {
+                        this.shape2DManager.shapes.splice(index, 1);
+                    }
+                }
+                
+                // Remove from parent
+                mesh.setParent(null);
+                
+                // Dispose material
+                if (mesh.material) {
+                    mesh.material.dispose();
+                }
+                
+                // Dispose mesh
+                mesh.dispose();
+            });
+            
+            console.log(`Cleaned up ${relatedMeshes.length} related meshes`);
+        }
+        
+        // Also clean up any polygon meshes that might be duplicates
+        const polygonMeshes = scene.meshes.filter(mesh => 
+            mesh.name === 'polygon' && 
+            mesh !== shape &&
+            mesh !== shape.extrusion
+        );
+        
+        if (polygonMeshes.length > 0) {
+            console.log(`Found ${polygonMeshes.length} duplicate polygon meshes, cleaning up...`);
+            
+            polygonMeshes.forEach(mesh => {
+                console.log(`Disposing duplicate polygon mesh: ${mesh.name}`);
+                
+                // Remove from selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(mesh);
+                }
+                
+                // Remove from shape2DManager
+                if (this.shape2DManager) {
+                    const index = this.shape2DManager.shapes.indexOf(mesh);
+                    if (index !== -1) {
+                        this.shape2DManager.shapes.splice(index, 1);
+                    }
+                }
+                
+                // Remove from parent
+                mesh.setParent(null);
+                
+                // Dispose material
+                if (mesh.material) {
+                    mesh.material.dispose();
+                }
+                
+                // Dispose mesh
+                mesh.dispose();
+            });
+            
+            console.log(`Cleaned up ${polygonMeshes.length} duplicate polygon meshes`);
+        }
+    }
+
+    /**
+     * Clean up all extra meshes in the scene
+     */
+    cleanupAllExtraMeshes() {
+        const scene = this.sceneManager.getScene();
+        
+        // Find all meshes that might be extra
+        const extraMeshes = scene.meshes.filter(mesh => 
+            mesh.name === 'polygon' || 
+            mesh.name.includes('_extrusion') || 
+            mesh.name.includes('_box') || 
+            mesh.name.includes('_copy') ||
+            mesh.name.includes('_temp') ||
+            mesh.name.includes('_old')
+        );
+        
+        if (extraMeshes.length > 0) {
+            console.log(`Found ${extraMeshes.length} extra meshes in scene, cleaning up...`);
+            
+            extraMeshes.forEach(mesh => {
+                console.log(`Disposing extra mesh: ${mesh.name}`);
+                
+                // Remove from selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(mesh);
+                }
+                
+                // Remove from shape2DManager
+                if (this.shape2DManager) {
+                    const index = this.shape2DManager.shapes.indexOf(mesh);
+                    if (index !== -1) {
+                        this.shape2DManager.shapes.splice(index, 1);
+                    }
+                }
+                
+                // Remove from parent
+                mesh.setParent(null);
+                
+                // Dispose material
+                if (mesh.material) {
+                    mesh.material.dispose();
+                }
+                
+                // Dispose mesh
+                mesh.dispose();
+            });
+            
+            console.log(`Cleaned up ${extraMeshes.length} extra meshes`);
+        }
+    }
+
+    /**
+     * Update existing extrusion with new height
+     */
+    updateExistingExtrusion(shape, height) {
+        // Clean up any duplicate extrusions first
+        this.cleanupDuplicateExtrusions(shape);
+        // Also clean up all related meshes
+        this.cleanupAllRelatedMeshes(shape);
+        // Clean up all extra meshes
+        this.cleanupAllExtraMeshes();
+        
+        const extrusion = shape.extrusion;
+        const shapeType = this.getShapeType(shape);
+        
+        if (shapeType === 'rectangle') {
+            const dimensions = shape.userData.dimensions;
+            // Update box extrusion - sync with rectangle position
+            extrusion.scaling.y = height / (extrusion.userData.originalHeight || 1);
+            
+            // Position extrusion at the center of the rectangle (same as createNewExtrusion)
+            extrusion.position = new BABYLON.Vector3(
+                shape.position.x + dimensions.width / 2,  // Center of rectangle
+                height / 2,                               // Half height above ground
+                shape.position.z + dimensions.height / 2  // Center of rectangle
+            );
+            extrusion.userData.originalHeight = height;
+            console.log(`Rectangle extrusion updated - synced with rectangle: ${extrusion.position}`);
+        } else if (shapeType === 'circle') {
+            // Update cylinder extrusion - sync with current shape position
+            extrusion.scaling.y = height / (extrusion.userData.originalHeight || 1);
+            extrusion.position = shape.position.clone();
+            extrusion.position.y = height / 2;
+            extrusion.userData.originalHeight = height;
+        } else if (shapeType === 'polygon') {
+            // For polygons, recreate the extrusion with new height (like rectangle/circle scaling)
+            console.log(`Recreating polygon extrusion for ${shape.name} with height ${height}`);
+            
+            // Store current position and rotation
+            const currentPosition = extrusion.position.clone();
+            const currentRotation = extrusion.rotation.clone();
+            const currentScaling = extrusion.scaling.clone();
+            
+            // Dispose old extrusion
+            if (extrusion.material) {
+                extrusion.material.dispose();
+            }
+            extrusion.dispose();
+            
+            // Create new extrusion with new height
+            const points = shape.userData.points || [];
+            if (points.length >= 3) {
+                const extrusionName = `${shape.name}_extrusion`;
+                const newExtrusion = this.createCustomPolygonExtrusion(extrusionName, points, height);
+                
+                // Restore position and rotation
+                newExtrusion.position = currentPosition;
+                newExtrusion.rotation = currentRotation;
+                newExtrusion.scaling = currentScaling;
+                
+                // Update position to match current shape position
+                newExtrusion.position = shape.position.clone();
+                newExtrusion.position.y = height / 2;
+                
+                // Create material
+                const extrusionMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
+                if (shape.material && shape.material.diffuseColor) {
+                    extrusionMaterial.diffuseColor = shape.material.diffuseColor.clone();
+                } else {
+                    extrusionMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1);
+                }
+                extrusionMaterial.backFaceCulling = false;
+                newExtrusion.material = extrusionMaterial;
+                newExtrusion.renderingGroupId = 1;
+                
+                // Update userData
+                newExtrusion.userData = {
+                    originalHeight: height,
+                    buildingHeight: height,
+                    type: 'building'
+                };
+                
+                // Make extrusion a child of the base shape
+                newExtrusion.setParent(shape);
+                
+                // Update reference
+                shape.extrusion = newExtrusion;
+                
+                console.log(`Polygon extrusion recreated with height ${height}`);
+            }
+        }
+        
+        // Update userData
+        if (extrusion.userData) {
+            extrusion.userData.buildingHeight = height;
+        }
+        
+        console.log(`Updated extrusion for ${shape.name} to height ${height}`);
+    }
+
+    /**
+     * Create new extrusion
+     */
+    createNewExtrusion(shape, height) {
+        // Clean up any duplicate extrusions first
+        this.cleanupDuplicateExtrusions(shape);
+        // Also clean up all related meshes
+        this.cleanupAllRelatedMeshes(shape);
+        // Clean up all extra meshes
+        this.cleanupAllExtraMeshes();
+        
         const extrusionName = `${shape.name}_extrusion`;
         const shapeType = this.getShapeType(shape);
         
@@ -1632,27 +3171,66 @@ class UIManager {
                 width: dimensions.width,
                 height: height,
                 depth: dimensions.height
-            }, this.scene);
+            }, this.sceneManager.getScene());
         } else if (shapeType === 'circle') {
             const radius = shape.userData.dimensions.radius;
             extrusion = BABYLON.MeshBuilder.CreateCylinder(extrusionName, {
                 height: height,
                 diameter: radius * 2,
                 tessellation: 32
-            }, this.scene);
+            }, this.sceneManager.getScene());
+        } else if (shapeType === 'polygon') {
+            // For polygons, use the custom extrusion method with actual height
+            const points = shape.userData.points || [];
+            if (points.length >= 3) {
+                extrusion = this.createCustomPolygonExtrusion(extrusionName, points, height); // Create with actual height
+            }
         }
 
         if (extrusion) {
             // Position extrusion at the same location as the base shape
-            extrusion.position = shape.position.clone();
-            extrusion.position.y = height / 2; // Half height above the base shape
+            if (shapeType === 'rectangle') {
+                // For rectangles, position extrusion so its corner matches the rectangle corner
+                const dimensions = shape.userData.dimensions;
+                
+                // Position extrusion at the same corner as the rectangle
+                // Since CreateBox centers the mesh, we need to offset by half dimensions
+                extrusion.position = new BABYLON.Vector3(
+                    shape.position.x + dimensions.width / 2,  // Move to center of rectangle
+                    height / 2,                               // Half height above ground
+                    shape.position.z + dimensions.height / 2  // Move to center of rectangle
+                );
+                console.log(`Rectangle corner at: ${shape.position}, extrusion center at: ${extrusion.position}`);
+            } else {
+                // For other shapes, use shape position directly
+                extrusion.position = shape.position.clone();
+                extrusion.position.y = height / 2; // Half height above the base shape
+            }
+            
+            // No additional scaling needed for polygon extrusions (created with actual height)
             
             // Create separate material for extrusion
-            const extrusionMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.scene);
+            const extrusionMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
+            
+            // Check if shape has material and diffuseColor
+            if (shape.material && shape.material.diffuseColor) {
             extrusionMaterial.diffuseColor = shape.material.diffuseColor.clone();
+            } else {
+                // Use default color if shape material is null or doesn't have diffuseColor
+                extrusionMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // White
+                console.warn(`Shape ${shape.name} has no material or diffuseColor, using default white color`);
+            }
+            
             extrusionMaterial.backFaceCulling = false;
             extrusion.material = extrusionMaterial;
             extrusion.renderingGroupId = 1;
+            
+            // Store original height for scaling
+            extrusion.userData = {
+                originalHeight: height, // Store actual height for all shapes
+                buildingHeight: height,
+                type: 'building'
+            };
             
             // Make extrusion a child of the base shape
             extrusion.setParent(shape);
@@ -1669,6 +3247,8 @@ class UIManager {
             if (this.selectionManager) {
                 this.selectionManager.addSelectableObject(extrusion);
             }
+            
+            console.log(`Created new extrusion for ${shape.name} with height ${height} at position (${extrusion.position.x}, ${extrusion.position.y}, ${extrusion.position.z})`);
         }
     }
 
@@ -1677,30 +3257,43 @@ class UIManager {
      */
     removeExtrusion(shape) {
         if (shape.extrusion) {
+            console.log(`Removing extrusion from ${shape.name}`);
+            
+            const extrusion = shape.extrusion;
+            
             // Remove from selection manager
             if (this.selectionManager) {
-                this.selectionManager.removeSelectableObject(shape.extrusion);
+                this.selectionManager.removeSelectableObject(extrusion);
             }
             
             // Remove from shape2DManager shapes array
             if (this.shape2DManager) {
-                const extrusionIndex = this.shape2DManager.shapes.indexOf(shape.extrusion);
+                const extrusionIndex = this.shape2DManager.shapes.indexOf(extrusion);
                 if (extrusionIndex !== -1) {
                     this.shape2DManager.shapes.splice(extrusionIndex, 1);
                 }
             }
             
             // Remove parent relationship
-            shape.extrusion.setParent(null);
+            extrusion.setParent(null);
             
             // Dispose extrusion material
-            if (shape.extrusion.material) {
-                shape.extrusion.material.dispose();
+            if (extrusion.material) {
+                extrusion.material.dispose();
             }
             
             // Dispose extrusion mesh
-            shape.extrusion.dispose();
+            extrusion.dispose();
+            
+            // Clear reference
             shape.extrusion = null;
+            
+            // Force garbage collection hint
+            if (window.gc) {
+                window.gc();
+            }
+            
+            console.log(`Extrusion completely removed from ${shape.name}`);
         }
     }
 
@@ -1729,6 +3322,12 @@ class UIManager {
                 lengthGroup.style.display = 'flex';
                 widthGroup.style.display = 'flex';
                 radiusGroup.style.display = 'none';
+            } else if (shapeType === 'polygon') {
+                // For polygons, show area and perimeter instead of length/width
+                lengthGroup.style.display = 'none';
+                widthGroup.style.display = 'none';
+                radiusGroup.style.display = 'none';
+                // Note: We'll need to add polygon-specific fields to the HTML
             }
         } else if (type === 'land') {
             // Hide height for land
@@ -1743,6 +3342,12 @@ class UIManager {
                 lengthGroup.style.display = 'flex';
                 widthGroup.style.display = 'flex';
                 radiusGroup.style.display = 'none';
+            } else if (shapeType === 'polygon') {
+                // For polygons, show area and perimeter instead of length/width
+                lengthGroup.style.display = 'none';
+                widthGroup.style.display = 'none';
+                radiusGroup.style.display = 'none';
+                // Note: We'll need to add polygon-specific fields to the HTML
             }
         }
     }
@@ -1791,7 +3396,10 @@ class UIManager {
             length: 0,
             width: 0,
             height: 0,
-            radius: 0
+            radius: 0,
+            area: 0,
+            perimeter: 0,
+            vertices: 0
         };
 
         // First try to get dimensions from userData (stored during creation)
@@ -1803,6 +3411,10 @@ class UIManager {
                 dimensions.width = parseFloat(storedDimensions.height || 0).toFixed(2);
             } else if (this.getShapeType(shape) === 'circle') {
                 dimensions.radius = parseFloat(storedDimensions.radius || 0).toFixed(2);
+            } else if (this.getShapeType(shape) === 'polygon') {
+                dimensions.area = parseFloat(storedDimensions.area || 0).toFixed(2);
+                dimensions.perimeter = parseFloat(storedDimensions.perimeter || 0).toFixed(2);
+                dimensions.vertices = parseInt(storedDimensions.vertices || 0);
             }
             
             // Get building height if available
@@ -1821,6 +3433,11 @@ class UIManager {
             // For circles, radius is half the width
             if (this.getShapeType(shape) === 'circle') {
                 dimensions.radius = (size.x).toFixed(2);
+            } else if (this.getShapeType(shape) === 'polygon') {
+                // For polygons, calculate approximate area and perimeter
+                dimensions.area = (size.x * size.z).toFixed(2);
+                dimensions.perimeter = (2 * (size.x + size.z)).toFixed(2);
+                dimensions.vertices = 0; // Will be calculated from mesh data if available
             }
         }
 
@@ -1828,11 +3445,12 @@ class UIManager {
     }
 
     /**
-     * Get shape type (rectangle, circle, etc.)
+     * Get shape type (rectangle, circle, polygon, etc.)
      */
     getShapeType(shape) {
         if (shape.name.includes('circle')) return 'circle';
         if (shape.name.includes('rectangle')) return 'rectangle';
+        if (shape.name.includes('polygon')) return 'polygon';
         return 'rectangle'; // Default
     }
 
@@ -1847,7 +3465,35 @@ class UIManager {
      * Save shape properties
      */
     saveShapeProperties() {
-        if (!this.currentShape) return;
+        // Get the shape name from the properties popup
+        const shapeNameElement = document.getElementById('shapeName');
+        if (!shapeNameElement) {
+            console.warn('Cannot save properties: shape name element not found');
+            return;
+        }
+
+        const shapeName = shapeNameElement.value;
+        if (!shapeName) {
+            console.warn('Cannot save properties: shape name is empty');
+            return;
+        }
+
+        // Find the shape in the scene
+        const scene = this.sceneManager.getScene();
+        const shape = scene.getMeshByName(shapeName);
+        if (!shape) {
+            console.warn('Cannot save properties: shape not found in scene:', shapeName);
+            return;
+        }
+
+        // Set currentShape for updateShapeInRealTime
+        this.currentShape = shape;
+
+        // Get the height value from the popup
+        const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0, 0.001);
+        
+        // Apply height changes now (this is the only time height is applied)
+        this.applyHeightChanges(shape, height);
 
         // Final update to ensure everything is saved
         this.updateShapeInRealTime();
@@ -1860,18 +3506,163 @@ class UIManager {
 
 
     /**
+     * Preview height changes (shows temporary extrusion for preview)
+     */
+    previewHeightChanges() {
+        if (!this.currentShape) return;
+        
+        // Get the height value from the popup
+        const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0, 0.001);
+        const type = document.getElementById('shapeType').value;
+        
+        // Remove existing preview extrusion
+        this.removePreviewExtrusion();
+        
+        // Only show preview if type is building and height > 0
+        if (type === 'building' && height > 0.001) {
+            this.createPreviewExtrusion(height);
+        }
+    }
+
+    /**
+     * Create a temporary preview extrusion
+     * @param {number} height - The height for the preview
+     */
+    createPreviewExtrusion(height) {
+        if (!this.currentShape) return;
+        
+        const shapeType = this.getShapeType(this.currentShape);
+        const previewName = `${this.currentShape.name}_preview_extrusion`;
+        
+        let previewExtrusion;
+        if (shapeType === 'rectangle') {
+            const dimensions = this.currentShape.userData.dimensions;
+            previewExtrusion = BABYLON.MeshBuilder.CreateBox(previewName, {
+                width: dimensions.width,
+                height: height,
+                depth: dimensions.height
+            }, this.sceneManager.getScene());
+        } else if (shapeType === 'circle') {
+            const radius = this.currentShape.userData.dimensions.radius;
+            previewExtrusion = BABYLON.MeshBuilder.CreateCylinder(previewName, {
+                height: height,
+                diameter: radius * 2,
+                tessellation: 32
+            }, this.sceneManager.getScene());
+        } else if (shapeType === 'polygon') {
+            // For polygons, create a simple box preview
+            const dimensions = this.currentShape.userData.dimensions;
+            previewExtrusion = BABYLON.MeshBuilder.CreateBox(previewName, {
+                width: dimensions.width || 2,
+                height: height,
+                depth: dimensions.height || 2
+            }, this.sceneManager.getScene());
+        }
+        
+        if (previewExtrusion) {
+            // Position preview extrusion
+            previewExtrusion.position = this.currentShape.position.clone();
+            previewExtrusion.position.y = height / 2;
+            
+            // Create preview material (semi-transparent)
+            const previewMaterial = new BABYLON.StandardMaterial(`${previewName}Material`, this.sceneManager.getScene());
+            previewMaterial.diffuseColor = new BABYLON.Color3(0.5, 0.5, 1.0); // Light blue
+            previewMaterial.alpha = 0.3; // Semi-transparent
+            previewMaterial.backFaceCulling = false;
+            previewExtrusion.material = previewMaterial;
+            previewExtrusion.renderingGroupId = 1;
+            
+            // Store reference for removal
+            this.currentShape.previewExtrusion = previewExtrusion;
+            
+            console.log(`Preview extrusion created for ${this.currentShape.name} with height ${height}`);
+        }
+    }
+
+    /**
+     * Remove preview extrusion
+     */
+    removePreviewExtrusion() {
+        if (this.currentShape && this.currentShape.previewExtrusion) {
+            this.currentShape.previewExtrusion.dispose();
+            this.currentShape.previewExtrusion = null;
+        }
+    }
+
+    /**
+     * Apply height changes to a shape (only called when save is clicked)
+     * @param {BABYLON.Mesh} shape - The shape to apply height changes to
+     * @param {number} height - The new height value
+     */
+    applyHeightChanges(shape, height) {
+        console.log(`Applying height changes to ${shape.name}: height = ${height}`);
+        
+        // Remove preview extrusion first
+        this.removePreviewExtrusion();
+        
+        // Get current properties
+        const type = document.getElementById('shapeType').value;
+        
+        // Update userData with new height
+        if (!shape.userData) {
+            shape.userData = {};
+        }
+        if (!shape.userData.dimensions) {
+            shape.userData.dimensions = {};
+        }
+        shape.userData.dimensions.buildingHeight = height;
+        shape.userData.type = type;
+        
+        // Apply height changes based on shape type
+        if (type === 'building' && height > 0.001) {
+            // Create or update extrusion
+            this.extrudeShape(shape, height);
+        } else {
+            // Remove extrusion if height is 0 or type is land
+            this.removeExtrusion(shape);
+        }
+        
+        console.log(`Height changes applied to ${shape.name}`);
+    }
+
+    /**
      * Select shape and its extrusion after saving properties
      */
     selectShapeAndExtrusionAfterSave() {
-        if (!this.selectionManager || !this.currentShape) return;
+        if (!this.selectionManager) {
+            console.warn('Cannot select after save: selectionManager is null');
+            return;
+        }
 
-        console.log('Selecting shape and extrusion after save:', this.currentShape.name);
+        // Get the shape name from the properties popup
+        const shapeNameElement = document.getElementById('shapeName');
+        if (!shapeNameElement) {
+            console.warn('Cannot select after save: shape name element not found');
+            return;
+        }
+
+        const shapeName = shapeNameElement.value;
+        if (!shapeName) {
+            console.warn('Cannot select after save: shape name is empty');
+            return;
+        }
+
+        console.log('Selecting shape and extrusion after save:', shapeName);
 
         // Clear current selection
         this.selectionManager.clearSelection();
 
+        // Check if the shape still exists in the scene
+        const scene = this.sceneManager.getScene();
+        const shapeInScene = scene.getMeshByName(shapeName);
+        
+        if (!shapeInScene) {
+            console.warn('Shape not found in scene after save:', shapeName);
+            return;
+        }
+
         // Select the current shape
-        this.selectionManager.selectObject(this.currentShape, false, true); // includeExtrusion = true
+        this.selectionManager.selectObject(shapeInScene, false, true); // includeExtrusion = true
 
         console.log('Selected objects after save:', this.selectionManager.selectedObjects.map(obj => obj.name));
     }
@@ -1930,7 +3721,7 @@ class UIManager {
     is2DShape(obj) {
         if (!obj || !obj.name) return false;
         
-        const shapeNames = ['rectangle', 'circle', 'triangle', 'text', 'polyline', 'line'];
+        const shapeNames = ['rectangle', 'circle', 'triangle', 'text', 'polyline', 'line', 'polygon'];
         return shapeNames.some(name => obj.name.includes(name));
     }
 

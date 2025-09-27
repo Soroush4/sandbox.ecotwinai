@@ -15,12 +15,19 @@
             <div class="menu-item">
                 <span class="menu-label">File</span>
                 <div class="menu-dropdown">
-                    <div class="menu-option" data-action="new-scene">New Scene</div>
+                    <div class="menu-option has-submenu">
+                        <span>New Scene</span>
+                        <span class="submenu-arrow">▶</span>
+                        <div class="submenu">
+                            <div class="menu-option" data-action="empty-scene">Empty Scene</div>
+                            <div class="menu-option" data-action="default-scene">Default Scene</div>
+                        </div>
+                    </div>
                     <div class="menu-option" data-action="save-scene">Save Scene</div>
                     <div class="menu-option" data-action="load-scene">Load Scene</div>
                     <div class="menu-separator"></div>
                     <div class="menu-option" data-action="export-stl">Export STL</div>
-                    <div class="menu-option" data-action="export-obj">Export OBJ</div>
+                    <div class="menu-option" data-action="import-stl">Import STL</div>
                 </div>
             </div>
             <div class="menu-item">
@@ -38,10 +45,6 @@
             <div class="menu-item">
                 <span class="menu-label">Settings</span>
                 <div class="menu-dropdown">
-                    <div class="menu-option" data-action="scene-settings">Scene Settings</div>
-                    <div class="menu-option" data-action="render-settings">Render Settings</div>
-                    <div class="menu-option" data-action="camera-settings">Camera Settings</div>
-                    <div class="menu-separator"></div>
                     <div class="menu-option" data-action="preferences">Preferences</div>
                     <div class="menu-option" data-action="about">About</div>
                 </div>
@@ -59,6 +62,9 @@
                 </div>
                 <div class="tool-item" data-tool="circle" title="Circle">
                     <img src="icons/circle.svg" alt="Circle" class="tool-icon">
+                </div>
+                <div class="tool-item" data-tool="polygon" title="Polygon">
+                    <img src="icons/polygon.svg" alt="Polygon" class="tool-icon">
                 </div>
                 <div class="tool-item" data-tool="tree" title="Tree" id="treeTool">
                     <img src="icons/tree.svg" alt="Tree" class="tool-icon">
@@ -285,6 +291,7 @@
     <script src="js/modules/ScaleManager.js"></script>
     <script src="js/modules/Shape2DManager.js"></script>
     <script src="js/modules/TreeManager.js"></script>
+    <script src="js/modules/PolygonManager.js"></script>
     <script src="js/modules/UIManager.js"></script>
     <!-- Properties Popup -->
     <div id="propertiesPopup" class="properties-popup">

@@ -97,9 +97,15 @@ class MoveManager {
             // Store original positions for multi-object movement
             this.originalPositions = new Map();
             selectedObjects.forEach(obj => {
-                // Only store positions for base shapes, not extrusions
-                if (!obj.name.includes('_extrusion')) {
-                    this.originalPositions.set(obj, obj.position.clone());
+                // Store positions for all objects (including extrusions)
+                this.originalPositions.set(obj, obj.position.clone());
+                
+                // If this is an extrusion, also store parent shape position
+                if (obj.name.includes('_extrusion')) {
+                    const parentShape = obj.parent;
+                    if (parentShape && !this.originalPositions.has(parentShape)) {
+                        this.originalPositions.set(parentShape, parentShape.position.clone());
+                    }
                 }
             });
             this.originalCenter = this.multiObjectCenter.position.clone();
@@ -124,7 +130,20 @@ class MoveManager {
                     const newPos = originalPos.add(centerDelta);
                     obj.position = newPos;
                     
-                    // Note: Extrusions are child meshes, so they move automatically with their parent
+                    // If this is an extrusion, also move the parent shape
+                    if (obj.name.includes('_extrusion')) {
+                        const parentShape = obj.parent;
+                        if (parentShape) {
+                            // Get parent original position, or use current position if not stored
+                            let parentOriginalPos = this.originalPositions.get(parentShape);
+                            if (!parentOriginalPos) {
+                                // If parent position not stored, use current position as original
+                                parentOriginalPos = parentShape.position.clone();
+                                this.originalPositions.set(parentShape, parentOriginalPos);
+                            }
+                            parentShape.position = parentOriginalPos.add(centerDelta);
+                        }
+                    }
                 }
             });
         } else {
@@ -140,9 +159,15 @@ class MoveManager {
         if (selectedObjects.length > 1) {
             // Update original positions for next drag
             selectedObjects.forEach(obj => {
-                // Only update positions for base shapes, not extrusions
-                if (!obj.name.includes('_extrusion')) {
-                    this.originalPositions.set(obj, obj.position.clone());
+                // Update positions for all objects (including extrusions)
+                this.originalPositions.set(obj, obj.position.clone());
+                
+                // If this is an extrusion, also update parent shape position
+                if (obj.name.includes('_extrusion')) {
+                    const parentShape = obj.parent;
+                    if (parentShape) {
+                        this.originalPositions.set(parentShape, parentShape.position.clone());
+                    }
                 }
             });
             this.originalCenter = this.multiObjectCenter.position.clone();
@@ -194,10 +219,29 @@ class MoveManager {
         let objectCount = 0;
         
         selectedObjects.forEach(obj => {
-            // Only consider base shapes (not extrusions) for center calculation
-            if (!obj.name.includes('_extrusion')) {
+            // For extrusions, use their actual position for center calculation
+            if (obj.name.includes('_extrusion')) {
                 center.addInPlace(obj.position);
                 objectCount++;
+                console.log(`Adding extrusion ${obj.name} to center calculation at position:`, obj.position);
+            } else {
+                // For regular shapes, calculate center based on shape type
+                let shapeCenter = obj.position.clone();
+                
+                // For rectangles, calculate center position for gizmo
+                if (obj.userData && obj.userData.shapeType === 'rectangle') {
+                    const dimensions = obj.userData.dimensions;
+                    if (dimensions) {
+                        // Calculate center position for gizmo (same as extrusion center)
+                        shapeCenter.x += dimensions.width / 2;
+                        shapeCenter.z += dimensions.height / 2;
+                        console.log(`Calculated rectangle center for gizmo: ${shapeCenter}`);
+                    }
+                }
+                
+                center.addInPlace(shapeCenter);
+                objectCount++;
+                console.log(`Adding shape ${obj.name} to center calculation at position:`, shapeCenter);
             }
         });
         

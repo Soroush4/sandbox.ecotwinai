@@ -107,6 +107,60 @@ body {
     margin: 4px 0;
 }
 
+/* Submenu Styles */
+.menu-option.has-submenu {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+}
+
+.submenu-arrow {
+    font-size: 10px;
+    color: #666;
+    transition: transform 0.2s ease;
+}
+
+.menu-option.has-submenu:hover .submenu-arrow {
+    transform: rotate(90deg);
+}
+
+.submenu {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    background: white;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    min-width: 140px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-10px);
+    transition: all 0.2s ease;
+    z-index: 2002;
+}
+
+.menu-option.has-submenu:hover .submenu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+}
+
+.submenu .menu-option {
+    padding: 8px 16px;
+    border-radius: 0;
+    white-space: nowrap;
+}
+
+.submenu .menu-option:first-child {
+    border-radius: 4px 4px 0 0;
+}
+
+.submenu .menu-option:last-child {
+    border-radius: 0 0 4px 4px;
+}
+
 /* Preferences Window Styles */
 .preferences-window {
     position: fixed;

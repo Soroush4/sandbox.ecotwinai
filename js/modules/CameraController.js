@@ -48,7 +48,7 @@ class CameraController {
         this.camera.inertia = 0.9;
         this.camera.angularSensibilityX = 1000;  // Reduced for better control
         this.camera.angularSensibilityY = 1000;  // Reduced for better control
-        this.camera.panningSensibility = 1000;
+        this.camera.panningSensibility = 200;  // Increased sensitivity for better pan movement
         this.camera.wheelDeltaPercentage = 0.01;
         this.camera.pinchDeltaPercentage = 0.01;
 
@@ -192,7 +192,7 @@ class CameraController {
                     // For pointer events, we'll use pan by default (left click behavior)
                     // Pan camera with simpler calculation
                     const target = this.camera.getTarget();
-                    const panSpeed = 0.01;
+                    const panSpeed = 0.08;  // Increased pan speed for better responsiveness
                     
                     // Calculate pan direction based on camera orientation
                     const forward = this.camera.getDirection(BABYLON.Vector3.Forward());
