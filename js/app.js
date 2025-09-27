@@ -318,6 +318,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
+    window.testTreeHeightScale = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            console.log('Random tree height scale:', window.digitalTwinApp.treeManager.getRandomTreeHeightScale());
+            return window.digitalTwinApp.treeManager.getRandomTreeHeightScale();
+        }
+    };
+    
+    window.setTreeHeightParams = (minHeight, maxHeight) => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            window.digitalTwinApp.treeManager.setHeightParameters(minHeight, maxHeight);
+            console.log(`Tree height parameters set: min=${minHeight}, max=${maxHeight}`);
+            return window.digitalTwinApp.treeManager.getHeightParameters();
+        }
+    };
+    
+    window.getTreeHeightParams = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            return window.digitalTwinApp.treeManager.getHeightParameters();
+        }
+    };
+    
     window.testGroundDetection = (x = 400, y = 300) => {
         if (window.digitalTwinApp && window.digitalTwinApp.sceneManager) {
             const pickResult = window.digitalTwinApp.sceneManager.getScene().pick(x, y, (mesh) => {

@@ -13,8 +13,8 @@ class TreeManager {
         this.treeCounter = 0;
         
         // Height parameters for random tree scaling
-        this.minHeight = 0.8;
-        this.maxHeight = 1.2;
+        this.minHeight = 5;
+        this.maxHeight = 10;
         
         this.init();
     }
@@ -36,9 +36,9 @@ class TreeManager {
             try {
                 const model = await this.loadTreeModel(`assets/Models/Trees/${treeType}.glb`);
                 this.treeModels.set(treeType, model);
-                console.log(`Tree model ${treeType} loaded successfully`);
+                // console.log(`Tree model ${treeType} loaded successfully`);
             } catch (error) {
-                console.error(`Failed to load tree model ${treeType}:`, error);
+                // console.error(`Failed to load tree model ${treeType}:`, error);
             }
         }
     }
@@ -50,16 +50,16 @@ class TreeManager {
         return new Promise((resolve, reject) => {
             BABYLON.SceneLoader.ImportMeshAsync("", "", path, this.scene)
                 .then((result) => {
-                    console.log(`Loaded tree model from ${path}:`, result);
-                    console.log(`Meshes count:`, result.meshes.length);
+                    // console.log(`Loaded tree model from ${path}:`, result);
+                    // console.log(`Meshes count:`, result.meshes.length);
                     result.meshes.forEach((mesh, index) => {
-                        console.log(`Mesh ${index}:`, mesh.name, 'enabled:', mesh.isEnabled());
+                        // console.log(`Mesh ${index}:`, mesh.name, 'enabled:', mesh.isEnabled());
                         mesh.setEnabled(false);
                     });
                     resolve(result);
                 })
                 .catch((error) => {
-                    console.error(`Error loading tree model from ${path}:`, error);
+                    // console.error(`Error loading tree model from ${path}:`, error);
                     reject(error);
                 });
         });
@@ -70,13 +70,13 @@ class TreeManager {
      */
     startTreePlacement(treeType) {
         if (!this.treeModels.has(treeType)) {
-            console.error(`Tree model ${treeType} not loaded`);
+            // console.error(`Tree model ${treeType} not loaded`);
             return;
         }
 
         this.isPlacingTree = true;
         this.selectedTreeType = treeType;
-        console.log(`Tree placement mode activated for tree type: ${treeType}`);
+        // console.log(`Tree placement mode activated for tree type: ${treeType}`);
     }
 
     /**
@@ -85,7 +85,7 @@ class TreeManager {
     stopTreePlacement() {
         this.isPlacingTree = false;
         this.selectedTreeType = null;
-        console.log('Tree placement mode deactivated');
+        // console.log('Tree placement mode deactivated');
     }
 
     /**
@@ -98,7 +98,7 @@ class TreeManager {
 
         const treeModel = this.treeModels.get(this.selectedTreeType);
         if (!treeModel) {
-            console.error(`Tree model ${this.selectedTreeType} not found, creating simple tree instead`);
+            // console.error(`Tree model ${this.selectedTreeType} not found, creating simple tree instead`);
             return this.createSimpleTree(position);
         }
 
@@ -133,11 +133,9 @@ class TreeManager {
             // Add random rotation around Y axis (vertical)
             treeParent.rotation.y = this.getRandomTreeRotation();
             
-            // Add random scale (90% to 110%) for width/depth
-            const randomScale = this.getRandomTreeScale();
-            // Add random height scale based on min/max height parameters
+            // Add random height scale based on min/max height parameters (uniform on all axes)
             const randomHeightScale = this.getRandomTreeHeightScale();
-            treeParent.scaling = new BABYLON.Vector3(randomScale, randomHeightScale, randomScale);
+            treeParent.scaling = new BABYLON.Vector3(randomHeightScale/3, randomHeightScale/3, randomHeightScale/3);
 
             // Store tree reference
             const treeData = {
@@ -163,15 +161,15 @@ class TreeManager {
                 });
             }
 
-            console.log(`Tree placed at position:`, position);
-            console.log(`Tree parent position:`, treeParent.position);
-            console.log(`Tree rotation:`, treeParent.rotation.y, 'radians');
-            console.log(`Tree scale:`, randomScale);
-            console.log(`Cloned meshes count:`, clonedMeshes.length);
+            // console.log(`Tree placed at position:`, position);
+            // console.log(`Tree parent position:`, treeParent.position);
+            // console.log(`Tree rotation:`, treeParent.rotation.y, 'radians');
+            // console.log(`Tree uniform scale:`, randomHeightScale);
+            // console.log(`Cloned meshes count:`, clonedMeshes.length);
             return treeData;
 
         } catch (error) {
-            console.error('Error placing tree:', error);
+            // console.error('Error placing tree:', error);
             return this.createSimpleTree(position);
         }
     }
@@ -225,11 +223,9 @@ class TreeManager {
             // Add random rotation around Y axis (vertical)
             treeParent.rotation.y = this.getRandomTreeRotation();
             
-            // Add random scale (90% to 110%) for width/depth
-            const randomScale = this.getRandomTreeScale();
-            // Add random height scale based on min/max height parameters
+            // Add random height scale based on min/max height parameters (uniform on all axes)
             const randomHeightScale = this.getRandomTreeHeightScale();
-            treeParent.scaling = new BABYLON.Vector3(randomScale, randomHeightScale, randomScale);
+            treeParent.scaling = new BABYLON.Vector3(randomHeightScale/3, randomHeightScale/3, randomHeightScale/3);
             
             // Parent meshes to tree
             trunk.setParent(treeParent);
@@ -262,13 +258,13 @@ class TreeManager {
                 this.lightingManager.addShadowCaster(leaves);
             }
 
-            console.log(`Simple tree created at position:`, position);
-            console.log(`Simple tree rotation:`, treeParent.rotation.y, 'radians');
-            console.log(`Simple tree scale:`, randomScale);
+            // console.log(`Simple tree created at position:`, position);
+            // console.log(`Simple tree rotation:`, treeParent.rotation.y, 'radians');
+            // console.log(`Simple tree uniform scale:`, randomHeightScale);
             return treeData;
             
         } catch (error) {
-            console.error('Error creating simple tree:', error);
+            // console.error('Error creating simple tree:', error);
             return null;
         }
     }
@@ -301,7 +297,7 @@ class TreeManager {
             this.trees.splice(index, 1);
         }
 
-        console.log(`Tree removed: ${tree.parent.name}`);
+        // console.log(`Tree removed: ${tree.parent.name}`);
     }
 
     /**
@@ -312,7 +308,7 @@ class TreeManager {
             this.removeTree(tree);
         });
         this.trees = [];
-        console.log('All trees cleared');
+        // console.log('All trees cleared');
     }
 
     /**
@@ -358,7 +354,22 @@ class TreeManager {
      * Get random height scale for trees based on min/max height parameters
      */
     getRandomTreeHeightScale() {
-        return this.minHeight + Math.random() * (this.maxHeight - this.minHeight);
+        // Convert to numbers to ensure proper comparison
+        const min = parseFloat(this.minHeight);
+        const max = parseFloat(this.maxHeight);
+        
+        // If min and max are equal, always return the max value
+        if (min === max) {
+            console.log(`Min and max are equal, returning:`, max);
+            return max;
+        }
+        
+        // Generate random value between min and max
+        else{
+        const h = min + Math.random() * (max - min);
+        console.log(`Random tree height scale ${min} and ${max}:`, h);
+        return h;
+        }
     }
 
     /**
@@ -370,10 +381,10 @@ class TreeManager {
             [minHeight, maxHeight] = [maxHeight, minHeight];
         }
         
-        this.minHeight = Math.max(0.1, minHeight); // Minimum 0.1
-        this.maxHeight = Math.min(3.0, maxHeight); // Maximum 3.0
+        this.minHeight =  minHeight; // Minimum 0.1
+        this.maxHeight =  maxHeight; // Maximum 3.0
         
-        console.log(`Tree height parameters updated: min=${this.minHeight}, max=${this.maxHeight}`);
+        // console.log(`Tree height parameters updated: min=${this.minHeight}, max=${this.maxHeight}`);
     }
 
     /**
@@ -390,7 +401,7 @@ class TreeManager {
      * Test tree placement - creates a simple tree at origin
      */
     testTreePlacement() {
-        console.log('Testing tree placement...');
+        // console.log('Testing tree placement...');
         this.selectedTreeType = '1';
         this.isPlacingTree = true;
         const testPosition = new BABYLON.Vector3(0, 0, 0);

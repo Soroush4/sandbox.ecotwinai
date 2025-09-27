@@ -228,6 +228,57 @@ class UIManager {
                 this.hideTreeSubmenu();
             }
         });
+
+        // Height control event listeners
+        this.setupTreeHeightControls();
+    }
+
+    /**
+     * Setup tree height controls
+     */
+    setupTreeHeightControls() {
+        const minHeightInput = document.getElementById('minHeight');
+        const maxHeightInput = document.getElementById('maxHeight');
+
+        if (minHeightInput) {
+            minHeightInput.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                
+                // Ensure min height doesn't exceed max height
+                const maxHeight = parseFloat(maxHeightInput.value);
+                if (value > maxHeight) {
+                    maxHeightInput.value = value;
+                }
+                
+                this.updateTreeHeightParameters();
+            });
+        }
+
+        if (maxHeightInput) {
+            maxHeightInput.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                
+                // Ensure max height doesn't go below min height
+                const minHeight = parseFloat(minHeightInput.value);
+                if (value < minHeight) {
+                    minHeightInput.value = value;
+                }
+                
+                this.updateTreeHeightParameters();
+            });
+        }
+    }
+
+    /**
+     * Update tree height parameters in TreeManager
+     */
+    updateTreeHeightParameters() {
+        if (!this.treeManager) return;
+
+        const minHeight = parseFloat(document.getElementById('minHeight').value);
+        const maxHeight = parseFloat(document.getElementById('maxHeight').value);
+        
+        this.treeManager.setHeightParameters(minHeight, maxHeight);
     }
 
     /**
@@ -672,6 +723,9 @@ class UIManager {
 
         // Disable camera controls during tree placement
         this.disableCameraControls();
+
+        // Initialize height parameters from UI
+        this.updateTreeHeightParameters();
 
         // Start tree placement
         this.treeManager.startTreePlacement(treeType);
@@ -1869,11 +1923,16 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Store current camera state
             this.cameraControlsDisabled = true;
             
-            // Disable camera controls
-            if (typeof this.cameraController.camera.detachControls === 'function') {
-                this.cameraController.camera.detachControls();
-            } else if (typeof this.cameraController.camera.detachControl === 'function') {
-                this.cameraController.camera.detachControl();
+            // Use CameraController's method to disable controls
+            if (typeof this.cameraController.setControlsEnabled === 'function') {
+                this.cameraController.setControlsEnabled(false);
+            } else {
+                // Fallback to direct camera control
+                if (typeof this.cameraController.camera.detachControls === 'function') {
+                    this.cameraController.camera.detachControls();
+                } else if (typeof this.cameraController.camera.detachControl === 'function') {
+                    this.cameraController.camera.detachControl();
+                }
             }
             
             console.log('Camera controls disabled for drawing');
@@ -1885,11 +1944,16 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     enableCameraControls() {
         if (this.cameraController && this.cameraController.camera && this.cameraControlsDisabled) {
-            // Re-enable camera controls
-            if (typeof this.cameraController.camera.attachControl === 'function') {
-                this.cameraController.camera.attachControl(this.sceneManager.canvas, true);
-            } else if (typeof this.cameraController.camera.attachControls === 'function') {
-                this.cameraController.camera.attachControls(this.sceneManager.canvas, true);
+            // Use CameraController's method to enable controls
+            if (typeof this.cameraController.setControlsEnabled === 'function') {
+                this.cameraController.setControlsEnabled(true);
+            } else {
+                // Fallback to direct camera control
+                if (typeof this.cameraController.camera.attachControl === 'function') {
+                    this.cameraController.camera.attachControl(this.sceneManager.canvas, true);
+                } else if (typeof this.cameraController.camera.attachControls === 'function') {
+                    this.cameraController.camera.attachControls(this.sceneManager.canvas, true);
+                }
             }
             
             this.cameraControlsDisabled = false;

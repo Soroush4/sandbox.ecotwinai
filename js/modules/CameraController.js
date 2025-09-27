@@ -377,14 +377,20 @@ class CameraController {
     setControlsEnabled(enabled) {
         if (this.camera) {
             if (enabled) {
-                if (typeof this.camera.attachControls === 'function') {
+                // Use attachControl (singular) to match the setup method
+                if (typeof this.camera.attachControl === 'function') {
+                    this.camera.attachControl(this.canvas, true);
+                } else if (typeof this.camera.attachControls === 'function') {
                     this.camera.attachControls(this.canvas, true);
                 } else {
                     this.setupManualControls();
                 }
             } else {
-                if (typeof this.camera.detachControls === 'function') {
-                    this.camera.detachControls(this.canvas);
+                // Use detachControl (singular) to match the setup method
+                if (typeof this.camera.detachControl === 'function') {
+                    this.camera.detachControl();
+                } else if (typeof this.camera.detachControls === 'function') {
+                    this.camera.detachControls();
                 }
             }
         }
