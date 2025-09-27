@@ -148,6 +148,9 @@ class MoveManager {
             });
         } else {
         }
+        
+        // Update wireframe transforms to match the moved objects
+        this.selectionManager.updateAllWireframeTransforms();
     }
 
     /**

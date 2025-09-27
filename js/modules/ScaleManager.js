@@ -193,6 +193,9 @@ class ScaleManager {
                 }
             });
         }
+        
+        // Update wireframe transforms to match the scaled objects
+        this.selectionManager.updateAllWireframeTransforms();
     }
 
     /**

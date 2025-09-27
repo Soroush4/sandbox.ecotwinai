@@ -52,13 +52,6 @@ class UIManager {
             });
         }
 
-        // Shadows toggle
-        const shadowsToggle = document.getElementById('shadowsToggle');
-        if (shadowsToggle) {
-            shadowsToggle.addEventListener('click', () => {
-                this.toggleShadows();
-            });
-        }
 
         // Reset camera button
         const resetCameraBtn = document.getElementById('resetCamera');
@@ -878,8 +871,14 @@ class UIManager {
         const menuOptions = document.querySelectorAll('.menu-option');
         menuOptions.forEach(option => {
             option.addEventListener('click', (e) => {
-                const action = e.target.getAttribute('data-action');
-                this.handleMenuAction(action);
+                // Find the closest menu-option element (in case we clicked on a child element)
+                const menuOption = e.target.closest('.menu-option');
+                if (menuOption) {
+                    const action = menuOption.getAttribute('data-action');
+                    if (action) {
+                        this.handleMenuAction(action);
+                    }
+                }
             });
         });
     }
@@ -944,7 +943,25 @@ class UIManager {
     }
 
     showAbout() {
-        alert('Eco Digital Twin Sandbox\nVersion 1.0\nPowered by Babylon.js\n\nA 3D environment for creating and visualizing digital twin models.');
+        const aboutText = `Eco Digital Twin Sandbox
+Version 1.0
+Powered by Babylon.js
+
+About EcoTwin AI
+
+We are a startup company specializing in energy consumption modeling, dedicated to reducing CO2 emissions and carbon footprint. Our mission focuses on:
+
+• Finding solutions for energy consumption optimization
+• Clean, renewable, and sustainable energy production
+• Energy democracy and accessibility
+• Urban sustainability and resilience
+• Residential, agricultural, and industrial applications
+
+This application helps you import STL building and urban models, add and edit various components to achieve your desired patterns, and prepare them for export to energy simulation software.
+
+Transform your 3D models into powerful energy analysis tools.`;
+
+        alert(aboutText);
     }
 
     /**
@@ -965,6 +982,13 @@ class UIManager {
             this.selectionManager.clearSelection();
             console.log('Clear Selection: All selections cleared');
         }
+    }
+
+    /**
+     * Delete selected objects
+     */
+    deleteSelected() {
+        this.deleteSelectedObjects();
     }
 
     /**
@@ -1033,6 +1057,7 @@ class UIManager {
             window.classList.add('show');
             overlay.classList.add('show');
             this.setupPreferencesListeners();
+            this.syncPreferencesState();
         }
     }
 
@@ -1077,13 +1102,6 @@ class UIManager {
             });
         }
 
-        // Shadows toggle
-        const shadowsToggle = document.getElementById('shadowsTogglePref');
-        if (shadowsToggle) {
-            shadowsToggle.addEventListener('click', () => {
-                this.toggleShadows();
-            });
-        }
 
         // Reset camera
         const resetCameraBtn = document.getElementById('resetCameraPref');
@@ -1111,6 +1129,19 @@ class UIManager {
 
         // Range inputs
         this.setupPreferencesRangeInputs();
+    }
+
+    /**
+     * Synchronize preferences window state with current application state
+     */
+    syncPreferencesState() {
+        // Sync grid toggle state
+        const gridTogglePref = document.getElementById('gridTogglePref');
+        if (gridTogglePref) {
+            const isGridVisible = this.gridManager.isGridVisible();
+            gridTogglePref.classList.toggle('active', isGridVisible);
+        }
+
     }
 
     /**
@@ -1287,23 +1318,17 @@ class UIManager {
     toggleGrid() {
         const isVisible = this.gridManager.toggle();
         const gridToggle = document.getElementById('gridToggle');
+        const gridTogglePref = document.getElementById('gridTogglePref');
         
         if (gridToggle) {
             gridToggle.classList.toggle('active', isVisible);
         }
-    }
-
-    /**
-     * Toggle shadows
-     */
-    toggleShadows() {
-        const isEnabled = this.lightingManager.toggleShadows();
-        const shadowsToggle = document.getElementById('shadowsToggle');
         
-        if (shadowsToggle) {
-            shadowsToggle.classList.toggle('active', isEnabled);
+        if (gridTogglePref) {
+            gridTogglePref.classList.toggle('active', isVisible);
         }
     }
+
 
     /**
      * Reset camera
@@ -3733,10 +3758,28 @@ class UIManager {
         // Delete each selected object
         selectedObjects.forEach(obj => {
             if (obj && obj.dispose) {
+                // Check if it's a tree
+                if (this.treeManager && this.isTree(obj)) {
+                    // Find the tree object in the tree manager
+                    const tree = this.treeManager.trees.find(t => t.parent === obj);
+                    if (tree) {
+                        this.treeManager.removeTree(tree);
+                    } else {
+                        // Fallback: just dispose the object
+                        obj.dispose();
+                    }
+                }
                 // Check if it's a 2D shape
-                if (this.shape2DManager && this.is2DShape(obj)) {
+                else if (this.shape2DManager && this.is2DShape(obj)) {
                     this.shape2DManager.removeShape(obj);
-                } else {
+                } 
+                // Check if it's a polygon
+                else if (this.polygonManager && this.isPolygon(obj)) {
+                    // For now, just dispose the polygon object
+                    // TODO: Add proper polygon removal method to PolygonManager
+                    obj.dispose();
+                }
+                else {
                     // It's a 3D building or other object
                     obj.dispose();
                 }
@@ -3757,6 +3800,26 @@ class UIManager {
         
         const shapeNames = ['rectangle', 'circle', 'triangle', 'text', 'polyline', 'line', 'polygon'];
         return shapeNames.some(name => obj.name.includes(name));
+    }
+
+    /**
+     * Check if object is a tree
+     */
+    isTree(obj) {
+        if (!obj || !obj.name) return false;
+        
+        return obj.name.startsWith('tree_') || 
+               obj.name.includes('_tree_') || 
+               obj.name.startsWith('simple_tree_');
+    }
+
+    /**
+     * Check if object is a polygon
+     */
+    isPolygon(obj) {
+        if (!obj || !obj.name) return false;
+        
+        return obj.name.includes('polygon');
     }
 
     /**

@@ -66,7 +66,7 @@ body {
     border: 1px solid rgba(0, 0, 0, 0.15);
     border-radius: 4px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    min-width: 180px;
+    min-width: 200px;
     opacity: 0;
     visibility: hidden;
     transform: translateY(-10px);
@@ -87,6 +87,10 @@ body {
     color: #333;
     transition: background-color 0.2s ease;
     user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    white-space: nowrap;
 }
 
 .menu-option:hover {
@@ -101,11 +105,16 @@ body {
     border-radius: 0 0 4px 4px;
 }
 
+.menu-option .menu-text {
+    flex: 1;
+}
+
 .menu-option .shortcut {
-    float: right;
     color: #999;
     font-size: 12px;
-    margin-left: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .menu-separator {
@@ -788,6 +797,70 @@ input[type="range"]::-moz-range-thumb {
 
 .tree-option.active .tree-icon {
     filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%);
+}
+
+/* Tree Height Controls */
+.tree-height-controls {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.height-control-group {
+    display: flex;
+    align-items: center;
+    margin-bottom: 6px;
+    gap: 6px;
+}
+
+.height-control-group:last-child {
+    margin-bottom: 0;
+}
+
+.height-control-group label {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.8);
+    min-width: 60px;
+    text-align: right;
+}
+
+.height-control-group input[type="range"] {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.height-control-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #3498db;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.height-control-group input[type="range"]::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: #3498db;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.height-control-group span {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.9);
+    min-width: 30px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
 }
 
 /* Transform Tools Panel Styles */

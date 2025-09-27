@@ -678,6 +678,32 @@ class SelectionManager {
         console.log(`Highlight removed from ${mesh.name}`);
     }
 
+    /**
+     * Update wireframe transforms to match the original mesh
+     */
+    updateWireframeTransforms(mesh) {
+        if (!mesh || !mesh.wireframeClone) {
+            return;
+        }
+        
+        // Update position, rotation, and scaling to match the original mesh
+        mesh.wireframeClone.position = mesh.position.clone();
+        mesh.wireframeClone.rotation = mesh.rotation.clone();
+        mesh.wireframeClone.scaling = mesh.scaling.clone();
+        
+        // Make the wireframe clone slightly larger to ensure it's visible
+        mesh.wireframeClone.scaling = mesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
+    }
+
+    /**
+     * Update wireframe transforms for all selected objects
+     */
+    updateAllWireframeTransforms() {
+        this.selectedObjects.forEach(mesh => {
+            this.updateWireframeTransforms(mesh);
+        });
+    }
+
 
     /**
      * Get currently selected objects

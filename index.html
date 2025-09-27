@@ -36,8 +36,14 @@
                     <div class="menu-option" data-action="undo">Undo</div>
                     <div class="menu-option" data-action="redo">Redo</div>
                     <div class="menu-separator"></div>
-                    <div class="menu-option" data-action="select-all">Select All <span class="shortcut">Shift+A</span></div>
-                    <div class="menu-option" data-action="clear-selection">Clear Selection <span class="shortcut">Shift+D</span></div>
+                    <div class="menu-option" data-action="select-all">
+                        <span class="menu-text">Select All</span>
+                        <span class="shortcut">Shift+A</span>
+                    </div>
+                    <div class="menu-option" data-action="clear-selection">
+                        <span class="menu-text">Clear Selection</span>
+                        <span class="shortcut">Shift+D</span>
+                    </div>
                     <div class="menu-separator"></div>
                     <div class="menu-option" data-action="delete-selected">Delete Selected</div>
                 </div>
@@ -71,17 +77,31 @@
                 </div>
             </div>
             <div class="tree-submenu" id="treeSubmenu" style="display: none;">
-                <div class="tree-option" data-tree-type="1" title="Tree Type 1">
-                    <img src="icons/tree1.svg" alt="Tree 1" class="tree-icon">
+                <div class="tree-options">
+                    <div class="tree-option" data-tree-type="1" title="Tree Type 1">
+                        <img src="icons/tree1.svg" alt="Tree 1" class="tree-icon">
+                    </div>
+                    <div class="tree-option" data-tree-type="2" title="Tree Type 2">
+                        <img src="icons/tree2.svg" alt="Tree 2" class="tree-icon">
+                    </div>
+                    <div class="tree-option" data-tree-type="3" title="Tree Type 3">
+                        <img src="icons/tree3.svg" alt="Tree 3" class="tree-icon">
+                    </div>
+                    <div class="tree-option" data-tree-type="4" title="Tree Type 4">
+                        <img src="icons/tree4.svg" alt="Tree 4" class="tree-icon">
+                    </div>
                 </div>
-                <div class="tree-option" data-tree-type="2" title="Tree Type 2">
-                    <img src="icons/tree2.svg" alt="Tree 2" class="tree-icon">
-                </div>
-                <div class="tree-option" data-tree-type="3" title="Tree Type 3">
-                    <img src="icons/tree3.svg" alt="Tree 3" class="tree-icon">
-                </div>
-                <div class="tree-option" data-tree-type="4" title="Tree Type 4">
-                    <img src="icons/tree4.svg" alt="Tree 4" class="tree-icon">
+                <div class="tree-height-controls">
+                    <div class="height-control-group">
+                        <label for="minHeight">حداقل ارتفاع:</label>
+                        <input type="range" id="minHeight" min="0.5" max="2.0" step="0.1" value="0.8">
+                        <span id="minHeightValue">0.8</span>
+                    </div>
+                    <div class="height-control-group">
+                        <label for="maxHeight">حداکثر ارتفاع:</label>
+                        <input type="range" id="maxHeight" min="0.5" max="2.0" step="0.1" value="1.2">
+                        <span id="maxHeightValue">1.2</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -118,14 +138,6 @@
                         <button id="gridToggle" class="toggle-btn active">
                             <svg class="icon" viewBox="0 0 24 24">
                                 <use href="icons/grid.svg#icon"></use>
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="control-group">
-                        <label for="shadowsToggle">Shadows</label>
-                        <button id="shadowsToggle" class="toggle-btn active">
-                            <svg class="icon" viewBox="0 0 24 24">
-                                <use href="icons/shadow.svg#icon"></use>
                             </svg>
                         </button>
                     </div>
@@ -192,17 +204,6 @@
                 <div class="control-group">
                     <label for="gridTogglePref">Show Grid</label>
                     <button id="gridTogglePref" class="toggle-btn active">
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <use href="icons/grid.svg#icon"></use>
-                        </svg>
-                    </button>
-                </div>
-                <div class="control-group">
-                    <label for="shadowsTogglePref">Shadows</label>
-                    <button id="shadowsTogglePref" class="toggle-btn active">
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <use href="icons/shadow.svg#icon"></use>
-                        </svg>
                     </button>
                 </div>
             </div>

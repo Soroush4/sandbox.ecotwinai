@@ -12,6 +12,10 @@ class TreeManager {
         this.selectedTreeType = null;
         this.treeCounter = 0;
         
+        // Height parameters for random tree scaling
+        this.minHeight = 0.8;
+        this.maxHeight = 1.2;
+        
         this.init();
     }
 
@@ -129,9 +133,11 @@ class TreeManager {
             // Add random rotation around Y axis (vertical)
             treeParent.rotation.y = this.getRandomTreeRotation();
             
-            // Add random scale (90% to 110%)
+            // Add random scale (90% to 110%) for width/depth
             const randomScale = this.getRandomTreeScale();
-            treeParent.scaling = new BABYLON.Vector3(randomScale, randomScale, randomScale);
+            // Add random height scale based on min/max height parameters
+            const randomHeightScale = this.getRandomTreeHeightScale();
+            treeParent.scaling = new BABYLON.Vector3(randomScale, randomHeightScale, randomScale);
 
             // Store tree reference
             const treeData = {
@@ -219,9 +225,11 @@ class TreeManager {
             // Add random rotation around Y axis (vertical)
             treeParent.rotation.y = this.getRandomTreeRotation();
             
-            // Add random scale (90% to 110%)
+            // Add random scale (90% to 110%) for width/depth
             const randomScale = this.getRandomTreeScale();
-            treeParent.scaling = new BABYLON.Vector3(randomScale, randomScale, randomScale);
+            // Add random height scale based on min/max height parameters
+            const randomHeightScale = this.getRandomTreeHeightScale();
+            treeParent.scaling = new BABYLON.Vector3(randomScale, randomHeightScale, randomScale);
             
             // Parent meshes to tree
             trunk.setParent(treeParent);
@@ -344,6 +352,38 @@ class TreeManager {
      */
     getRandomTreeScale() {
         return 0.9 + Math.random() * 0.2; // 0.9 to 1.1 (90% to 110%)
+    }
+
+    /**
+     * Get random height scale for trees based on min/max height parameters
+     */
+    getRandomTreeHeightScale() {
+        return this.minHeight + Math.random() * (this.maxHeight - this.minHeight);
+    }
+
+    /**
+     * Set height parameters for tree generation
+     */
+    setHeightParameters(minHeight, maxHeight) {
+        // Ensure minHeight is not greater than maxHeight
+        if (minHeight > maxHeight) {
+            [minHeight, maxHeight] = [maxHeight, minHeight];
+        }
+        
+        this.minHeight = Math.max(0.1, minHeight); // Minimum 0.1
+        this.maxHeight = Math.min(3.0, maxHeight); // Maximum 3.0
+        
+        console.log(`Tree height parameters updated: min=${this.minHeight}, max=${this.maxHeight}`);
+    }
+
+    /**
+     * Get current height parameters
+     */
+    getHeightParameters() {
+        return {
+            minHeight: this.minHeight,
+            maxHeight: this.maxHeight
+        };
     }
 
     /**

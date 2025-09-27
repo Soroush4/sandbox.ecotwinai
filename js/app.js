@@ -369,6 +369,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
+    window.testDeleteSelected = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('Testing delete selected functionality...');
+            const selectionCount = window.digitalTwinApp.selectionManager.getSelectionCount();
+            console.log(`Currently selected objects: ${selectionCount}`);
+            
+            if (selectionCount > 0) {
+                console.log('Selected objects:', window.digitalTwinApp.selectionManager.getSelectedObjects().map(obj => obj.name));
+                window.digitalTwinApp.uiManager.deleteSelected();
+                console.log('Delete command executed');
+            } else {
+                console.log('No objects selected. Use select tool to select objects first.');
+            }
+            
+            return `Delete test completed. Selected objects: ${selectionCount}`;
+        }
+    };
+    
+    window.testMenuActions = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('Testing menu actions...');
+            
+            // Test Select All
+            console.log('Testing Select All...');
+            window.digitalTwinApp.uiManager.selectAll();
+            const afterSelectAll = window.digitalTwinApp.selectionManager.getSelectionCount();
+            console.log(`After Select All: ${afterSelectAll} objects selected`);
+            
+            // Test Clear Selection
+            console.log('Testing Clear Selection...');
+            window.digitalTwinApp.uiManager.clearSelection();
+            const afterClear = window.digitalTwinApp.selectionManager.getSelectionCount();
+            console.log(`After Clear Selection: ${afterClear} objects selected`);
+            
+            return `Menu actions test completed: ${afterSelectAll} -> ${afterClear} objects`;
+        }
+    };
+    
+    window.testKeyboardShortcuts = () => {
+        console.log('Testing keyboard shortcuts...');
+        console.log('Try pressing:');
+        console.log('- Shift+A for Select All');
+        console.log('- Shift+D for Clear Selection');
+        console.log('- Delete key for Delete Selected');
+        console.log('Check console for trigger messages');
+        return 'Keyboard shortcuts test ready - try the shortcuts above';
+    };
+    
     window.setPolygonSnapDistance = (distance) => {
         if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
             return window.digitalTwinApp.polygonManager.setSnapDistance(distance);
@@ -418,6 +466,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.digitalTwinApp && window.digitalTwinApp.selectionManager) {
             const cleanedCount = window.digitalTwinApp.selectionManager.forceCleanupAllWireframes();
             return `Force cleanup completed: ${cleanedCount} wireframe meshes disposed`;
+        }
+    };
+    
+    window.testPreferences = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing Preferences Functionality ===');
+            
+            // Test 1: Open preferences window
+            console.log('1. Opening preferences window...');
+            window.digitalTwinApp.uiManager.showPreferencesWindow();
+            
+            // Test 2: Check initial state
+            const gridVisible = window.digitalTwinApp.gridManager.isGridVisible();
+            console.log(`2. Initial state - Grid visible: ${gridVisible}`);
+            
+            // Test 3: Toggle grid
+            console.log('3. Testing grid toggle...');
+            window.digitalTwinApp.uiManager.toggleGrid();
+            const gridVisibleAfter = window.digitalTwinApp.gridManager.isGridVisible();
+            console.log(`   Grid visible after toggle: ${gridVisibleAfter}`);
+            
+            // Test 4: Check UI button states
+            const gridTogglePref = document.getElementById('gridTogglePref');
+            console.log(`4. UI button states - Grid toggle active: ${gridTogglePref?.classList.contains('active')}`);
+            
+            return `Preferences test completed. Grid: ${gridVisibleAfter}`;
         }
     };
     

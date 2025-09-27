@@ -89,7 +89,22 @@ class LightingManager {
         this.shadowsEnabled = !this.shadowsEnabled;
         
         if (this.shadowGenerator) {
-            this.shadowGenerator.setDarkness(this.shadowsEnabled ? 0.3 : 0);
+            if (this.shadowsEnabled) {
+                // Enable shadows
+                this.shadowGenerator.setDarkness(0.3);
+                this.shadowGenerator.useBlurExponentialShadowMap = true;
+                this.shadowGenerator.useKernelBlur = true;
+                this.shadowGenerator.blurKernel = 32;
+                // Re-enable shadow receiving on all meshes
+                this.enableShadowReceivingOnAllMeshes();
+            } else {
+                // Disable shadows completely
+                this.shadowGenerator.setDarkness(0);
+                this.shadowGenerator.useBlurExponentialShadowMap = false;
+                this.shadowGenerator.useKernelBlur = false;
+                // Disable shadow receiving on all meshes
+                this.disableShadowReceivingOnAllMeshes();
+            }
         }
         
         return this.shadowsEnabled;
@@ -102,6 +117,11 @@ class LightingManager {
         this.shadowsEnabled = true;
         if (this.shadowGenerator) {
             this.shadowGenerator.setDarkness(0.3);
+            this.shadowGenerator.useBlurExponentialShadowMap = true;
+            this.shadowGenerator.useKernelBlur = true;
+            this.shadowGenerator.blurKernel = 32;
+            // Re-enable shadow receiving on all meshes
+            this.enableShadowReceivingOnAllMeshes();
         }
     }
 
@@ -112,6 +132,43 @@ class LightingManager {
         this.shadowsEnabled = false;
         if (this.shadowGenerator) {
             this.shadowGenerator.setDarkness(0);
+            this.shadowGenerator.useBlurExponentialShadowMap = false;
+            this.shadowGenerator.useKernelBlur = false;
+            // Disable shadow receiving on all meshes
+            this.disableShadowReceivingOnAllMeshes();
+        }
+    }
+
+    /**
+     * Check if shadows are enabled
+     */
+    areShadowsEnabled() {
+        return this.shadowsEnabled;
+    }
+
+    /**
+     * Enable shadow receiving on all meshes in the scene
+     */
+    enableShadowReceivingOnAllMeshes() {
+        if (this.scene) {
+            this.scene.meshes.forEach(mesh => {
+                if (mesh.name !== 'ground' && mesh.name !== '__root__') {
+                    mesh.receiveShadows = true;
+                }
+            });
+        }
+    }
+
+    /**
+     * Disable shadow receiving on all meshes in the scene
+     */
+    disableShadowReceivingOnAllMeshes() {
+        if (this.scene) {
+            this.scene.meshes.forEach(mesh => {
+                if (mesh.name !== 'ground' && mesh.name !== '__root__') {
+                    mesh.receiveShadows = false;
+                }
+            });
         }
     }
 

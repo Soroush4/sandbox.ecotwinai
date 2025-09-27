@@ -172,6 +172,9 @@ class RotateManager {
                 }
             });
         }
+        
+        // Update wireframe transforms to match the rotated objects
+        this.selectionManager.updateAllWireframeTransforms();
     }
 
     /**
