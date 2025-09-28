@@ -149,6 +149,9 @@ class UIManager {
         // Deactivate tree placement when switching to transform tools
         this.deactivateTreePlacement();
         
+        // Re-enable camera controls when switching to transform tools
+        this.enableCameraControls();
+        
         // Deactivate polygon drawing when switching to transform tools
         this.stopPolygonDrawing();
 
@@ -189,6 +192,12 @@ class UIManager {
             tool.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const toolName = tool.getAttribute('data-tool');
+                
+                // Skip tree tool - it has its own specific handler
+                if (toolName === 'tree') {
+                    return;
+                }
+                
                 this.selectDrawingTool(toolName);
             });
         });
@@ -203,6 +212,7 @@ class UIManager {
         if (treeTool) {
             treeTool.addEventListener('click', (e) => {
                 e.stopPropagation();
+                e.preventDefault(); // Prevent default behavior
                 this.toggleTreeSubmenu();
             });
         }
@@ -239,6 +249,7 @@ class UIManager {
     setupTreeHeightControls() {
         const minHeightInput = document.getElementById('minHeight');
         const maxHeightInput = document.getElementById('maxHeight');
+        const treeDistanceInput = document.getElementById('treeDistance');
 
         if (minHeightInput) {
             minHeightInput.addEventListener('input', (e) => {
@@ -267,6 +278,13 @@ class UIManager {
                 this.updateTreeHeightParameters();
             });
         }
+
+        if (treeDistanceInput) {
+            treeDistanceInput.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.updateTreeDistanceParameter(value);
+            });
+        }
     }
 
     /**
@@ -282,12 +300,23 @@ class UIManager {
     }
 
     /**
+     * Update tree distance parameter in TreeManager
+     */
+    updateTreeDistanceParameter(distance) {
+        if (!this.treeManager) return;
+        
+        this.treeManager.setTreeDistance(distance);
+    }
+
+    /**
      * Select drawing tool
      */
     selectDrawingTool(toolName) {
         // Deactivate tree placement when switching to other drawing tools
         if (toolName !== 'tree') {
             this.deactivateTreePlacement();
+            // Re-enable camera controls when switching away from tree tool
+            this.enableCameraControls();
         }
         
         // Deactivate polygon drawing when switching to other drawing tools
@@ -726,6 +755,12 @@ class UIManager {
 
         // Initialize height parameters from UI
         this.updateTreeHeightParameters();
+        
+        // Initialize distance parameter from UI
+        const distanceInput = document.getElementById('treeDistance');
+        if (distanceInput) {
+            this.updateTreeDistanceParameter(parseFloat(distanceInput.value));
+        }
 
         // Start tree placement
         this.treeManager.startTreePlacement(treeType);
@@ -750,8 +785,8 @@ class UIManager {
         // Hide tree submenu
         this.hideTreeSubmenu();
 
-        // Re-enable camera controls
-        this.enableCameraControls();
+        // Note: Camera controls are NOT re-enabled here
+        // They will be re-enabled only when another tool is selected
 
         // Reset drag variables (they will be reset in the next mouse event)
         console.log('Tree placement mode deactivated');
@@ -1628,7 +1663,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         let isDragging = false;
         let lastTreePosition = null;
         let treePlacementInterval = null;
-        const TREE_PLACEMENT_DISTANCE = 2; // Minimum distance between trees in units
+        // Dynamic tree placement distance will be retrieved from TreeManager
 
         // Helper function to check if point is on ground
         const isPointOnGround = (x, y) => {
@@ -1744,11 +1779,16 @@ Transform your 3D models into powerful energy analysis tools.`;
                     });
                     const point = pickResult.pickedPoint;
                     
-                    // Check if we should place a new tree (minimum distance)
-                    if (lastTreePosition && BABYLON.Vector3.Distance(point, lastTreePosition) > TREE_PLACEMENT_DISTANCE) {
-                        this.treeManager.placeTree(point);
-                        lastTreePosition = point.clone();
-                        isDragging = true;
+                    // Check if we should place a new tree (minimum distance with random variation)
+                    if (lastTreePosition) {
+                        const currentDistance = BABYLON.Vector3.Distance(point, lastTreePosition);
+                        const requiredDistance = this.treeManager.getRandomTreeDistance();
+                        
+                        if (currentDistance > requiredDistance) {
+                            this.treeManager.placeTree(point);
+                            lastTreePosition = point.clone();
+                            isDragging = true;
+                        }
                     }
                 } else {
                     // If not on ground (on building), don't place trees during drag

@@ -16,6 +16,9 @@ class TreeManager {
         this.minHeight = 5;
         this.maxHeight = 10;
         
+        // Distance parameter for tree placement
+        this.treeDistance = 2;
+        
         this.init();
     }
 
@@ -395,6 +398,29 @@ class TreeManager {
             minHeight: this.minHeight,
             maxHeight: this.maxHeight
         };
+    }
+
+    /**
+     * Get random distance with ±10% variation
+     */
+    getRandomTreeDistance() {
+        const variation = this.treeDistance * 0.1; // 10% variation
+        return this.treeDistance + (Math.random() - 0.5) * 2 * variation;
+    }
+
+    /**
+     * Set tree distance parameter
+     */
+    setTreeDistance(distance) {
+        this.treeDistance = Math.max(0.1, Math.min(50, distance)); // Clamp between 0.1 and 50
+        console.log(`Tree distance parameter updated: ${this.treeDistance}`);
+    }
+
+    /**
+     * Get current tree distance
+     */
+    getTreeDistance() {
+        return this.treeDistance;
     }
 
     /**

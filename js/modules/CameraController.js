@@ -167,6 +167,11 @@ class CameraController {
         
         // Pointer down event
         this.canvas.addEventListener('pointerdown', (event) => {
+            // Don't allow camera interaction if tree placement is active
+            if (this.isTreePlacementActive()) {
+                return; // Don't allow camera interaction when tree placement is active
+            }
+
             event.preventDefault();
             event.stopPropagation();
             
@@ -185,6 +190,11 @@ class CameraController {
         // Pointer move event
         this.canvas.addEventListener('pointermove', (event) => {
             if (isPointerDown) {
+                // Don't allow camera movement if tree placement is active
+                if (this.isTreePlacementActive()) {
+                    return; // Don't allow camera movement when tree placement is active
+                }
+
                 const deltaX = event.clientX - lastPointerX;
                 const deltaY = event.clientY - lastPointerY;
                 
@@ -244,6 +254,11 @@ class CameraController {
             // Check if camera controls are disabled (e.g., during tree placement)
             if (this.cameraControlsDisabled) {
                 return; // Don't allow camera rotation when controls are disabled
+            }
+
+            // Check if tree placement is currently active
+            if (this.isTreePlacementActive()) {
+                return; // Don't allow camera rotation when tree placement is active
             }
 
             switch (event.key.toLowerCase()) {
@@ -375,6 +390,17 @@ class CameraController {
                 this.camera.wheelDeltaPercentage = zoom;
             }
         }
+    }
+
+    /**
+     * Check if tree placement is currently active
+     */
+    isTreePlacementActive() {
+        // Check if tree manager is currently placing trees
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            return window.digitalTwinApp.treeManager.isCurrentlyPlacing();
+        }
+        return false;
     }
 
     /**

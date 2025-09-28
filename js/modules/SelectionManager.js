@@ -623,6 +623,12 @@ class SelectionManager {
             return;
         }
         
+        // Handle TransformNodes (like tree parents) by creating wireframes for their children
+        if (mesh instanceof BABYLON.TransformNode) {
+            this.highlightTransformNode(mesh);
+            return;
+        }
+        
         // Store current material as original
         this.originalMaterials.set(mesh, mesh.material);
 
@@ -646,6 +652,57 @@ class SelectionManager {
     }
 
     /**
+     * Highlight a TransformNode by creating wireframes for its child meshes
+     */
+    highlightTransformNode(transformNode) {
+        if (!transformNode || !transformNode.getChildMeshes) {
+            console.warn('Cannot highlight TransformNode: invalid object');
+            return;
+        }
+        
+        // Get all child meshes
+        const childMeshes = transformNode.getChildMeshes();
+        if (childMeshes.length === 0) {
+            console.warn(`TransformNode ${transformNode.name} has no child meshes to highlight`);
+            return;
+        }
+        
+        // Create wireframes for all child meshes
+        const wireframeClones = [];
+        childMeshes.forEach(childMesh => {
+            if (childMesh instanceof BABYLON.Mesh) {
+                // Store original material
+                this.originalMaterials.set(childMesh, childMesh.material);
+                
+                // Create wireframe clone
+                const wireframeClone = childMesh.clone(`${childMesh.name}_edge_wireframe`);
+                
+                // Apply wireframe material
+                const edgeWireframeMaterial = this.edgeWireframeMaterial.clone(`edge_wireframe_${childMesh.name}`);
+                wireframeClone.material = edgeWireframeMaterial;
+                
+                // Set rendering group
+                wireframeClone.renderingGroupId = childMesh.renderingGroupId + 1;
+                
+                // Make slightly larger
+                wireframeClone.scaling = childMesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
+                
+                // Parent to the TransformNode to inherit its transforms
+                wireframeClone.setParent(transformNode);
+                
+                // Store reference
+                childMesh.wireframeClone = wireframeClone;
+                wireframeClones.push(wireframeClone);
+            }
+        });
+        
+        // Store all wireframe clones on the TransformNode for cleanup
+        transformNode.wireframeClones = wireframeClones;
+        
+        console.log(`Created wireframes for TransformNode ${transformNode.name} with ${wireframeClones.length} child meshes`);
+    }
+
+    /**
      * Remove highlight from an object
      */
     removeHighlight(mesh) {
@@ -655,6 +712,27 @@ class SelectionManager {
         }
         
         console.log(`Removing highlight from ${mesh.name}`);
+        
+        // Handle TransformNodes (like tree parents)
+        if (mesh instanceof BABYLON.TransformNode && mesh.wireframeClones) {
+            console.log(`Removing wireframes for TransformNode ${mesh.name}`);
+            mesh.wireframeClones.forEach(wireframeClone => {
+                if (wireframeClone.material) {
+                    wireframeClone.material.dispose();
+                }
+                wireframeClone.dispose();
+            });
+            mesh.wireframeClones = null;
+            
+            // Also remove wireframe references from child meshes
+            const childMeshes = mesh.getChildMeshes();
+            childMeshes.forEach(childMesh => {
+                if (childMesh.wireframeClone) {
+                    childMesh.wireframeClone = null;
+                }
+            });
+            return;
+        }
         
         // Remove wireframe clone if it exists
         if (mesh.wireframeClone) {
