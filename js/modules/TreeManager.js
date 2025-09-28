@@ -151,6 +151,9 @@ class TreeManager {
                 this.selectionManager.addSelectableObject(treeParent);
             }
 
+            // Dispatch scene change event
+            this.dispatchSceneChangeEvent();
+
             // Add tree to shadow system
             if (this.lightingManager) {
                 clonedMeshes.forEach(mesh => {
@@ -426,6 +429,18 @@ class TreeManager {
         this.isPlacingTree = false;
         this.selectedTreeType = null;
         return result;
+    }
+
+    /**
+     * Dispatch scene change event
+     */
+    dispatchSceneChangeEvent() {
+        const event = new CustomEvent('sceneChanged', {
+            detail: {
+                trees: this.trees
+            }
+        });
+        window.dispatchEvent(event);
     }
 
     /**

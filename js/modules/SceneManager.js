@@ -51,7 +51,7 @@ class SceneManager {
      */
     createGround() {
         // Create ground mesh
-        this.ground = BABYLON.MeshBuilder.CreateGround("ground", {
+        this.ground = BABYLON.MeshBuilder.CreateGround("earth", {
             width: 100,
             height: 100,
             subdivisions: 50
@@ -117,6 +117,9 @@ class SceneManager {
         if (building && building.mesh) {
             this.buildings.push(building);
             this.scene.addMesh(building.mesh);
+            
+            // Dispatch scene change event
+            this.dispatchSceneChangeEvent();
         }
     }
 
@@ -131,6 +134,9 @@ class SceneManager {
             }
         });
         this.buildings = [];
+        
+        // Dispatch scene change event
+        this.dispatchSceneChangeEvent();
     }
 
     /**
@@ -182,5 +188,18 @@ class SceneManager {
      */
     getBuildings() {
         return this.buildings;
+    }
+
+    /**
+     * Dispatch scene change event
+     */
+    dispatchSceneChangeEvent() {
+        const event = new CustomEvent('sceneChanged', {
+            detail: {
+                scene: this.scene,
+                buildings: this.buildings
+            }
+        });
+        window.dispatchEvent(event);
     }
 }

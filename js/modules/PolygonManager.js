@@ -25,8 +25,8 @@ class PolygonManager {
         this.polygonMaterial = new BABYLON.StandardMaterial("polygonMaterial", this.scene);
         this.polygonMaterial.diffuseColor = new BABYLON.Color3(0.545, 0.271, 0.075); // Brown color for ground (default)
         this.polygonMaterial.backFaceCulling = false; // Make it 2-sided
-        this.polygonMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Low specular for 3D model
-        this.polygonMaterial.roughness = 0.8; // Slightly rough surface
+        this.polygonMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Normal specular
+        this.polygonMaterial.roughness = 0.8; // Normal roughness
         this.polygonMaterial.metallic = 0.0; // Non-metallic
         
         // Material for preview
@@ -398,6 +398,57 @@ class PolygonManager {
         mesh.position.y = height;
         
         return mesh;
+    }
+
+    /**
+     * Remove bottom faces from mesh to prevent Z-fighting
+     */
+    removeBottomFaces(mesh) {
+        if (!mesh.geometry || !mesh.geometry.indices) return;
+        
+        const indices = mesh.geometry.indices;
+        const positions = mesh.geometry.positions;
+        const newIndices = [];
+        
+        // Find the minimum Y coordinate (bottom of the mesh)
+        let minY = Infinity;
+        for (let i = 1; i < positions.length; i += 3) {
+            minY = Math.min(minY, positions[i]);
+        }
+        
+        console.log(`Mesh minY: ${minY}, scaling.y: ${mesh.scaling.y}`);
+        
+        // Filter out triangles that are on the bottom face
+        for (let i = 0; i < indices.length; i += 3) {
+            const i1 = indices[i] * 3;
+            const i2 = indices[i + 1] * 3;
+            const i3 = indices[i + 2] * 3;
+            
+            const y1 = positions[i1 + 1];
+            const y2 = positions[i2 + 1];
+            const y3 = positions[i3 + 1];
+            
+            // Check if all three vertices are on the bottom face
+            const tolerance = 0.001;
+            const isBottomFace = Math.abs(y1 - minY) < tolerance && 
+                                Math.abs(y2 - minY) < tolerance && 
+                                Math.abs(y3 - minY) < tolerance;
+            
+            // Keep only non-bottom faces
+            if (!isBottomFace) {
+                newIndices.push(indices[i], indices[i + 1], indices[i + 2]);
+            } else {
+                console.log(`Removing bottom face with Y coordinates: ${y1}, ${y2}, ${y3}`);
+            }
+        }
+        
+        console.log(`Original indices: ${indices.length}, New indices: ${newIndices.length}`);
+        
+        // Update mesh indices
+        mesh.setIndices(newIndices);
+        
+        // Force mesh update
+        mesh.refreshBoundingInfo();
     }
 
     /**
@@ -1141,9 +1192,9 @@ class PolygonManager {
         const center = this.calculateCenter();
         const relativePoints = this.points.map(point => point.subtract(center));
         
-        // Create 3D polygon directly with initial height 0.05
+        // Create 3D polygon directly with initial height 0.1
         const polygonName = 'polygon_' + Date.now();
-        this.currentPolygon = this.create3DPolygonWithHeight(relativePoints, polygonName, 0.05);
+        this.currentPolygon = this.create3DPolygonWithHeight(relativePoints, polygonName, 0.1);
         this.currentPolygon.material = this.polygonMaterial;
         this.currentPolygon.renderingGroupId = 1;
         this.currentPolygon.receiveShadows = true;
@@ -1160,8 +1211,8 @@ class PolygonManager {
             shapeType: 'polygon',
             dimensions: dimensions,
             points: this.points.map(p => p.clone()),
-            originalHeight: 0.05, // Initial height
-            currentHeight: 0.05, // Current height (will change based on type)
+            originalHeight: 0.1, // Initial height
+            currentHeight: 0.1, // Current height (will change based on type)
             is3D: true
         };
         

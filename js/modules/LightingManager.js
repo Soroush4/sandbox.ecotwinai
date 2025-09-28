@@ -427,7 +427,7 @@ class LightingManager {
                         }
                     } else {
                         // Object shadows disabled - objects cast shadows on ground, but don't receive shadows
-                        if (mesh.name === 'ground') {
+                        if (mesh.name === 'earth') {
                             mesh.receiveShadows = true;
                         } else {
                             mesh.receiveShadows = false;
@@ -764,7 +764,7 @@ class LightingManager {
                     shadowReceivers++;
                 } else {
                     // Object shadows disabled - objects cast shadows on ground, but don't receive shadows
-                    if (mesh.name === 'ground') {
+                    if (mesh.name === 'earth') {
                         mesh.receiveShadows = true;
                         shadowReceivers++;
                         // Ground doesn't cast shadows
@@ -792,7 +792,7 @@ class LightingManager {
                 this.shadowGenerator.addShadowCaster(mesh, true);
             } else {
                 // Object shadows disabled - objects cast shadows on ground, but don't receive shadows
-                if (mesh.name === 'ground') {
+                if (mesh.name === 'earth') {
                     mesh.receiveShadows = true;
                     // Ground doesn't cast shadows
                 } else {

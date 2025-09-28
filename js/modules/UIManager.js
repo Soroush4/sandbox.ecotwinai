@@ -17,6 +17,7 @@ class UIManager {
         this.polygonManager = polygonManager;
         this.rectangleManager = rectangleManager;
         this.circleManager = circleManager;
+        this.objectListManager = null;
         
         this.isInitialized = false;
         this.statsInterval = null;
@@ -36,6 +37,7 @@ class UIManager {
         this.setupTreeEventListeners();
         this.startStatsUpdate();
         this.updateCoordinateToggleUI(); // Initialize coordinate toggle UI
+        this.initializeObjectListManager();
         this.isInitialized = true;
     }
 
@@ -124,6 +126,10 @@ class UIManager {
                     console.log('Showing regular properties popup');
                     this.showPropertiesPopup(selectedObject);
                 }
+            } else if (count > 1) {
+                // Hide properties popup when multiple objects are selected
+                console.log(`Multiple objects selected (${count}), hiding properties popup`);
+                this.hidePropertiesPopup();
             }
         } else {
             this.hideSelectionInfo();
@@ -1090,6 +1096,9 @@ class UIManager {
                 break;
             case 'about':
                 this.showAbout();
+                break;
+            case 'toggle-object-list':
+                this.toggleObjectList();
                 break;
             default:
         }
@@ -2290,9 +2299,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Helper function to check if point is on ground
         const isPointOnGround = (x, y) => {
             const pickResult = this.sceneManager.getScene().pick(x, y, (mesh) => {
-                return mesh.name === 'ground';
+                return mesh.name === 'earth';
             });
-            return pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground';
+            return pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth';
         };
 
         // Helper function to get what mesh is under the mouse
@@ -2313,9 +2322,9 @@ Transform your 3D models into powerful energy analysis tools.`;
 
                 // Get ground intersection point
                 const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
-                    return mesh.name === 'ground';
+                    return mesh.name === 'earth';
                 });
-                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
+                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth') {
                     const point = pickResult.pickedPoint;
                     this.polygonManager.addPoint(point);
                 }
@@ -2331,7 +2340,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 if (isPointOnGround(event.offsetX, event.offsetY)) {
                     // Get ground intersection point
                     const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
-                        return mesh.name === 'ground';
+                        return mesh.name === 'earth';
                     });
                     const point = pickResult.pickedPoint;
                     
@@ -2362,9 +2371,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Get ground intersection point (ignore temp shapes during drawing)
             const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
                 // Only pick ground, ignore temp shapes
-                return mesh.name === 'ground';
+                return mesh.name === 'earth';
             });
-            if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
+            if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth') {
                 const point = pickResult.pickedPoint;
                 this.shape2DManager.onMouseDown(point);
             }
@@ -2379,9 +2388,9 @@ Transform your 3D models into powerful energy analysis tools.`;
 
                 // Get ground intersection point for preview
                 const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
-                    return mesh.name === 'ground';
+                    return mesh.name === 'earth';
                 });
-                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
+                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth') {
                     const point = pickResult.pickedPoint;
                     this.polygonManager.updatePreview(point);
                 }
@@ -2397,7 +2406,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 if (isPointOnGround(event.offsetX, event.offsetY)) {
                     // Get ground intersection point
                     const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
-                        return mesh.name === 'ground';
+                        return mesh.name === 'earth';
                     });
                     const point = pickResult.pickedPoint;
                     
@@ -2441,9 +2450,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Get ground intersection point (ignore temp shapes during drawing)
                 const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
                     // Only pick ground, ignore temp shapes
-                    return mesh.name === 'ground';
+                    return mesh.name === 'earth';
                 });
-                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
+                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth') {
                     const point = pickResult.pickedPoint;
                     this.shape2DManager.onMouseMove(point);
                 }
@@ -2485,9 +2494,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Get ground intersection point (ignore temp shapes during drawing)
                 const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
                     // Only pick ground, ignore temp shapes
-                    return mesh.name === 'ground';
+                    return mesh.name === 'earth';
                 });
-                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground') {
+                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth') {
                     const point = pickResult.pickedPoint;
                     this.shape2DManager.onMouseUp(point);
                 }
@@ -2583,6 +2592,13 @@ Transform your 3D models into powerful energy analysis tools.`;
             if (event.shiftKey && event.key === 'D') {
                 event.preventDefault(); // Prevent default browser behavior
                 this.clearSelection();
+                return;
+            }
+
+            // Handle Ctrl+L for Object List Toggle
+            if (event.ctrlKey && event.key.toLowerCase() === 'l') {
+                event.preventDefault(); // Prevent default browser behavior
+                this.toggleObjectList();
                 return;
             }
         });
@@ -3679,6 +3695,57 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Remove bottom faces from mesh to prevent Z-fighting
+     */
+    removeBottomFaces(mesh) {
+        if (!mesh.geometry || !mesh.geometry.indices) return;
+        
+        const indices = mesh.geometry.indices;
+        const positions = mesh.geometry.positions;
+        const newIndices = [];
+        
+        // Find the minimum Y coordinate (bottom of the mesh)
+        let minY = Infinity;
+        for (let i = 1; i < positions.length; i += 3) {
+            minY = Math.min(minY, positions[i]);
+        }
+        
+        console.log(`Mesh minY: ${minY}, scaling.y: ${mesh.scaling.y}`);
+        
+        // Filter out triangles that are on the bottom face
+        for (let i = 0; i < indices.length; i += 3) {
+            const i1 = indices[i] * 3;
+            const i2 = indices[i + 1] * 3;
+            const i3 = indices[i + 2] * 3;
+            
+            const y1 = positions[i1 + 1];
+            const y2 = positions[i2 + 1];
+            const y3 = positions[i3 + 1];
+            
+            // Check if all three vertices are on the bottom face
+            const tolerance = 0.001;
+            const isBottomFace = Math.abs(y1 - minY) < tolerance && 
+                                Math.abs(y2 - minY) < tolerance && 
+                                Math.abs(y3 - minY) < tolerance;
+            
+            // Keep only non-bottom faces
+            if (!isBottomFace) {
+                newIndices.push(indices[i], indices[i + 1], indices[i + 2]);
+            } else {
+                console.log(`Removing bottom face with Y coordinates: ${y1}, ${y2}, ${y3}`);
+            }
+        }
+        
+        console.log(`Original indices: ${indices.length}, New indices: ${newIndices.length}`);
+        
+        // Update mesh indices
+        mesh.setIndices(newIndices);
+        
+        // Force mesh update
+        mesh.refreshBoundingInfo();
+    }
+
+    /**
      * Convert polygon to 3D model after completion
      */
     convertPolygonTo3D(polygon) {
@@ -4701,6 +4768,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         // After saving, select both the shape and its extrusion (if exists)
         this.selectShapeAndExtrusionAfterSave();
 
+        // Dispatch event to update object list
+        this.dispatchSceneChangeEvent();
+
         this.hidePropertiesPopup();
     }
 
@@ -4928,6 +4998,10 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Clear selection after deletion
         this.selectionManager.clearSelection();
+        
+        // Dispatch event to update object list
+        this.dispatchSceneChangeEvent();
+        
         console.log('Selected objects deleted and selection cleared');
     }
 
@@ -5081,6 +5155,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Apply all changes
         this.updateCircleInRealTime();
 
+        // Dispatch event to update object list
+        this.dispatchSceneChangeEvent();
+
         // Hide popup
         this.hideCirclePropertiesPopup();
     }
@@ -5185,6 +5262,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             height: height
         });
 
+        // Dispatch event to update object list
+        this.dispatchSceneChangeEvent();
+
         // Hide popup
         this.hidePolygonPropertiesPopup();
     }
@@ -5245,7 +5325,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             if (originalType === 'building') {
                 targetHeight = 1; // Building height (scale 1)
             } else {
-                targetHeight = 0.05; // Default height for other types
+                targetHeight = 0.1; // Default height for other types
             }
             const scaleFactor = targetHeight / originalHeight;
             this.currentShape.scaling.y = scaleFactor;
@@ -5383,11 +5463,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (type === 'building') {
             targetHeight = 1; // Building height (scale 1)
         } else {
-            targetHeight = 0.05; // Default height for other types
+            targetHeight = 0.1; // Default height for other types
         }
 
         // Update height using scaling method
-        const originalHeight = polygon.userData?.originalHeight || 0.05;
+        const originalHeight = polygon.userData?.originalHeight || 0.1;
         const scaleFactor = targetHeight / originalHeight;
         
         polygon.scaling.y = scaleFactor;
@@ -5395,6 +5475,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Update userData
         polygon.userData.currentHeight = targetHeight;
+
+        // Material settings are now normal since bottom faces are removed
 
         // Update shadows for the polygon
         if (this.lightingManager) {
@@ -5451,5 +5533,71 @@ Transform your 3D models into powerful energy analysis tools.`;
         console.log('Test circle created:', circle.name);
         console.log('Circle position:', circle.position);
         console.log('Circle userData:', circle.userData);
+    }
+
+    /**
+     * Initialize the object list manager
+     */
+    initializeObjectListManager() {
+        try {
+            this.objectListManager = new ObjectListManager(this.sceneManager, this.selectionManager, this.treeManager);
+            console.log('ObjectListManager initialized successfully');
+        } catch (error) {
+            console.error('Error initializing ObjectListManager:', error);
+        }
+    }
+
+
+    /**
+     * Get the object list manager
+     */
+    getObjectListManager() {
+        return this.objectListManager;
+    }
+
+    /**
+     * Dispatch scene change event to update object list
+     */
+    dispatchSceneChangeEvent() {
+        const event = new CustomEvent('sceneChanged', {
+            detail: { timestamp: Date.now() }
+        });
+        document.dispatchEvent(event);
+    }
+
+    /**
+     * Toggle object list visibility
+     */
+    toggleObjectList() {
+        if (this.objectListManager) {
+            this.objectListManager.toggleVisibility();
+        }
+    }
+
+    /**
+     * Show object list
+     */
+    showObjectList() {
+        if (this.objectListManager) {
+            this.objectListManager.show();
+        }
+    }
+
+    /**
+     * Hide object list
+     */
+    hideObjectList() {
+        if (this.objectListManager) {
+            this.objectListManager.hide();
+        }
+    }
+
+    /**
+     * Update object list
+     */
+    updateObjectList() {
+        if (this.objectListManager) {
+            this.objectListManager.updateObjectList();
+        }
     }
 }

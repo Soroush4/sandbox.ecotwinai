@@ -41,8 +41,8 @@ class FPSMonitor {
         this.fpsElement.id = 'fps-monitor';
         this.fpsElement.style.cssText = `
             position: fixed;
-            top: 20px;
-            right: 20px;
+            top: 40px;
+            left: calc(33.33% - 100px);
             background: rgba(0, 0, 0, 0.8);
             color: #00ff00;
             padding: 8px 12px;
