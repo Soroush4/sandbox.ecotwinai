@@ -2,9 +2,11 @@
  * PolygonManager - Manages polygon drawing functionality
  */
 class PolygonManager {
-    constructor(scene, selectionManager) {
+    constructor(scene, selectionManager, uiManager, lightingManager) {
         this.scene = scene;
         this.selectionManager = selectionManager;
+        this.uiManager = uiManager;
+        this.lightingManager = lightingManager;
         this.isCurrentlyDrawing = false;
         this.points = [];
         this.currentPolygon = null;
@@ -21,7 +23,7 @@ class PolygonManager {
         
         // Material for polygon
         this.polygonMaterial = new BABYLON.StandardMaterial("polygonMaterial", this.scene);
-        this.polygonMaterial.diffuseColor = new BABYLON.Color3(0.2, 0.8, 0.2); // Green color like other shapes
+        this.polygonMaterial.diffuseColor = new BABYLON.Color3(0.545, 0.271, 0.075); // Brown color for ground (default)
         this.polygonMaterial.backFaceCulling = false; // Make it 2-sided
         this.polygonMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Low specular for 3D model
         this.polygonMaterial.roughness = 0.8; // Slightly rough surface
@@ -373,6 +375,28 @@ class PolygonManager {
         mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
         mesh.setIndices(indices);
 
+        return mesh;
+    }
+
+    /**
+     * Create 3D polygon mesh with height using extrusion
+     */
+    create3DPolygonWithHeight(relativePoints, name, height) {
+        // Create 3D extrusion directly using PolygonMeshBuilder
+        const scene = this.scene;
+        
+        // Convert relative points to Vector2 format for PolygonMeshBuilder
+        const shape2D = relativePoints.map(p => new BABYLON.Vector2(p.x, p.z));
+        
+        // Create polygon mesh using PolygonMeshBuilder with earcut
+        const builder = new BABYLON.PolygonMeshBuilder(name, shape2D, scene, earcut);
+        const mesh = builder.build(false, height);
+        
+        // Position the mesh so the base is at y=0 and top is at y=height
+        // PolygonMeshBuilder creates mesh with center at Y=0, so we need to move it up by height
+        // This ensures the base is at Y=0 and top is at Y=height
+        mesh.position.y = height;
+        
         return mesh;
     }
 
@@ -1117,21 +1141,41 @@ class PolygonManager {
         const center = this.calculateCenter();
         const relativePoints = this.points.map(point => point.subtract(center));
         
-        // Create 3D polygon mesh with height 0.01
-        this.currentPolygon = this.create3DPolygonMesh(relativePoints);
+        // Create 3D polygon directly with initial height 0.05
+        const polygonName = 'polygon_' + Date.now();
+        this.currentPolygon = this.create3DPolygonWithHeight(relativePoints, polygonName, 0.05);
         this.currentPolygon.material = this.polygonMaterial;
         this.currentPolygon.renderingGroupId = 1;
         this.currentPolygon.receiveShadows = true;
         this.currentPolygon.castShadows = true;
-        this.currentPolygon.position = center;
+        // Position the polygon at center, but keep Y position from create3DPolygonWithHeight
+        this.currentPolygon.position.x = center.x;
+        this.currentPolygon.position.z = center.z;
+        // Y position is already set correctly in create3DPolygonWithHeight
         
         // Store polygon properties in userData
         const dimensions = this.calculatePolygonDimensions();
         this.currentPolygon.userData = {
-            type: 'land',
+            type: 'ground',
+            shapeType: 'polygon',
             dimensions: dimensions,
-            points: this.points.map(p => p.clone())
+            points: this.points.map(p => p.clone()),
+            originalHeight: 0.05, // Initial height
+            currentHeight: 0.05, // Current height (will change based on type)
+            is3D: true
         };
+        
+        // Set name
+        this.currentPolygon.name = polygonName;
+
+        // Enable shadows for the polygon
+        this.currentPolygon.receiveShadows = true;
+
+        // Add to shadow system
+        if (this.lightingManager) {
+            this.lightingManager.addShadowCaster(this.currentPolygon);
+            this.lightingManager.addShadowReceiver(this.currentPolygon);
+        }
 
         // Add to selection manager
         if (this.selectionManager) {
