@@ -8,6 +8,7 @@ class CameraController {
         this.camera = null;
         this.initialPosition = null;
         this.initialTarget = null;
+        this.cameraControlsDisabled = false;
         
         this.setupCamera();
         this.setupControls();
@@ -240,6 +241,11 @@ class CameraController {
                 return; // Let UIManager handle Shift+A and Shift+D
             }
 
+            // Check if camera controls are disabled (e.g., during tree placement)
+            if (this.cameraControlsDisabled) {
+                return; // Don't allow camera rotation when controls are disabled
+            }
+
             switch (event.key.toLowerCase()) {
                 case 'w':
                 case 'arrowup':
@@ -376,6 +382,8 @@ class CameraController {
      */
     setControlsEnabled(enabled) {
         if (this.camera) {
+            this.cameraControlsDisabled = !enabled;
+            
             if (enabled) {
                 // Use attachControl (singular) to match the setup method
                 if (typeof this.camera.attachControl === 'function') {
