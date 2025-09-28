@@ -782,6 +782,10 @@ class SelectionManager {
                 // Parent to the TransformNode to inherit its transforms
                 wireframeClone.setParent(transformNode);
                 
+                // Position wireframe to match the child mesh position relative to the parent
+                // This ensures the wireframe appears at the same location as the extrusion
+                wireframeClone.position = childMesh.position.clone();
+                
                 // Store reference
                 childMesh.wireframeClone = wireframeClone;
                 wireframeClones.push(wireframeClone);

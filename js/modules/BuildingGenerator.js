@@ -79,6 +79,30 @@ class BuildingGenerator {
     }
 
     /**
+     * Generate unique building name
+     */
+    generateUniqueBuildingName() {
+        // Count existing buildings in the scene
+        let maxBuildingNumber = 0;
+        
+        // Check all meshes in the scene for building names
+        this.scene.meshes.forEach(mesh => {
+            if (mesh.name && mesh.name.startsWith('building_')) {
+                const match = mesh.name.match(/building_(\d+)/);
+                if (match) {
+                    const number = parseInt(match[1]);
+                    if (number > maxBuildingNumber) {
+                        maxBuildingNumber = number;
+                    }
+                }
+            }
+        });
+        
+        // Return next available number
+        return `building_${maxBuildingNumber + 1}`;
+    }
+
+    /**
      * Create a single building
      */
     createBuilding(position, minHeight, maxHeight) {
@@ -87,8 +111,9 @@ class BuildingGenerator {
         const depth = 2 + Math.random() * 4; // 2-6 meters
         const height = minHeight + Math.random() * (maxHeight - minHeight);
 
-        // Create building mesh
-        const building = BABYLON.MeshBuilder.CreateBox(`building_${this.buildings.length}`, {
+        // Create building mesh with unique name
+        const buildingName = this.generateUniqueBuildingName();
+        const building = BABYLON.MeshBuilder.CreateBox(buildingName, {
             width: width,
             height: height,
             depth: depth
@@ -103,7 +128,7 @@ class BuildingGenerator {
         building.renderingGroupId = 1;
 
         // Create building material
-        const material = this.createBuildingMaterial(height);
+        const material = this.createBuildingMaterial(buildingName);
 
         // Apply material
         building.material = material;
@@ -114,6 +139,18 @@ class BuildingGenerator {
 
         // Add some variation with rotation
         building.rotation.y = Math.random() * Math.PI / 4; // Random rotation up to 45 degrees
+
+        // Store building properties in userData for selection and properties display
+        building.userData = {
+            type: 'building',
+            shapeType: 'building',
+            dimensions: {
+                width: width,
+                depth: depth,
+                height: height
+            },
+            originalHeight: height
+        };
 
         return {
             mesh: building,
@@ -127,8 +164,8 @@ class BuildingGenerator {
     /**
      * Create building material - simple white boxes
      */
-    createBuildingMaterial(height) {
-        const material = new BABYLON.StandardMaterial(`buildingMaterial_${this.buildings.length}`, this.scene);
+    createBuildingMaterial(buildingName) {
+        const material = new BABYLON.StandardMaterial(`${buildingName}Material`, this.scene);
         
         // White color for all buildings
         material.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white

@@ -362,6 +362,8 @@
     <script src="js/modules/Shape2DManager.js"></script>
     <script src="js/modules/TreeManager.js"></script>
     <script src="js/modules/PolygonManager.js"></script>
+    <script src="js/modules/RectangleManager.js"></script>
+    <script src="js/modules/CircleManager.js"></script>
     <script src="js/modules/FPSMonitor.js"></script>
     <script src="js/modules/UIManager.js"></script>
     <!-- Properties Popup -->
@@ -378,8 +380,11 @@
             <div class="property-group">
                 <label>Type:</label>
                 <select id="shapeType">
+                    <option value="ground">Ground</option>
+                    <option value="waterway">Waterway</option>
+                    <option value="highway">Highway</option>
+                    <option value="green">Green</option>
                     <option value="building">Building</option>
-                    <option value="land">Land</option>
                 </select>
             </div>
             <div class="property-group">

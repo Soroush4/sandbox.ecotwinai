@@ -2,7 +2,7 @@
  * UIManager - Manages user interface interactions
  */
 class UIManager {
-    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager, treeManager, polygonManager) {
+    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager, treeManager, polygonManager, rectangleManager, circleManager) {
         this.sceneManager = sceneManager;
         this.buildingGenerator = buildingGenerator;
         this.lightingManager = lightingManager;
@@ -15,11 +15,14 @@ class UIManager {
         this.shape2DManager = shape2DManager;
         this.treeManager = treeManager;
         this.polygonManager = polygonManager;
+        this.rectangleManager = rectangleManager;
+        this.circleManager = circleManager;
         
         this.isInitialized = false;
         this.statsInterval = null;
         this.isGlobalMode = false; // Default to local mode
         this.preferencesListenersSetup = false; // Track if preferences listeners are setup
+        this.cameraControlsDisabled = false; // Initialize camera control state
         
         this.init();
     }
@@ -91,10 +94,10 @@ class UIManager {
             // Show selection info
             this.showSelectionInfo(count);
             
-            // Show properties popup for 2D shapes only when select tool is active
+            // Show properties popup for 2D shapes, rectangles, and buildings only when select tool is active
             if (count === 1 && this.isSelectToolActive()) {
                 const selectedObject = selectedObjects[0];
-                if (this.is2DShape(selectedObject)) {
+                if (this.is2DShape(selectedObject) || this.getShapeType(selectedObject) === 'rectangle' || this.getShapeType(selectedObject) === 'building') {
                     this.showPropertiesPopup(selectedObject);
                 }
             }
@@ -1555,6 +1558,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         buildings.forEach(building => {
             this.sceneManager.addBuilding(building);
             this.lightingManager.addShadowCaster(building.mesh);
+            
+            // Make building selectable
+            if (this.selectionManager) {
+                this.selectionManager.addSelectableObject(building.mesh);
+            }
         });
 
         // Show loading state
@@ -2163,7 +2171,7 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Create rectangle
      */
     createRectangle() {
-        if (!this.shape2DManager) {
+        if (!this.rectangleManager) {
             return;
         }
 
@@ -2171,21 +2179,27 @@ Transform your 3D models into powerful energy analysis tools.`;
         this.disableCameraControls();
 
         // Set callback for when drawing stops
-        this.shape2DManager.onDrawingStopped = () => {
+        this.rectangleManager.onDrawingStopped = () => {
             this.enableCameraControls();
             // Deactivate drawing tool after drawing is complete
             this.deactivateDrawingTool();
         };
 
+        // Set callback for when rectangle is created
+        this.rectangleManager.onRectangleCreated = (rectangle) => {
+            // Rectangle is automatically added to selection manager by RectangleManager
+            console.log('Rectangle created:', rectangle.name);
+        };
+
         // Start interactive rectangle drawing
-        this.shape2DManager.startInteractiveDrawing('rectangle');
+        this.rectangleManager.startInteractiveDrawing();
     }
 
     /**
      * Create circle
      */
     createCircle() {
-        if (!this.shape2DManager) {
+        if (!this.circleManager) {
             return;
         }
 
@@ -2193,14 +2207,20 @@ Transform your 3D models into powerful energy analysis tools.`;
         this.disableCameraControls();
 
         // Set callback for when drawing stops
-        this.shape2DManager.onDrawingStopped = () => {
+        this.circleManager.onDrawingStopped = () => {
             this.enableCameraControls();
             // Deactivate drawing tool after drawing is complete
             this.deactivateDrawingTool();
         };
 
+        // Set callback for when circle is created
+        this.circleManager.onCircleCreated = (circle) => {
+            // Circle is automatically added to selection manager by CircleManager
+            console.log('Circle created:', circle.name);
+        };
+
         // Start interactive circle drawing
-        this.shape2DManager.startInteractiveDrawing('circle');
+        this.circleManager.startInteractiveDrawing();
     }
 
 
@@ -2467,8 +2487,14 @@ Transform your 3D models into powerful energy analysis tools.`;
                 return;
             }
 
-            // Handle Delete key for selected objects (only when not drawing polygon)
+            // Handle Delete key for selected objects (only when not drawing polygon and properties popup is not open)
             if (event.key === 'Delete' || event.key === 'Backspace') {
+                // Check if properties popup is open
+                const propertiesPopup = document.getElementById('propertiesPopup');
+                if (propertiesPopup && propertiesPopup.classList.contains('show')) {
+                    // Don't delete objects when properties popup is open
+                    return;
+                }
                 this.deleteSelectedObjects();
                 return;
             }
@@ -2523,16 +2549,21 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Use CameraController's method to disable controls
             if (typeof this.cameraController.setControlsEnabled === 'function') {
                 this.cameraController.setControlsEnabled(false);
+                console.log('Camera controls disabled via CameraController');
             } else {
                 // Fallback to direct camera control
                 if (typeof this.cameraController.camera.detachControls === 'function') {
                     this.cameraController.camera.detachControls();
+                    console.log('Camera controls disabled via detachControls');
                 } else if (typeof this.cameraController.camera.detachControl === 'function') {
                     this.cameraController.camera.detachControl();
+                    console.log('Camera controls disabled via detachControl');
                 }
             }
             
             console.log('Camera controls disabled for drawing');
+        } else {
+            console.warn('Cannot disable camera controls: cameraController or camera not available');
         }
     }
 
@@ -2540,21 +2571,26 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Enable camera controls
      */
     enableCameraControls() {
-        if (this.cameraController && this.cameraController.camera && this.cameraControlsDisabled) {
+        if (this.cameraController && this.cameraController.camera) {
             // Use CameraController's method to enable controls
             if (typeof this.cameraController.setControlsEnabled === 'function') {
                 this.cameraController.setControlsEnabled(true);
+                console.log('Camera controls enabled via CameraController');
             } else {
                 // Fallback to direct camera control
                 if (typeof this.cameraController.camera.attachControl === 'function') {
                     this.cameraController.camera.attachControl(this.sceneManager.canvas, true);
+                    console.log('Camera controls enabled via attachControl');
                 } else if (typeof this.cameraController.camera.attachControls === 'function') {
                     this.cameraController.camera.attachControls(this.sceneManager.canvas, true);
+                    console.log('Camera controls enabled via attachControls');
                 }
             }
             
             this.cameraControlsDisabled = false;
             console.log('Camera controls enabled');
+        } else {
+            console.warn('Cannot enable camera controls: cameraController or camera not available');
         }
     }
 
@@ -2600,7 +2636,17 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Shape type change
         document.getElementById('shapeType').addEventListener('change', (e) => {
-            this.updatePropertiesFields(e.target.value);
+            const newType = e.target.value;
+            console.log('Type changed to:', newType);
+            this.updatePropertiesFields(newType);
+            
+            // Update userData type immediately
+            if (this.currentShape) {
+                this.currentShape.userData = this.currentShape.userData || {};
+                this.currentShape.userData.type = newType;
+                console.log('Updated userData.type to:', newType);
+            }
+            
             this.updateShapeInRealTime();
         });
 
@@ -2624,6 +2670,15 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         document.getElementById('shapeRadius').addEventListener('input', () => {
             this.updateShapeInRealTime();
+        });
+
+        // Prevent backspace from closing popup when typing in input fields
+        const popup = document.getElementById('propertiesPopup');
+        popup.addEventListener('keydown', (event) => {
+            // Allow backspace in input fields
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+                event.stopPropagation();
+            }
         });
     }
 
@@ -2657,13 +2712,13 @@ Transform your 3D models into powerful energy analysis tools.`;
         document.getElementById('shapeLength').value = properties.length;
         document.getElementById('shapeWidth').value = properties.width;
         
+        // Set values for specific fields first
+        if (properties.type === 'building') {
+            document.getElementById('shapeHeight').value = properties.height || 0.1;
+        }
+        
         // Show/hide fields based on shape type
         this.updatePropertiesFields(properties.type);
-        
-        // Set values for specific fields
-        if (properties.type === 'building') {
-            document.getElementById('shapeHeight').value = properties.height || 0;
-        }
         
         if (properties.shapeType === 'circle') {
             document.getElementById('shapeRadius').value = properties.radius;
@@ -2698,9 +2753,23 @@ Transform your 3D models into powerful energy analysis tools.`;
         const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0, 0.001);
         const radius = parseFloat(document.getElementById('shapeRadius').value) || 0;
 
-        // Update material color
-        const rgbColor = this.hexToRgb(color);
-        const newColor = new BABYLON.Color3(rgbColor.r / 255, rgbColor.g / 255, rgbColor.b / 255);
+        // Update material color based on type
+        let newColor;
+        if (type === 'building') {
+            newColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+        } else if (type === 'ground') {
+            newColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+        } else if (type === 'waterway') {
+            newColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+        } else if (type === 'highway') {
+            newColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+        } else if (type === 'green') {
+            newColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        } else {
+            // Use custom color for other types
+            const rgbColor = this.hexToRgb(color);
+            newColor = new BABYLON.Color3(rgbColor.r / 255, rgbColor.g / 255, rgbColor.b / 255);
+        }
         
         // Check if shape is currently selected (has highlight material)
         const isSelected = this.selectionManager && this.selectionManager.selectedObjects.includes(this.currentShape);
@@ -2731,18 +2800,34 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         }
 
-        // Update geometry based on shape type (excluding height changes)
+        // Update geometry based on shape type
         this.updateShapeGeometry(this.currentShape, {
             type: type,
             length: length,
             width: width,
-            height: this.currentShape.userData?.dimensions?.buildingHeight || 0, // Keep current height
+            height: height,
             radius: radius
         });
 
         // Update userData
         this.currentShape.userData = this.currentShape.userData || {};
         this.currentShape.userData.type = type;
+        
+        // Update dimensions in userData for rectangles, buildings, and circles
+        if (this.getShapeType(this.currentShape) === 'rectangle' || this.getShapeType(this.currentShape) === 'building') {
+            this.currentShape.userData.dimensions = {
+                width: length,
+                depth: width,
+                height: height
+            };
+            this.currentShape.userData.originalHeight = height;
+        } else if (this.getShapeType(this.currentShape) === 'circle') {
+            this.currentShape.userData.dimensions = {
+                radius: radius,
+                height: height
+            };
+            this.currentShape.userData.originalHeight = height;
+        }
     }
 
     /**
@@ -2753,10 +2838,106 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         if (shapeType === 'rectangle') {
             this.updateRectangleGeometry(shape, properties);
+        } else if (shapeType === 'building') {
+            this.updateBuildingGeometry(shape, properties);
         } else if (shapeType === 'circle') {
             this.updateCircleGeometry(shape, properties);
         } else if (shapeType === 'polygon') {
             this.updatePolygonGeometry(shape, properties);
+        }
+    }
+
+    /**
+     * Update building geometry
+     */
+    updateBuildingGeometry(shape, properties) {
+        // Store current position and material
+        const currentPosition = shape.position.clone();
+        const currentMaterial = shape.material;
+        const currentName = this.generateUniqueNameByType(properties.type);
+        const isSelected = this.selectionManager && this.selectionManager.isSelected(shape);
+        
+        // Remove from selection manager first
+        if (this.selectionManager) {
+            this.selectionManager.removeSelectableObject(shape);
+            this.selectionManager.originalMaterials.delete(shape);
+        }
+        
+        // Dispose old mesh completely
+        if (shape.geometry) { shape.geometry.dispose(); }
+        if (shape.material && shape.material !== this.sceneManager.getScene().defaultMaterial) { shape.material.dispose(); }
+        shape.setEnabled(false);
+        shape.dispose();
+        
+        // Create new 3D box mesh with updated dimensions
+        const newMesh = BABYLON.MeshBuilder.CreateBox(currentName, {
+            width: properties.length,
+            height: properties.height,
+            depth: properties.width
+        }, this.sceneManager.getScene());
+        
+        // Restore position (center the box vertically based on new height)
+        newMesh.position = new BABYLON.Vector3(
+            currentPosition.x,
+            properties.height / 2, // Center the box vertically based on new height
+            currentPosition.z
+        );
+        
+        // Create new material with appropriate color based on type
+        const newMaterial = new BABYLON.StandardMaterial(`${currentName}Material`, this.sceneManager.getScene());
+        
+        // Set color based on type
+        if (properties.type === 'building') {
+            newMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+        } else if (properties.type === 'ground') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+        } else if (properties.type === 'waterway') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+        } else if (properties.type === 'highway') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+        } else if (properties.type === 'green') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        } else {
+            newMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // Default white
+        }
+        
+        newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        newMaterial.roughness = 0.7;
+        newMaterial.twoSidedLighting = true;
+        
+        newMesh.material = newMaterial;
+        newMesh.renderingGroupId = 1;
+        newMesh.enableEdgesRendering();
+        newMesh.edgesWidth = 1.0;
+        newMesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
+        
+        // Update userData
+        newMesh.userData = {
+            type: properties.type,
+            shapeType: 'building',
+            dimensions: {
+                width: properties.length,
+                depth: properties.width,
+                height: properties.height
+            },
+            originalHeight: properties.height
+        };
+        
+        // Update currentShape reference
+        this.currentShape = newMesh;
+        
+        // Make new mesh selectable
+        if (this.selectionManager) {
+            this.selectionManager.addSelectableObject(newMesh);
+            if (isSelected) {
+                this.selectionManager.originalMaterials.set(newMesh, currentMaterial);
+                this.selectionManager.selectObject(newMesh, false, false);
+            }
+        }
+        
+        // Enable shadows for the new mesh
+        if (this.lightingManager) {
+            this.lightingManager.updateShadowsForNewObject(newMesh);
         }
     }
 
@@ -3314,33 +3495,94 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Store current position and material
         const currentPosition = shape.position.clone();
         const currentMaterial = shape.material;
-        const currentName = shape.name;
+        // Generate new name based on type
+        const currentName = this.generateUniqueNameByType(properties.type);
         const currentUserData = shape.userData;
 
-        // Dispose old mesh
-        shape.dispose();
+        // Check if shape is selected
+        const isSelected = this.selectionManager && this.selectionManager.selectedObjects.includes(shape);
+        
+        // Remove from selection manager first
+        if (this.selectionManager) {
+            this.selectionManager.removeSelectableObject(shape);
+            this.selectionManager.originalMaterials.delete(shape);
+        }
 
-        // Create new mesh with updated dimensions
-        const newMesh = BABYLON.MeshBuilder.CreateGround(currentName, {
+        // Dispose old mesh completely
+        if (shape.geometry) {
+            shape.geometry.dispose();
+        }
+        if (shape.material && shape.material !== this.sceneManager.getScene().defaultMaterial) {
+            shape.material.dispose();
+        }
+        
+        // Remove from scene before disposing
+        shape.setEnabled(false);
+        shape.dispose();
+        
+        // Force garbage collection hint
+        if (this.sceneManager.getScene().getEngine()._gl) {
+            this.sceneManager.getScene().getEngine()._gl.flush();
+        }
+
+        // Create new 3D box mesh with updated dimensions (always start with unit box)
+        const newMesh = BABYLON.MeshBuilder.CreateBox(currentName, {
             width: properties.length,
-            height: properties.width,
-            subdivisions: 1
+            height: properties.height,
+            depth: properties.width
         }, this.sceneManager.getScene());
 
-        // Create new material (clone the old one to avoid sharing)
-        const newMaterial = currentMaterial.clone(`${currentName}Material`);
+        // Create new material with appropriate color based on type
+        const newMaterial = new BABYLON.StandardMaterial(`${currentName}Material`, this.sceneManager.getScene());
+        
+        // Set color based on type
+        if (properties.type === 'building') {
+            newMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+        } else if (properties.type === 'ground') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+        } else if (properties.type === 'waterway') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+        } else if (properties.type === 'highway') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+        } else if (properties.type === 'green') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        } else {
+            // Use original material color for other types
+            if (currentMaterial && currentMaterial.diffuseColor) {
+                newMaterial.diffuseColor = currentMaterial.diffuseColor.clone();
+            } else {
+                newMaterial.diffuseColor = new BABYLON.Color3(0, 1, 0); // Default green
+            }
+        }
+        
+        // Set common material properties
+        newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        newMaterial.roughness = 0.7;
         
         // Restore properties
-        newMesh.position = currentPosition;
+        newMesh.position = new BABYLON.Vector3(
+            currentPosition.x,
+            properties.height / 2, // Center the box vertically
+            currentPosition.z
+        );
         newMesh.material = newMaterial;
         newMesh.renderingGroupId = 1;
         newMesh.userData = currentUserData;
 
-        // Update userData dimensions
+        // Apply anti-flickering settings
+        newMesh.enableEdgesRendering();
+        newMesh.edgesWidth = 1.0;
+        newMesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
+
+        // Update userData dimensions and type
         newMesh.userData.dimensions = {
             width: properties.length,
-            height: properties.width
+            depth: properties.width,
+            height: properties.height
         };
+        newMesh.userData.type = properties.type;
+        newMesh.userData.shapeType = properties.type === 'building' ? 'building' : 'rectangle';
+        newMesh.userData.originalHeight = properties.height;
 
         // Update currentShape reference
         this.currentShape = newMesh;
@@ -3349,36 +3591,27 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (this.selectionManager) {
             this.selectionManager.addSelectableObject(newMesh);
             
-            // Update original materials if the old shape was selected
-            if (this.selectionManager.selectedObjects.includes(shape)) {
+            // If the old shape was selected, select the new one
+            if (isSelected) {
                 this.selectionManager.originalMaterials.set(newMesh, newMaterial);
-                // Remove old mesh from originalMaterials
-                this.selectionManager.originalMaterials.delete(shape);
+                this.selectionManager.selectObject(newMesh, false, false);
             }
         }
 
-        // Update shape2DManager shapes array
-        if (this.shape2DManager) {
-            // Remove old mesh from shapes array
-            const oldIndex = this.shape2DManager.shapes.indexOf(shape);
+        // Update rectangleManager rectangles array
+        if (this.rectangleManager) {
+            // Remove old mesh from rectangles array
+            const oldIndex = this.rectangleManager.rectangles.indexOf(shape);
             if (oldIndex !== -1) {
-                this.shape2DManager.shapes.splice(oldIndex, 1);
+                this.rectangleManager.rectangles.splice(oldIndex, 1);
             }
-            // Add new mesh to shapes array
-            this.shape2DManager.shapes.push(newMesh);
+            // Add new mesh to rectangles array
+            this.rectangleManager.rectangles.push(newMesh);
         }
 
-        // Handle building height (extrusion)
-        if (properties.type === 'building' && properties.height > 0) {
-            this.extrudeShape(newMesh, properties.height);
-        } else {
-            // Remove extrusion if height is 0 or type is land
-            this.removeExtrusion(newMesh);
-        }
-
-        // Update userData
-        if (properties.type === 'building') {
-            newMesh.userData.dimensions.buildingHeight = properties.height;
+        // Enable shadows for the new mesh
+        if (this.lightingManager) {
+            this.lightingManager.updateShadowsForNewObject(newMesh);
         }
     }
 
@@ -3389,32 +3622,82 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Store current position and material
         const currentPosition = shape.position.clone();
         const currentMaterial = shape.material;
-        const currentName = shape.name;
+        // Generate new name based on type
+        const currentName = this.generateUniqueNameByType(properties.type);
         const currentUserData = shape.userData;
 
-        // Dispose old mesh
+        // Check if shape is selected
+        const isSelected = this.selectionManager && this.selectionManager.selectedObjects.includes(shape);
+        
+        // Remove from selection manager first
+        if (this.selectionManager) {
+            this.selectionManager.removeSelectableObject(shape);
+            this.selectionManager.originalMaterials.delete(shape);
+        }
+        
+        // Dispose old mesh completely
+        if (shape.geometry) { shape.geometry.dispose(); }
+        if (shape.material && shape.material !== this.sceneManager.getScene().defaultMaterial) { shape.material.dispose(); }
+        shape.setEnabled(false);
         shape.dispose();
 
-        // Create new mesh with updated dimensions
-        const newMesh = BABYLON.MeshBuilder.CreateDisc(currentName, {
+        // Create new 3D cylinder mesh with updated dimensions
+        const newMesh = BABYLON.MeshBuilder.CreateCylinder(currentName, {
             radius: properties.radius,
+            height: properties.height,
             tessellation: 32
         }, this.sceneManager.getScene());
 
-        // Create new material (clone the old one to avoid sharing)
-        const newMaterial = currentMaterial.clone(`${currentName}Material`);
+        // Create new material with appropriate color based on type
+        const newMaterial = new BABYLON.StandardMaterial(`${currentName}Material`, this.sceneManager.getScene());
         
-        // Restore properties
-        newMesh.position = currentPosition;
+        // Set color based on type
+        if (properties.type === 'building') {
+            newMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+        } else if (properties.type === 'ground') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+        } else if (properties.type === 'waterway') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+        } else if (properties.type === 'highway') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+        } else if (properties.type === 'green') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        } else {
+            // Use original material color for other types
+            if (currentMaterial && currentMaterial.diffuseColor) {
+                newMaterial.diffuseColor = currentMaterial.diffuseColor.clone();
+            } else {
+                newMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
+            }
+        }
+        
+        // Set common material properties
+        newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        newMaterial.roughness = 0.7;
+        
+        // Restore properties (center the cylinder vertically based on new height)
+        newMesh.position = new BABYLON.Vector3(
+            currentPosition.x,
+            properties.height / 2, // Center the cylinder vertically based on new height
+            currentPosition.z
+        );
         newMesh.material = newMaterial;
-        newMesh.rotation.x = Math.PI / 2; // Keep horizontal
         newMesh.renderingGroupId = 1;
         newMesh.userData = currentUserData;
 
-        // Update userData dimensions
+        // Apply anti-flickering settings
+        newMesh.enableEdgesRendering();
+        newMesh.edgesWidth = 1.0;
+        newMesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
+
+        // Update userData dimensions and type
         newMesh.userData.dimensions = {
-            radius: properties.radius
+            radius: properties.radius,
+            height: properties.height
         };
+        newMesh.userData.type = properties.type;
+        newMesh.userData.shapeType = 'circle';
+        newMesh.userData.originalHeight = properties.height;
 
         // Update currentShape reference
         this.currentShape = newMesh;
@@ -3431,15 +3714,20 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         }
 
-        // Update shape2DManager shapes array
-        if (this.shape2DManager) {
-            // Remove old mesh from shapes array
-            const oldIndex = this.shape2DManager.shapes.indexOf(shape);
+        // Update circleManager circles array
+        if (this.circleManager) {
+            // Remove old mesh from circles array
+            const oldIndex = this.circleManager.circles.indexOf(shape);
             if (oldIndex !== -1) {
-                this.shape2DManager.shapes.splice(oldIndex, 1);
+                this.circleManager.circles.splice(oldIndex, 1);
             }
-            // Add new mesh to shapes array
-            this.shape2DManager.shapes.push(newMesh);
+            // Add new mesh to circles array
+            this.circleManager.circles.push(newMesh);
+        }
+        
+        // Enable shadows for the new mesh
+        if (this.lightingManager) {
+            this.lightingManager.updateShadowsForNewObject(newMesh);
         }
 
         // Handle building height (extrusion)
@@ -3462,6 +3750,14 @@ Transform your 3D models into powerful energy analysis tools.`;
     extrudeShape(shape, height) {
         console.log(`Extruding shape ${shape.name} to height ${height}`);
         
+        const shapeType = this.getShapeType(shape);
+        
+        if (shapeType === 'rectangle') {
+            // For 3D rectangles, directly update the height
+            this.updateRectangleHeight(shape, height);
+            return;
+        }
+        
         if (height <= 0) {
             // Remove existing extrusion if height is 0 or negative
         this.removeExtrusion(shape);
@@ -3472,8 +3768,6 @@ Transform your 3D models into powerful energy analysis tools.`;
         this.cleanupAllDuplicateExtrusions();
         // Clean up all extra meshes
         this.cleanupAllExtraMeshes();
-        
-        const shapeType = this.getShapeType(shape);
         
         // Check if extrusion already exists
         if (shape.extrusion) {
@@ -3786,18 +4080,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         const shapeType = this.getShapeType(shape);
         
         if (shapeType === 'rectangle') {
-            const dimensions = shape.userData.dimensions;
-            // Update box extrusion - sync with rectangle position
-            extrusion.scaling.y = height / (extrusion.userData.originalHeight || 1);
-            
-            // Position extrusion at the center of the rectangle (same as createNewExtrusion)
-            extrusion.position = new BABYLON.Vector3(
-                shape.position.x + dimensions.width / 2,  // Center of rectangle
-                height / 2,                               // Half height above ground
-                shape.position.z + dimensions.height / 2  // Center of rectangle
-            );
-            extrusion.userData.originalHeight = height;
-            console.log(`Rectangle extrusion updated - synced with rectangle: ${extrusion.position}`);
+            // For 3D rectangles, we don't have a separate extrusion
+            // Instead, we modify the existing rectangle's height
+            this.updateRectangleHeight(shape, height);
+            return;
         } else if (shapeType === 'circle') {
             // Update cylinder extrusion - sync with current shape position
             extrusion.scaling.y = height / (extrusion.userData.originalHeight || 1);
@@ -3871,6 +4157,31 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Update rectangle height (for 3D rectangles)
+     */
+    updateRectangleHeight(shape, height) {
+        if (!shape || shape.userData.shapeType !== 'rectangle') {
+            return;
+        }
+        
+        // Update the rectangle's height by scaling it
+        const originalHeight = shape.userData.originalHeight || 0.01;
+        const scaleFactor = height / originalHeight;
+        
+        // Update the scaling
+        shape.scaling.y = scaleFactor;
+        
+        // Update position to keep bottom face on ground
+        shape.position.y = height / 2;
+        
+        // Update userData
+        shape.userData.dimensions.height = height;
+        shape.userData.originalHeight = height;
+        
+        console.log(`Updated rectangle ${shape.name} height to ${height}`);
+    }
+
+    /**
      * Create new extrusion
      */
     createNewExtrusion(shape, height) {
@@ -3886,12 +4197,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         let extrusion;
         if (shapeType === 'rectangle') {
-            const dimensions = shape.userData.dimensions;
-            extrusion = BABYLON.MeshBuilder.CreateBox(extrusionName, {
-                width: dimensions.width,
-                height: height,
-                depth: dimensions.height
-            }, this.sceneManager.getScene());
+            // For 3D rectangles, we don't create a separate extrusion
+            // Instead, we modify the existing rectangle's height
+            this.updateRectangleHeight(shape, height);
+            return;
         } else if (shapeType === 'circle') {
             const radius = shape.userData.dimensions.radius;
             extrusion = BABYLON.MeshBuilder.CreateCylinder(extrusionName, {
@@ -3916,9 +4225,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Position extrusion at the same corner as the rectangle
                 // Since CreateBox centers the mesh, we need to offset by half dimensions
                 extrusion.position = new BABYLON.Vector3(
-                    shape.position.x + dimensions.width / 2,  // Move to center of rectangle
+                    shape.position.x,                         // Same corner as rectangle
                     height / 2,                               // Half height above ground
-                    shape.position.z + dimensions.height / 2  // Move to center of rectangle
+                    shape.position.z                          // Same corner as rectangle
                 );
                 console.log(`Rectangle corner at: ${shape.position}, extrusion center at: ${extrusion.position}`);
             } else {
@@ -3976,6 +4285,14 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Remove extrusion from shape
      */
     removeExtrusion(shape) {
+        const shapeType = this.getShapeType(shape);
+        
+        if (shapeType === 'rectangle') {
+            // For 3D rectangles, reset height to minimal value
+            this.updateRectangleHeight(shape, 0.01);
+            return;
+        }
+        
         if (shape.extrusion) {
             console.log(`Removing extrusion from ${shape.name}`);
             
@@ -4029,46 +4346,36 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Get current shape type (rectangle/circle)
         const shapeType = this.getShapeType(this.currentShape);
         
+        // Show height only for building type
         if (type === 'building') {
-            // Show height for buildings
             heightGroup.style.display = 'flex';
-            
-            // Show appropriate geometric fields based on shape type
-            if (shapeType === 'circle') {
-                lengthGroup.style.display = 'none';
-                widthGroup.style.display = 'none';
-                radiusGroup.style.display = 'flex';
-            } else if (shapeType === 'rectangle') {
-                lengthGroup.style.display = 'flex';
-                widthGroup.style.display = 'flex';
-                radiusGroup.style.display = 'none';
-            } else if (shapeType === 'polygon') {
-                // For polygons, show area and perimeter instead of length/width
-                lengthGroup.style.display = 'none';
-                widthGroup.style.display = 'none';
-                radiusGroup.style.display = 'none';
-                // Note: We'll need to add polygon-specific fields to the HTML
+            // Set height value
+            const heightInput = document.getElementById('shapeHeight');
+            if (heightInput) {
+                // Always set the height value when switching to building type
+                const currentHeight = this.currentShape?.userData?.dimensions?.height || 0.1;
+                heightInput.value = currentHeight;
             }
-        } else if (type === 'land') {
-            // Hide height for land
+        } else {
+            // Hide height for all other types (ground, waterway, highway, green, land)
             heightGroup.style.display = 'none';
-            
-            // Show appropriate geometric fields based on shape type
-            if (shapeType === 'circle') {
-                lengthGroup.style.display = 'none';
-                widthGroup.style.display = 'none';
-                radiusGroup.style.display = 'flex';
-            } else if (shapeType === 'rectangle') {
-                lengthGroup.style.display = 'flex';
-                widthGroup.style.display = 'flex';
-                radiusGroup.style.display = 'none';
-            } else if (shapeType === 'polygon') {
-                // For polygons, show area and perimeter instead of length/width
-                lengthGroup.style.display = 'none';
-                widthGroup.style.display = 'none';
-                radiusGroup.style.display = 'none';
-                // Note: We'll need to add polygon-specific fields to the HTML
-            }
+        }
+        
+        // Show appropriate geometric fields based on shape type
+        if (shapeType === 'circle') {
+            lengthGroup.style.display = 'none';
+            widthGroup.style.display = 'none';
+            radiusGroup.style.display = 'flex';
+        } else if (shapeType === 'rectangle' || shapeType === 'building') {
+            lengthGroup.style.display = 'flex';
+            widthGroup.style.display = 'flex';
+            radiusGroup.style.display = 'none';
+        } else if (shapeType === 'polygon') {
+            // For polygons, show area and perimeter instead of length/width
+            lengthGroup.style.display = 'none';
+            widthGroup.style.display = 'none';
+            radiusGroup.style.display = 'none';
+            // Note: We'll need to add polygon-specific fields to the HTML
         }
     }
 
@@ -4077,7 +4384,7 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     getShapeProperties(shape) {
         const name = shape.name || 'Unnamed Shape';
-        const type = shape.userData?.type || 'land';
+        const type = shape.userData?.type || 'ground';
         const color = this.getShapeColor(shape);
         const dimensions = this.getShapeDimensions(shape);
         
@@ -4128,9 +4435,15 @@ Transform your 3D models into powerful energy analysis tools.`;
             
             if (this.getShapeType(shape) === 'rectangle') {
                 dimensions.length = parseFloat(storedDimensions.width || 0).toFixed(2);
-                dimensions.width = parseFloat(storedDimensions.height || 0).toFixed(2);
+                dimensions.width = parseFloat(storedDimensions.depth || 0).toFixed(2);
+                dimensions.height = parseFloat(storedDimensions.height || 0).toFixed(2);
+            } else if (this.getShapeType(shape) === 'building') {
+                dimensions.length = parseFloat(storedDimensions.width || 0).toFixed(2);
+                dimensions.width = parseFloat(storedDimensions.depth || 0).toFixed(2);
+                dimensions.height = parseFloat(storedDimensions.height || 0).toFixed(2);
             } else if (this.getShapeType(shape) === 'circle') {
                 dimensions.radius = parseFloat(storedDimensions.radius || 0).toFixed(2);
+                dimensions.height = parseFloat(storedDimensions.height || 0).toFixed(2);
             } else if (this.getShapeType(shape) === 'polygon') {
                 dimensions.area = parseFloat(storedDimensions.area || 0).toFixed(2);
                 dimensions.perimeter = parseFloat(storedDimensions.perimeter || 0).toFixed(2);
@@ -4165,12 +4478,51 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Generate unique name based on type
+     */
+    generateUniqueNameByType(type) {
+        // Count existing objects of this type in the scene
+        let maxNumber = 0;
+        const scene = this.sceneManager.getScene();
+        
+        // Check all meshes in the scene for names of this type
+        scene.meshes.forEach(mesh => {
+            if (mesh.name && mesh.name.startsWith(`${type}_`)) {
+                const match = mesh.name.match(new RegExp(`${type}_(\\d+)`));
+                if (match) {
+                    const number = parseInt(match[1]);
+                    if (number > maxNumber) {
+                        maxNumber = number;
+                    }
+                }
+            }
+        });
+        
+        // Return next available number
+        return `${type}_${maxNumber + 1}`;
+    }
+
+    /**
+     * Generate unique building name (for backward compatibility)
+     */
+    generateUniqueBuildingName() {
+        return this.generateUniqueNameByType('building');
+    }
+
+    /**
      * Get shape type (rectangle, circle, polygon, etc.)
      */
     getShapeType(shape) {
+        // First check userData for explicit shape type
+        if (shape.userData && shape.userData.shapeType) {
+            return shape.userData.shapeType;
+        }
+        
+        // Fallback to name-based detection
         if (shape.name.includes('circle')) return 'circle';
         if (shape.name.includes('rectangle')) return 'rectangle';
         if (shape.name.includes('polygon')) return 'polygon';
+        if (shape.name.includes('building')) return 'building';
         return 'rectangle'; // Default
     }
 
@@ -4487,11 +4839,26 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Clear all 2D shapes
      */
     clear2DShapes() {
-        if (!this.shape2DManager) {
-            return;
+        // Clear rectangles
+        if (this.rectangleManager) {
+            this.rectangleManager.clearAllRectangles();
         }
-
-        this.shape2DManager.clearAllShapes();
+        
+        // Clear circles
+        if (this.circleManager) {
+            this.circleManager.clearAllCircles();
+        }
+        
+        // Clear polygons
+        if (this.polygonManager) {
+            this.polygonManager.clearAllPolygons();
+        }
+        
+        // Clear other shapes from shape2DManager if it exists
+        if (this.shape2DManager) {
+            this.shape2DManager.clearAllShapes();
+        }
+        
         console.log('All 2D shapes cleared');
     }
 

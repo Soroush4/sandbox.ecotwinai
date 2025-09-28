@@ -64,6 +64,8 @@ class DigitalTwinApp {
             this.shape2DManager = new Shape2DManager(this.sceneManager.getScene(), this.selectionManager);
             this.treeManager = new TreeManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
             this.polygonManager = new PolygonManager(this.sceneManager.getScene(), this.selectionManager);
+            this.rectangleManager = new RectangleManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
+            this.circleManager = new CircleManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
             this.fpsMonitor = new FPSMonitor(this.sceneManager.getScene());
             
             // Setup shadows for ground
@@ -85,7 +87,9 @@ class DigitalTwinApp {
                 this.scaleManager,
                 this.shape2DManager,
                 this.treeManager,
-                this.polygonManager
+                this.polygonManager,
+                this.rectangleManager,
+                this.circleManager
             );
             
             // Make FPS monitor globally accessible

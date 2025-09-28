@@ -266,17 +266,59 @@ class RotateManager {
             if (count > 1) {
                 this.setupMultiObjectGizmo(selectedObjects);
             } else {
-                // Single object - attach gizmo directly
-                this.gizmoManager.attachToMesh(selectedObjects[0]);
-                // Clear multi-object data
-                this.originalRotations = null;
-                this.originalCenter = null;
-                this.originalCenterRotation = null;
+                // Single object - check if it needs special positioning (like rectangles with extrusions)
+                const selectedObject = selectedObjects[0];
+                
+                // For rectangles with extrusions, position gizmo at the center of the rectangle
+                if (selectedObject.userData && selectedObject.userData.shapeType === 'rectangle' && selectedObject.extrusion) {
+                    this.setupSingleObjectGizmo(selectedObject);
+                } else {
+                    // Regular single object - attach gizmo directly
+                    this.gizmoManager.attachToMesh(selectedObject);
+                    // Clear multi-object data
+                    this.originalRotations = null;
+                    this.originalCenter = null;
+                    this.originalCenterRotation = null;
+                }
             }
         } else {
             // Detach gizmo if no objects selected
             this.gizmoManager.attachToMesh(null);
         }
+    }
+
+    /**
+     * Setup gizmo for single object with special positioning (like rectangles with extrusions)
+     */
+    setupSingleObjectGizmo(selectedObject) {
+        // Calculate center position for the gizmo
+        let center = selectedObject.position.clone();
+        
+        // For rectangles, use the same position as the rectangle (same as extrusion position)
+        if (selectedObject.userData && selectedObject.userData.shapeType === 'rectangle') {
+            // No offset needed - use rectangle position directly
+        }
+        
+        // Create a temporary mesh at the center for gizmo attachment
+        if (!this.singleObjectCenter) {
+            this.singleObjectCenter = BABYLON.MeshBuilder.CreateSphere("singleObjectCenter", {
+                diameter: 0.1
+            }, this.scene);
+            this.singleObjectCenter.material = new BABYLON.StandardMaterial("singleObjectCenterMaterial", this.scene);
+            this.singleObjectCenter.material.alpha = 0; // Invisible
+            this.singleObjectCenter.isPickable = false;
+            this.singleObjectCenter.renderingGroupId = 1; // Ensure it renders on top
+        }
+        
+        this.singleObjectCenter.position = center;
+        
+        // Attach gizmo to the center mesh
+        this.gizmoManager.attachToMesh(this.singleObjectCenter);
+        
+        // Store original rotation for single object rotation
+        this.originalRotation = selectedObject.rotation.clone();
+        this.originalCenter = center.clone();
+        this.originalCenterRotation = this.singleObjectCenter.rotation.clone();
     }
 
     /**
@@ -296,14 +338,9 @@ class RotateManager {
                 // For regular shapes, calculate center based on shape type
                 let shapeCenter = obj.position.clone();
                 
-                // For rectangles, calculate center position for gizmo
+                // For rectangles, use the same position as the rectangle (same as extrusion position)
                 if (obj.userData && obj.userData.shapeType === 'rectangle') {
-                    const dimensions = obj.userData.dimensions;
-                    if (dimensions) {
-                        // Calculate center position for gizmo (same as extrusion center)
-                        shapeCenter.x += dimensions.width / 2;
-                        shapeCenter.z += dimensions.height / 2;
-                    }
+                    // No offset needed - use rectangle position directly
                 }
                 
                 center.addInPlace(shapeCenter);
