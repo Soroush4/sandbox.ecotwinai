@@ -38,10 +38,34 @@ class RectangleManager {
     }
 
     /**
+     * Generate unique name by type
+     */
+    generateUniqueNameByType(type) {
+        // Count existing objects of this type in the scene
+        let maxNumber = 0;
+        
+        // Check all meshes in the scene for names of this type
+        this.scene.meshes.forEach(mesh => {
+            if (mesh.name && mesh.name.startsWith(`${type}_`)) {
+                const match = mesh.name.match(new RegExp(`${type}_(\\d+)`));
+                if (match) {
+                    const number = parseInt(match[1]);
+                    if (number > maxNumber) {
+                        maxNumber = number;
+                    }
+                }
+            }
+        });
+        
+        // Return next available number
+        return `${type}_${maxNumber + 1}`;
+    }
+
+    /**
      * Create a 3D rectangle (box with minimal height)
      */
-    createRectangle(width, depth, position = new BABYLON.Vector3(0, 0, 0), color = new BABYLON.Color3(0.4, 0.3, 0.2), height = 0.1) {
-        const uniqueName = this.generateUniqueName();
+    createRectangle(width, depth, position = new BABYLON.Vector3(0, 0, 0), color = new BABYLON.Color3(0.4, 0.3, 0.2), height = 0.1, type = 'ground') {
+        const uniqueName = this.generateUniqueNameByType(type);
         
         // Create a 3D box instead of a 2D ground
         const rectangle = BABYLON.MeshBuilder.CreateBox(uniqueName, {
@@ -73,7 +97,7 @@ class RectangleManager {
         
         // Store rectangle properties in userData
         rectangle.userData = {
-            type: 'ground',
+            type: type,
             shapeType: 'rectangle',
             dimensions: {
                 width: width,
@@ -258,7 +282,8 @@ class RectangleManager {
             actualDepth,
             new BABYLON.Vector3(centerX, 0, centerZ),
             new BABYLON.Color3(0.4, 0.3, 0.2), // Brown for ground type
-            0.1 // Minimal height to prevent flickering
+            0.1, // Minimal height to prevent flickering
+            'ground' // Type
         );
         
         this.stopInteractiveDrawing();

@@ -97,7 +97,28 @@ class UIManager {
             // Show properties popup for 2D shapes, rectangles, and buildings only when select tool is active
             if (count === 1 && this.isSelectToolActive()) {
                 const selectedObject = selectedObjects[0];
-                if (this.is2DShape(selectedObject) || this.getShapeType(selectedObject) === 'rectangle' || this.getShapeType(selectedObject) === 'building') {
+                const shapeType = this.getShapeType(selectedObject);
+                console.log('Selected object:', selectedObject.name, 'Shape type:', shapeType);
+                
+                // Check if this is a circle or building that originated from a circle
+                const isCircle = shapeType === 'circle';
+                const isBuildingFromCircle = shapeType === 'building' && 
+                    selectedObject.userData && 
+                    selectedObject.userData.dimensions && 
+                    selectedObject.userData.dimensions.diameterTop !== undefined;
+                
+                console.log('Shape detection:', {
+                    shapeType,
+                    isCircle,
+                    isBuildingFromCircle,
+                    userData: selectedObject.userData
+                });
+                
+                if (isCircle || isBuildingFromCircle) {
+                    console.log('Showing circle properties popup');
+                    this.showCirclePropertiesPopup(selectedObject);
+                } else if (this.is2DShape(selectedObject) || shapeType === 'rectangle' || shapeType === 'building') {
+                    console.log('Showing regular properties popup');
                     this.showPropertiesPopup(selectedObject);
                 }
             }
@@ -1363,6 +1384,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             });
         }
 
+        // Create test circle
+        const createTestCircleBtn = document.getElementById('createTestCircle');
+        if (createTestCircleBtn) {
+            createTestCircleBtn.addEventListener('click', () => {
+                this.createTestCircle();
+            });
+        }
+
         // Statistics toggle button
         const statisticsTogglePref = document.getElementById('statisticsTogglePref');
         if (statisticsTogglePref) {
@@ -2187,7 +2216,16 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Set callback for when rectangle is created
         this.rectangleManager.onRectangleCreated = (rectangle) => {
-            // Rectangle is automatically added to selection manager by RectangleManager
+            // Add to selection manager
+            if (this.selectionManager) {
+                this.selectionManager.addSelectableObject(rectangle);
+            }
+            
+            // Add to scene
+            if (this.sceneManager) {
+                this.sceneManager.addBuilding(rectangle);
+            }
+            
             console.log('Rectangle created:', rectangle.name);
         };
 
@@ -2215,7 +2253,16 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Set callback for when circle is created
         this.circleManager.onCircleCreated = (circle) => {
-            // Circle is automatically added to selection manager by CircleManager
+            // Add to selection manager
+            if (this.selectionManager) {
+                this.selectionManager.addSelectableObject(circle);
+            }
+            
+            // Add to scene
+            if (this.sceneManager) {
+                this.sceneManager.addBuilding(circle);
+            }
+            
             console.log('Circle created:', circle.name);
         };
 
@@ -2634,17 +2681,44 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.saveShapeProperties();
         });
 
+        // Circle properties popup event listeners
+        document.getElementById('closeCircleProperties').addEventListener('click', () => {
+            this.hideCirclePropertiesPopup();
+        });
+
+        document.getElementById('cancelCircleProperties').addEventListener('click', () => {
+            this.hideCirclePropertiesPopup();
+        });
+
+        document.getElementById('saveCircleProperties').addEventListener('click', () => {
+            this.saveCircleProperties();
+        });
+
         // Shape type change
         document.getElementById('shapeType').addEventListener('change', (e) => {
             const newType = e.target.value;
             console.log('Type changed to:', newType);
+            
+            // Check if type actually changed before updating userData
+            const currentType = this.currentShape?.userData?.type;
+            const typeChanged = currentType !== newType;
+            
             this.updatePropertiesFields(newType);
             
-            // Update userData type immediately
+            // Update userData type
             if (this.currentShape) {
                 this.currentShape.userData = this.currentShape.userData || {};
                 this.currentShape.userData.type = newType;
                 console.log('Updated userData.type to:', newType);
+            }
+            
+            // Update name based on new type (only if type actually changed)
+            if (typeChanged) {
+                const newName = this.generateUniqueNameByType(newType);
+                console.log('Type changed from', currentType, 'to', newType, '- generating new name:', newName);
+                // Update both the shape name and the popup field
+                this.currentShape.name = newName;
+                document.getElementById('shapeName').value = newName;
             }
             
             this.updateShapeInRealTime();
@@ -2655,26 +2729,84 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.updateShapeInRealTime();
         });
 
-        document.getElementById('shapeLength').addEventListener('input', () => {
-            this.updateShapeInRealTime();
-        });
-
-        document.getElementById('shapeWidth').addEventListener('input', () => {
-            this.updateShapeInRealTime();
-        });
-
-        document.getElementById('shapeHeight').addEventListener('input', () => {
+        // Add continuous parameter change functionality
+        this.setupContinuousParameterChange('shapeLength', () => this.updateShapeInRealTime());
+        this.setupContinuousParameterChange('shapeWidth', () => this.updateShapeInRealTime());
+        this.setupContinuousParameterChange('shapeHeight', () => {
             this.updateShapeInRealTime();
             this.previewHeightChanges();
         });
-
-        document.getElementById('shapeRadius').addEventListener('input', () => {
-            this.updateShapeInRealTime();
-        });
+        this.setupContinuousParameterChange('shapeRadius', () => this.updateShapeInRealTime());
 
         // Prevent backspace from closing popup when typing in input fields
         const popup = document.getElementById('propertiesPopup');
         popup.addEventListener('keydown', (event) => {
+            // Allow backspace in input fields
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+                event.stopPropagation();
+            }
+        });
+
+        // Circle properties real-time updates
+        document.getElementById('circleType').addEventListener('change', (e) => {
+            const newType = e.target.value;
+            console.log('Circle type changed to:', newType);
+            
+            // Check if type actually changed before updating userData
+            const currentType = this.currentShape?.userData?.type;
+            const typeChanged = currentType !== newType;
+            
+            // Update userData type
+            if (this.currentShape) {
+                this.currentShape.userData = this.currentShape.userData || {};
+                this.currentShape.userData.type = newType;
+                this.currentShape.userData.shapeType = newType === 'building' ? 'building' : 'circle';
+                console.log('Updated circle userData.type to:', newType);
+            }
+            
+            // Keep current values when changing type
+            const currentDiameterTop = this.currentShape?.userData?.dimensions?.diameterTop || 0.1;
+            document.getElementById('circleDiameter').value = currentDiameterTop;
+            document.getElementById('circleHeight').value = this.currentShape?.userData?.dimensions?.height || 0.1;
+            
+            // Update name based on new type (only if type actually changed)
+            if (typeChanged) {
+                const newName = this.generateUniqueNameByType(newType);
+                console.log('Type changed from', currentType, 'to', newType, '- generating new name:', newName);
+                // Update both the shape name and the popup field
+                this.currentShape.name = newName;
+                document.getElementById('circleName').value = newName;
+            }
+            
+            // Update color based on type
+            let newColor;
+            if (newType === 'building') {
+                newColor = '#ffffff'; // White for buildings
+            } else if (newType === 'ground') {
+                newColor = '#663300'; // Brown for ground
+            } else if (newType === 'waterway') {
+                newColor = '#0080ff'; // Blue for waterway
+            } else if (newType === 'highway') {
+                newColor = '#4d4d4d'; // Gray for highway
+            } else if (newType === 'green') {
+                newColor = '#00cc00'; // Green for green areas
+            }
+            document.getElementById('circleColor').value = newColor;
+            
+            this.updateCircleInRealTime();
+        });
+
+        document.getElementById('circleColor').addEventListener('input', () => {
+            this.updateCircleInRealTime();
+        });
+
+        // Add continuous parameter change functionality for circles
+        this.setupContinuousParameterChange('circleDiameter', () => this.updateCircleInRealTime());
+        this.setupContinuousParameterChange('circleHeight', () => this.updateCircleInRealTime());
+
+        // Prevent backspace from closing circle popup when typing in input fields
+        const circlePopup = document.getElementById('circlePropertiesPopup');
+        circlePopup.addEventListener('keydown', (event) => {
             // Allow backspace in input fields
             if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
                 event.stopPropagation();
@@ -2690,38 +2822,40 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Get shape properties
         const properties = this.getShapeProperties(shape);
+        console.log('Showing properties for shape:', shape.name);
+        console.log('Shape userData:', shape.userData);
+        console.log('Properties:', properties);
         
-        // Get original color from SelectionManager if shape is selected
-        let originalColor = properties.color;
-        if (this.selectionManager && this.selectionManager.selectedObjects.includes(shape)) {
-            const originalMaterial = this.selectionManager.originalMaterials.get(shape);
-            if (originalMaterial && originalMaterial.diffuseColor) {
-                const color = originalMaterial.diffuseColor;
-                originalColor = this.rgbToHex(
-                    Math.round(color.r * 255),
-                    Math.round(color.g * 255),
-                    Math.round(color.b * 255)
-                );
-            }
+        // Set color based on type
+        let displayColor = properties.color;
+        if (properties.type === 'building') {
+            displayColor = '#ffffff'; // White for buildings
+        } else if (properties.type === 'ground') {
+            displayColor = '#663300'; // Brown for ground
+        } else if (properties.type === 'waterway') {
+            displayColor = '#0080ff'; // Blue for waterway
+        } else if (properties.type === 'highway') {
+            displayColor = '#4d4d4d'; // Gray for highway
+        } else if (properties.type === 'green') {
+            displayColor = '#00cc00'; // Green for green areas
         }
         
         // Fill form fields
         document.getElementById('shapeName').value = properties.name;
         document.getElementById('shapeType').value = properties.type;
-        document.getElementById('shapeColor').value = originalColor;
+        document.getElementById('shapeColor').value = displayColor;
         document.getElementById('shapeLength').value = properties.length;
         document.getElementById('shapeWidth').value = properties.width;
         
-        // Set values for specific fields first
-        if (properties.type === 'building') {
-            document.getElementById('shapeHeight').value = properties.height || 0.1;
-        }
+        // Set height value for all types
+        document.getElementById('shapeHeight').value = properties.height || 0.1;
         
         // Show/hide fields based on shape type
         this.updatePropertiesFields(properties.type);
         
+        // Set radius value for shapes that have radius
         if (properties.shapeType === 'circle') {
-            document.getElementById('shapeRadius').value = properties.radius;
+            document.getElementById('shapeRadius').value = properties.radius || 0;
         }
         
         // Show popup
@@ -2740,18 +2874,73 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
-     * Update shape in real-time based on popup values
+     * Show circle properties popup
+     */
+    showCirclePropertiesPopup(shape) {
+        this.currentShape = shape;
+        
+        // Get shape properties
+        const properties = this.getShapeProperties(shape);
+        console.log('Showing circle properties for shape:', shape.name);
+        console.log('Shape userData:', shape.userData);
+        console.log('Properties:', properties);
+        
+        // Set color based on type
+        let displayColor = properties.color;
+        if (properties.type === 'building') {
+            displayColor = '#ffffff'; // White for buildings
+        } else if (properties.type === 'ground') {
+            displayColor = '#663300'; // Brown for ground
+        } else if (properties.type === 'waterway') {
+            displayColor = '#0080ff'; // Blue for waterway
+        } else if (properties.type === 'highway') {
+            displayColor = '#4d4d4d'; // Gray for highway
+        } else if (properties.type === 'green') {
+            displayColor = '#00cc00'; // Green for green areas
+        }
+        
+        // Fill form fields
+        document.getElementById('circleName').value = properties.name;
+        document.getElementById('circleType').value = properties.type;
+        document.getElementById('circleColor').value = displayColor;
+        
+        // Set values for diameter and height
+        document.getElementById('circleDiameter').value = properties.diameterTop || 0.1;
+        document.getElementById('circleHeight').value = properties.height || 0.1;
+        
+        // Show popup
+        document.getElementById('circlePropertiesPopup').classList.add('show');
+    }
+
+    /**
+     * Hide circle properties popup
+     */
+    hideCirclePropertiesPopup() {
+        document.getElementById('circlePropertiesPopup').classList.remove('show');
+        this.currentShape = null;
+    }
+
+    /**
+     * Update shape in real-time based on popup values (for rectangles and other shapes)
      */
     updateShapeInRealTime() {
         if (!this.currentShape) return;
 
-        // Get current values from popup
+        // Get current values from popup (for rectangles and other shapes)
         const type = document.getElementById('shapeType').value;
         const color = document.getElementById('shapeColor').value;
-        const length = parseFloat(document.getElementById('shapeLength').value) || 0;
-        const width = parseFloat(document.getElementById('shapeWidth').value) || 0;
-        const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0, 0.001);
+        const length = Math.max(parseFloat(document.getElementById('shapeLength').value) || 1.0, 0.1);
+        const width = Math.max(parseFloat(document.getElementById('shapeWidth').value) || 1.0, 0.1);
+        const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0.1, 0.1);
         const radius = parseFloat(document.getElementById('shapeRadius').value) || 0;
+        
+        // Round to 1 decimal place
+        const roundedLength = Math.round(length * 10) / 10;
+        const roundedWidth = Math.round(width * 10) / 10;
+        const roundedHeight = Math.round(height * 10) / 10;
+        const roundedRadius = Math.round(radius * 10) / 10;
+        
+        console.log('Updating rectangle with:', { type, length: roundedLength, width: roundedWidth, height: roundedHeight });
 
         // Update material color based on type
         let newColor;
@@ -2771,67 +2960,145 @@ Transform your 3D models into powerful energy analysis tools.`;
             newColor = new BABYLON.Color3(rgbColor.r / 255, rgbColor.g / 255, rgbColor.b / 255);
         }
         
-        // Check if shape is currently selected (has highlight material)
-        const isSelected = this.selectionManager && this.selectionManager.selectedObjects.includes(this.currentShape);
+        // Update material color immediately for visual feedback
+        if (this.currentShape.material && this.currentShape.material.diffuseColor) {
+            this.currentShape.material.diffuseColor = newColor;
+        }
+
+        // Check if type actually changed before updating userData
+        const currentType = this.currentShape.userData.type;
+        const typeChanged = currentType !== type;
         
-        if (isSelected) {
-            // Shape is selected - update the original material in SelectionManager
-            const originalMaterial = this.selectionManager.originalMaterials.get(this.currentShape);
-            if (originalMaterial) {
-                originalMaterial.diffuseColor = newColor;
-            }
-            
-            // Update extrusion original material if it exists
-            if (this.currentShape.extrusion) {
-                const extrusionOriginalMaterial = this.selectionManager.originalMaterials.get(this.currentShape.extrusion);
-                if (extrusionOriginalMaterial) {
-                    extrusionOriginalMaterial.diffuseColor = newColor;
-                }
-            }
-        } else {
-            // Shape is not selected - update material directly
-            if (this.currentShape.material && this.currentShape.material.diffuseColor) {
-                this.currentShape.material.diffuseColor = newColor;
-            }
-            
-            // Update extrusion material color if it exists
-            if (this.currentShape.extrusion && this.currentShape.extrusion.material) {
-                this.currentShape.extrusion.material.diffuseColor = newColor;
-            }
+        // Update userData
+        this.currentShape.userData.type = type;
+        this.currentShape.userData.shapeType = type === 'building' ? 'building' : 'rectangle';
+        
+        // Only generate new name if type actually changed
+        if (typeChanged) {
+            const newName = this.generateUniqueNameByType(type);
+            this.currentShape.name = newName;
+            document.getElementById('shapeName').value = newName;
         }
 
         // Update geometry based on shape type
-        this.updateShapeGeometry(this.currentShape, {
+        console.log('Updating shape geometry with properties:', {
             type: type,
             length: length,
             width: width,
             height: height,
             radius: radius
         });
-
-        // Update userData
-        this.currentShape.userData = this.currentShape.userData || {};
-        this.currentShape.userData.type = type;
         
-        // Update dimensions in userData for rectangles, buildings, and circles
-        if (this.getShapeType(this.currentShape) === 'rectangle' || this.getShapeType(this.currentShape) === 'building') {
-            this.currentShape.userData.dimensions = {
-                width: length,
-                depth: width,
-                height: height
-            };
-            this.currentShape.userData.originalHeight = height;
-        } else if (this.getShapeType(this.currentShape) === 'circle') {
-            this.currentShape.userData.dimensions = {
-                radius: radius,
-                height: height
-            };
-            this.currentShape.userData.originalHeight = height;
+        // Update rectangle geometry using CircleManager-like approach
+        const newRectangle = this.updateRectangleGeometryLikeCircle(this.currentShape, roundedLength, roundedWidth, roundedHeight, type);
+        if (newRectangle) {
+            this.currentShape = newRectangle;
         }
     }
 
     /**
-     * Update shape geometry
+     * Update rectangle geometry like CircleManager (preserves focus and works smoothly)
+     */
+    updateRectangleGeometryLikeCircle(shape, newLength, newWidth, newHeight, type) {
+        if (!shape || !shape.userData) {
+            console.warn('Cannot update: no shape or userData');
+            return;
+        }
+        
+        // Check if this is a rectangle or building
+        const isRectangle = shape.userData.shapeType === 'rectangle' || shape.userData.shapeType === 'building';
+        
+        if (!isRectangle) {
+            console.warn('Cannot update: not a rectangle or building');
+            return;
+        }
+        
+        console.log('Updating rectangle:', shape.name, 'length:', newLength, 'width:', newWidth, 'height:', newHeight);
+        
+        // Store current position
+        const currentPosition = shape.position.clone();
+        
+        // Dispose old mesh
+        if (shape.geometry) { shape.geometry.dispose(); }
+        if (shape.material && shape.material !== this.sceneManager.getScene().defaultMaterial) { shape.material.dispose(); }
+        shape.setEnabled(false);
+        shape.dispose();
+        
+        // Create new box with updated dimensions
+        const newRectangle = BABYLON.MeshBuilder.CreateBox(shape.name, {
+            width: newLength,
+            height: newHeight,
+            depth: newWidth
+        }, this.sceneManager.getScene());
+        
+        // Position the new box
+        newRectangle.position = new BABYLON.Vector3(
+            currentPosition.x,
+            newHeight / 2, // Center vertically
+            currentPosition.z
+        );
+        
+        // Create new material (color will be set later based on type)
+        const material = new BABYLON.StandardMaterial(`${shape.name}Material`, this.sceneManager.getScene());
+        material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
+        material.backFaceCulling = false;
+        material.twoSidedLighting = true;
+        material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        material.alpha = 1.0;
+        newRectangle.material = material;
+        newRectangle.renderingGroupId = 1; // Same rendering priority as buildings and trees
+        
+        // Set material color based on type
+        if (type === 'building') {
+            material.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+        } else if (type === 'ground') {
+            material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+        } else if (type === 'waterway') {
+            material.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+        } else if (type === 'highway') {
+            material.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+        } else if (type === 'green') {
+            material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        }
+        
+        // Update userData
+        newRectangle.userData = {
+            type: type,
+            shapeType: type === 'building' ? 'building' : 'rectangle',
+            dimensions: {
+                width: newLength,
+                depth: newWidth,
+                height: newHeight
+            },
+            originalHeight: newHeight
+        };
+        
+        // Add to selection manager
+        if (this.selectionManager) {
+            this.selectionManager.addSelectableObject(newRectangle);
+        }
+        
+        // Enable shadows
+        if (this.lightingManager) {
+            this.lightingManager.updateShadowsForNewObject(newRectangle);
+        }
+        
+        // Update rectangleManager rectangles array
+        if (this.rectangleManager) {
+            // Remove old mesh from rectangles array
+            const oldIndex = this.rectangleManager.rectangles.indexOf(shape);
+            if (oldIndex !== -1) {
+                this.rectangleManager.rectangles.splice(oldIndex, 1);
+            }
+            // Add new mesh to rectangles array
+            this.rectangleManager.rectangles.push(newRectangle);
+        }
+        
+        return newRectangle;
+    }
+
+    /**
+     * Update shape geometry (for rectangles and other shapes, NOT circles)
      */
     updateShapeGeometry(shape, properties) {
         const shapeType = this.getShapeType(shape);
@@ -2839,11 +3106,92 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (shapeType === 'rectangle') {
             this.updateRectangleGeometry(shape, properties);
         } else if (shapeType === 'building') {
+            // For buildings from rectangles, use building geometry update
             this.updateBuildingGeometry(shape, properties);
-        } else if (shapeType === 'circle') {
-            this.updateCircleGeometry(shape, properties);
         } else if (shapeType === 'polygon') {
             this.updatePolygonGeometry(shape, properties);
+        }
+    }
+
+    /**
+     * Update rectangle geometry using scaling (preserves focus)
+     */
+    updateRectangleGeometryWithScaling(shape, properties) {
+        // Get current dimensions from userData
+        const currentDimensions = shape.userData.dimensions || { width: 1, depth: 1, height: 1 };
+        
+        // Calculate scaling factors
+        const scaleX = properties.length / currentDimensions.width;
+        const scaleY = properties.height / currentDimensions.height;
+        const scaleZ = properties.width / currentDimensions.depth;
+        
+        // Apply scaling
+        shape.scaling = new BABYLON.Vector3(scaleX, scaleY, scaleZ);
+        
+        // Update userData
+        shape.userData.dimensions = {
+            width: properties.length,
+            depth: properties.width,
+            height: properties.height
+        };
+        shape.userData.type = properties.type;
+        shape.userData.shapeType = properties.type === 'building' ? 'building' : 'rectangle';
+        shape.userData.originalHeight = properties.height;
+        
+        // Update material color based on type
+        if (shape.material) {
+            if (properties.type === 'building') {
+                shape.material.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+            } else if (properties.type === 'ground') {
+                shape.material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+            } else if (properties.type === 'waterway') {
+                shape.material.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+            } else if (properties.type === 'highway') {
+                shape.material.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+            } else if (properties.type === 'green') {
+                shape.material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+            }
+        }
+    }
+
+    /**
+     * Update building geometry using scaling (preserves focus)
+     */
+    updateBuildingGeometryWithScaling(shape, properties) {
+        // Get current dimensions from userData
+        const currentDimensions = shape.userData.dimensions || { width: 1, depth: 1, height: 1 };
+        
+        // Calculate scaling factors
+        const scaleX = properties.length / currentDimensions.width;
+        const scaleY = properties.height / currentDimensions.height;
+        const scaleZ = properties.width / currentDimensions.depth;
+        
+        // Apply scaling
+        shape.scaling = new BABYLON.Vector3(scaleX, scaleY, scaleZ);
+        
+        // Update userData
+        shape.userData.dimensions = {
+            width: properties.length,
+            depth: properties.width,
+            height: properties.height
+        };
+        shape.userData.type = properties.type;
+        shape.userData.shapeType = 'building';
+        shape.userData.originalHeight = properties.height;
+        
+        // Update material color based on type
+        if (shape.material) {
+            if (properties.type === 'building') {
+                shape.material.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+            } else if (properties.type === 'ground') {
+                shape.material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+            } else if (properties.type === 'waterway') {
+                shape.material.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+            } else if (properties.type === 'highway') {
+                shape.material.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+            } else if (properties.type === 'green') {
+                shape.material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+            }
         }
     }
 
@@ -2854,8 +3202,12 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Store current position and material
         const currentPosition = shape.position.clone();
         const currentMaterial = shape.material;
-        const currentName = this.generateUniqueNameByType(properties.type);
+        // Keep the same name (don't generate new name for updates)
+        const currentName = shape.name;
         const isSelected = this.selectionManager && this.selectionManager.isSelected(shape);
+        
+        // Store current focus element
+        const activeElement = document.activeElement;
         
         // Remove from selection manager first
         if (this.selectionManager) {
@@ -2938,6 +3290,13 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Enable shadows for the new mesh
         if (this.lightingManager) {
             this.lightingManager.updateShadowsForNewObject(newMesh);
+        }
+        
+        // Restore focus to the active element
+        if (activeElement && activeElement.focus) {
+            setTimeout(() => {
+                activeElement.focus();
+            }, 0);
         }
     }
 
@@ -3495,12 +3854,15 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Store current position and material
         const currentPosition = shape.position.clone();
         const currentMaterial = shape.material;
-        // Generate new name based on type
-        const currentName = this.generateUniqueNameByType(properties.type);
+        // Keep the same name (don't generate new name for updates)
+        const currentName = shape.name;
         const currentUserData = shape.userData;
 
         // Check if shape is selected
         const isSelected = this.selectionManager && this.selectionManager.selectedObjects.includes(shape);
+        
+        // Store current focus element
+        const activeElement = document.activeElement;
         
         // Remove from selection manager first
         if (this.selectionManager) {
@@ -3613,136 +3975,15 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (this.lightingManager) {
             this.lightingManager.updateShadowsForNewObject(newMesh);
         }
+        
+        // Restore focus to the active element
+        if (activeElement && activeElement.focus) {
+            setTimeout(() => {
+                activeElement.focus();
+            }, 0);
+        }
     }
 
-    /**
-     * Update circle geometry
-     */
-    updateCircleGeometry(shape, properties) {
-        // Store current position and material
-        const currentPosition = shape.position.clone();
-        const currentMaterial = shape.material;
-        // Generate new name based on type
-        const currentName = this.generateUniqueNameByType(properties.type);
-        const currentUserData = shape.userData;
-
-        // Check if shape is selected
-        const isSelected = this.selectionManager && this.selectionManager.selectedObjects.includes(shape);
-        
-        // Remove from selection manager first
-        if (this.selectionManager) {
-            this.selectionManager.removeSelectableObject(shape);
-            this.selectionManager.originalMaterials.delete(shape);
-        }
-        
-        // Dispose old mesh completely
-        if (shape.geometry) { shape.geometry.dispose(); }
-        if (shape.material && shape.material !== this.sceneManager.getScene().defaultMaterial) { shape.material.dispose(); }
-        shape.setEnabled(false);
-        shape.dispose();
-
-        // Create new 3D cylinder mesh with updated dimensions
-        const newMesh = BABYLON.MeshBuilder.CreateCylinder(currentName, {
-            radius: properties.radius,
-            height: properties.height,
-            tessellation: 32
-        }, this.sceneManager.getScene());
-
-        // Create new material with appropriate color based on type
-        const newMaterial = new BABYLON.StandardMaterial(`${currentName}Material`, this.sceneManager.getScene());
-        
-        // Set color based on type
-        if (properties.type === 'building') {
-            newMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
-        } else if (properties.type === 'ground') {
-            newMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
-        } else if (properties.type === 'waterway') {
-            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
-        } else if (properties.type === 'highway') {
-            newMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-        } else if (properties.type === 'green') {
-            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
-        } else {
-            // Use original material color for other types
-            if (currentMaterial && currentMaterial.diffuseColor) {
-                newMaterial.diffuseColor = currentMaterial.diffuseColor.clone();
-            } else {
-                newMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
-            }
-        }
-        
-        // Set common material properties
-        newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        newMaterial.roughness = 0.7;
-        
-        // Restore properties (center the cylinder vertically based on new height)
-        newMesh.position = new BABYLON.Vector3(
-            currentPosition.x,
-            properties.height / 2, // Center the cylinder vertically based on new height
-            currentPosition.z
-        );
-        newMesh.material = newMaterial;
-        newMesh.renderingGroupId = 1;
-        newMesh.userData = currentUserData;
-
-        // Apply anti-flickering settings
-        newMesh.enableEdgesRendering();
-        newMesh.edgesWidth = 1.0;
-        newMesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
-
-        // Update userData dimensions and type
-        newMesh.userData.dimensions = {
-            radius: properties.radius,
-            height: properties.height
-        };
-        newMesh.userData.type = properties.type;
-        newMesh.userData.shapeType = 'circle';
-        newMesh.userData.originalHeight = properties.height;
-
-        // Update currentShape reference
-        this.currentShape = newMesh;
-
-        // Make new mesh selectable
-        if (this.selectionManager) {
-            this.selectionManager.addSelectableObject(newMesh);
-            
-            // Update original materials if the old shape was selected
-            if (this.selectionManager.selectedObjects.includes(shape)) {
-                this.selectionManager.originalMaterials.set(newMesh, newMaterial);
-                // Remove old mesh from originalMaterials
-                this.selectionManager.originalMaterials.delete(shape);
-            }
-        }
-
-        // Update circleManager circles array
-        if (this.circleManager) {
-            // Remove old mesh from circles array
-            const oldIndex = this.circleManager.circles.indexOf(shape);
-            if (oldIndex !== -1) {
-                this.circleManager.circles.splice(oldIndex, 1);
-            }
-            // Add new mesh to circles array
-            this.circleManager.circles.push(newMesh);
-        }
-        
-        // Enable shadows for the new mesh
-        if (this.lightingManager) {
-            this.lightingManager.updateShadowsForNewObject(newMesh);
-        }
-
-        // Handle building height (extrusion)
-        if (properties.type === 'building' && properties.height > 0) {
-            this.extrudeShape(newMesh, properties.height);
-        } else {
-            // Remove extrusion if height is 0 or type is land
-            this.removeExtrusion(newMesh);
-        }
-
-        // Update userData
-        if (properties.type === 'building') {
-            newMesh.userData.dimensions.buildingHeight = properties.height;
-        }
-    }
 
     /**
      * Extrude shape to create 3D building
@@ -4346,19 +4587,14 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Get current shape type (rectangle/circle)
         const shapeType = this.getShapeType(this.currentShape);
         
-        // Show height only for building type
-        if (type === 'building') {
-            heightGroup.style.display = 'flex';
-            // Set height value
-            const heightInput = document.getElementById('shapeHeight');
-            if (heightInput) {
-                // Always set the height value when switching to building type
-                const currentHeight = this.currentShape?.userData?.dimensions?.height || 0.1;
-                heightInput.value = currentHeight;
-            }
-        } else {
-            // Hide height for all other types (ground, waterway, highway, green, land)
-            heightGroup.style.display = 'none';
+        // Show height for all types
+        heightGroup.style.display = 'flex';
+        // Set height value
+        const heightInput = document.getElementById('shapeHeight');
+        if (heightInput) {
+            // Always set the height value
+            const currentHeight = this.currentShape?.userData?.dimensions?.height || 0.1;
+            heightInput.value = currentHeight;
         }
         
         // Show appropriate geometric fields based on shape type
@@ -4366,7 +4602,12 @@ Transform your 3D models into powerful energy analysis tools.`;
             lengthGroup.style.display = 'none';
             widthGroup.style.display = 'none';
             radiusGroup.style.display = 'flex';
-        } else if (shapeType === 'rectangle' || shapeType === 'building') {
+        } else if (shapeType === 'rectangle') {
+            lengthGroup.style.display = 'flex';
+            widthGroup.style.display = 'flex';
+            radiusGroup.style.display = 'none';
+        } else if (shapeType === 'building') {
+            // For buildings from rectangles, show length and width
             lengthGroup.style.display = 'flex';
             widthGroup.style.display = 'flex';
             radiusGroup.style.display = 'none';
@@ -4395,7 +4636,8 @@ Transform your 3D models into powerful energy analysis tools.`;
             length: dimensions.length,
             width: dimensions.width,
             height: dimensions.height,
-            radius: dimensions.radius,
+            diameterTop: dimensions.diameterTop,
+            diameterBottom: dimensions.diameterBottom,
             shapeType: this.getShapeType(shape)
         };
     }
@@ -4434,16 +4676,26 @@ Transform your 3D models into powerful energy analysis tools.`;
             const storedDimensions = shape.userData.dimensions;
             
             if (this.getShapeType(shape) === 'rectangle') {
-                dimensions.length = parseFloat(storedDimensions.width || 0).toFixed(2);
-                dimensions.width = parseFloat(storedDimensions.depth || 0).toFixed(2);
-                dimensions.height = parseFloat(storedDimensions.height || 0).toFixed(2);
+                dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(1);
+                dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(1);
+                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
             } else if (this.getShapeType(shape) === 'building') {
-                dimensions.length = parseFloat(storedDimensions.width || 0).toFixed(2);
-                dimensions.width = parseFloat(storedDimensions.depth || 0).toFixed(2);
-                dimensions.height = parseFloat(storedDimensions.height || 0).toFixed(2);
+                // For buildings, check if it's from a circle or rectangle
+                if (storedDimensions.diameterTop !== undefined) {
+                    // This is a building from a circle - show diameter and height
+                    dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(1);
+                    dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(1);
+                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
+                } else {
+                    // This is a building from a rectangle - show length, width, and height
+                    dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(1);
+                    dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(1);
+                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
+                }
             } else if (this.getShapeType(shape) === 'circle') {
-                dimensions.radius = parseFloat(storedDimensions.radius || 0).toFixed(2);
-                dimensions.height = parseFloat(storedDimensions.height || 0).toFixed(2);
+                dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(1);
+                dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(1);
+                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
             } else if (this.getShapeType(shape) === 'polygon') {
                 dimensions.area = parseFloat(storedDimensions.area || 0).toFixed(2);
                 dimensions.perimeter = parseFloat(storedDimensions.perimeter || 0).toFixed(2);
@@ -4475,6 +4727,133 @@ Transform your 3D models into powerful energy analysis tools.`;
         }
 
         return dimensions;
+    }
+
+    /**
+     * Count models by type in the scene
+     */
+    countModelsByType(type) {
+        let count = 0;
+        const scene = this.sceneManager.getScene();
+        
+        scene.meshes.forEach(mesh => {
+            if (mesh.userData && mesh.userData.type === type) {
+                count++;
+            }
+        });
+        
+        return count;
+    }
+
+    /**
+     * Setup continuous parameter change for number inputs
+     */
+    setupContinuousParameterChange(inputId, updateCallback) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+
+        let isMouseDown = false;
+        let isIncreasing = false;
+        let intervalId = null;
+        let timeoutId = null;
+        let isTyping = false;
+
+        // Handle mouse down on spin buttons
+        input.addEventListener('mousedown', (e) => {
+            // Check if click is on spin button
+            const rect = input.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            
+            // Check if click is in the right side (spin button area)
+            if (clickX > rect.width - 30) {
+                e.preventDefault();
+                
+                // Determine if clicking up or down arrow
+                isIncreasing = clickY < rect.height / 2;
+                isMouseDown = true;
+                
+                // Start continuous change after a short delay
+                timeoutId = setTimeout(() => {
+                    if (isMouseDown && !isTyping) {
+                        intervalId = setInterval(() => {
+                            if (isMouseDown && !isTyping) {
+                                const currentValue = parseFloat(input.value) || 0;
+                                const step = parseFloat(input.step) || 0.1;
+                                const newValue = isIncreasing ? currentValue + step : currentValue - step;
+                                
+                                // Apply min/max constraints
+                                const min = parseFloat(input.min) || 0;
+                                const max = parseFloat(input.max) || Infinity;
+                                const constrainedValue = Math.max(min, Math.min(max, newValue));
+                                
+                                // Round to 1 decimal place
+                                const roundedValue = Math.round(constrainedValue * 10) / 10;
+                                
+                                input.value = roundedValue;
+                                updateCallback();
+                            }
+                        }, 50); // Change every 50ms
+                    }
+                }, 300); // Start after 300ms delay
+            }
+        });
+
+        // Handle mouse up
+        document.addEventListener('mouseup', () => {
+            if (isMouseDown) {
+                isMouseDown = false;
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+                if (intervalId) {
+                    clearInterval(intervalId);
+                    intervalId = null;
+                }
+            }
+        });
+
+        // Handle mouse leave
+        input.addEventListener('mouseleave', () => {
+            if (isMouseDown) {
+                isMouseDown = false;
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+                if (intervalId) {
+                    clearInterval(intervalId);
+                    intervalId = null;
+                }
+            }
+        });
+
+        // Handle focus events to detect typing
+        input.addEventListener('focus', () => {
+            isTyping = true;
+        });
+
+        input.addEventListener('blur', () => {
+            isTyping = false;
+        });
+
+        // Handle keydown to detect typing
+        input.addEventListener('keydown', () => {
+            isTyping = true;
+        });
+
+        // Handle input events - immediate update for real-time changes
+        input.addEventListener('input', () => {
+            isTyping = true;
+            
+            // Round to 1 decimal place
+            const currentValue = parseFloat(input.value) || 0;
+            const roundedValue = Math.round(currentValue * 10) / 10;
+            input.value = roundedValue;
+            
+            updateCallback(); // Immediate update
+        });
     }
 
     /**
@@ -4516,6 +4895,17 @@ Transform your 3D models into powerful energy analysis tools.`;
         // First check userData for explicit shape type
         if (shape.userData && shape.userData.shapeType) {
             return shape.userData.shapeType;
+        }
+        
+        // Check if this is a circle by looking for diameterTop in dimensions
+        if (shape.userData && shape.userData.dimensions && shape.userData.dimensions.diameterTop !== undefined) {
+            return 'circle';
+        }
+        
+        // Check if this is a rectangle by looking for width/depth in dimensions
+        if (shape.userData && shape.userData.dimensions && 
+            (shape.userData.dimensions.width !== undefined || shape.userData.dimensions.depth !== undefined)) {
+            return 'rectangle';
         }
         
         // Fallback to name-based detection
@@ -4869,5 +5259,126 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (this.statsInterval) {
             clearInterval(this.statsInterval);
         }
+    }
+
+    /**
+     * Update circle in real-time based on popup values
+     */
+    updateCircleInRealTime() {
+        if (!this.currentShape) return;
+
+        // Get current values from popup
+        const type = document.getElementById('circleType').value;
+        const color = document.getElementById('circleColor').value;
+        
+        // Get diameter value (same for all types)
+        const diameter = Math.max(parseFloat(document.getElementById('circleDiameter').value) || 1.0, 0.1);
+        const diameterTop = diameter;
+        const diameterBottom = diameter;
+        
+        // Get height value (always available for circles)
+        const height = Math.max(parseFloat(document.getElementById('circleHeight').value) || 0.1, 0.1);
+        
+        // Round to 1 decimal place
+        const roundedDiameterTop = Math.round(diameterTop * 10) / 10;
+        const roundedDiameterBottom = Math.round(diameterBottom * 10) / 10;
+        const roundedHeight = Math.round(height * 10) / 10;
+        
+        console.log('Updating circle with:', { type, diameterTop: roundedDiameterTop, diameterBottom: roundedDiameterBottom, height: roundedHeight });
+
+        // Update material color based on type (for immediate feedback)
+        let newColor;
+        if (type === 'building') {
+            newColor = new BABYLON.Color3(1, 1, 1); // White for buildings
+        } else if (type === 'ground') {
+            newColor = new BABYLON.Color3(0.4, 0.2, 0); // Brown for ground
+        } else if (type === 'waterway') {
+            newColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+        } else if (type === 'highway') {
+            newColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+        } else if (type === 'green') {
+            newColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        } else {
+            // Use custom color for other types
+            const rgbColor = this.hexToRgb(color);
+            newColor = new BABYLON.Color3(rgbColor.r / 255, rgbColor.g / 255, rgbColor.b / 255);
+        }
+        
+        // Update material color immediately for visual feedback
+        if (this.currentShape.material && this.currentShape.material.diffuseColor) {
+            this.currentShape.material.diffuseColor = newColor;
+        }
+
+        // Check if type actually changed before updating userData
+        const currentType = this.currentShape.userData.type;
+        const typeChanged = currentType !== type;
+        
+        // Update userData
+        this.currentShape.userData.type = type;
+        this.currentShape.userData.shapeType = type === 'building' ? 'building' : 'circle';
+        
+        // Only generate new name if type actually changed
+        if (typeChanged) {
+            const newName = this.generateUniqueNameByType(type);
+            this.currentShape.name = newName;
+            document.getElementById('circleName').value = newName;
+        }
+        
+        // Update circle geometry
+        const newCircle = this.circleManager.updateCircle(this.currentShape, roundedDiameterTop, roundedDiameterBottom, roundedHeight);
+        if (newCircle) {
+            this.currentShape = newCircle;
+            // Update dimensions in userData
+            this.currentShape.userData.dimensions.diameterTop = roundedDiameterTop;
+            this.currentShape.userData.dimensions.diameterBottom = roundedDiameterBottom;
+            this.currentShape.userData.dimensions.height = roundedHeight;
+            console.log('Circle updated successfully, userData:', this.currentShape.userData);
+        }
+    }
+
+    /**
+     * Save circle properties
+     */
+    saveCircleProperties() {
+        if (!this.currentShape) return;
+
+        // Apply all changes
+        this.updateCircleInRealTime();
+
+        // Hide popup
+        this.hideCirclePropertiesPopup();
+    }
+
+    /**
+     * Create test circle with radius 5 and height 8
+     */
+    createTestCircle() {
+        console.log('Creating test circle with radius 5 and height 8...');
+        
+        if (!this.circleManager) {
+            console.error('CircleManager not available');
+            return;
+        }
+
+        // Create circle at center of scene
+        const circle = this.circleManager.createCircle(
+            5, // radius
+            new BABYLON.Vector3(0, 0, 0), // position at center
+            new BABYLON.Color3(0.4, 0.2, 0), // brown color
+            8, // height
+            'ground' // type
+        );
+
+        // Add to selection manager
+        if (this.selectionManager) {
+            this.selectionManager.addSelectableObject(circle);
+        }
+
+        // Add to scene
+        this.sceneManager.addBuilding(circle);
+
+        console.log('Test circle created:', circle.name);
+        console.log('Circle position:', circle.position);
+        console.log('Circle userData:', circle.userData);
     }
 }

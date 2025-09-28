@@ -1105,6 +1105,21 @@ input[type="range"]::-moz-range-thumb {
     cursor: pointer;
 }
 
+.property-group input[type="number"] {
+    -webkit-appearance: textfield;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.property-group input[type="number"]::-webkit-outer-spin-button,
+.property-group input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: inner-spin-button;
+    opacity: 1;
+    height: 20px;
+    width: 20px;
+    cursor: pointer;
+}
+
 .property-group input[readonly] {
     background-color: #f8f9fa;
     color: #666;

@@ -329,6 +329,14 @@
                         Save Lighting Settings
                     </button>
                 </div>
+                <div class="control-group">
+                    <button id="createTestCircle" class="btn btn-primary" style="background-color: #ff6b6b;">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/circle.svg#icon"></use>
+                        </svg>
+                        Create Test Circle (R=5, H=8)
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -393,15 +401,15 @@
             </div>
             <div class="property-group">
                 <label>Length:</label>
-                <input type="number" id="shapeLength" step="0.1" min="0">
+                <input type="number" id="shapeLength" step="0.1" min="0.1" value="1.0">
             </div>
             <div class="property-group">
                 <label>Width:</label>
-                <input type="number" id="shapeWidth" step="0.1" min="0">
+                <input type="number" id="shapeWidth" step="0.1" min="0.1" value="1.0">
             </div>
-            <div class="property-group" id="heightGroup" style="display: none;">
+            <div class="property-group" id="heightGroup" style="display: flex;">
                 <label>Height:</label>
-                <input type="number" id="shapeHeight" step="0.1" min="0">
+                <input type="number" id="shapeHeight" step="0.1" min="0.1" value="0.1">
             </div>
             <div class="property-group" id="radiusGroup" style="display: none;">
                 <label>Radius:</label>
@@ -411,6 +419,46 @@
         <div class="properties-footer">
             <button class="btn btn-primary" id="saveProperties">Save</button>
             <button class="btn btn-secondary" id="cancelProperties">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Circle Properties Popup -->
+    <div id="circlePropertiesPopup" class="properties-popup">
+        <div class="properties-header">
+            <h3>Circle Properties</h3>
+            <button class="close-btn" id="closeCircleProperties">&times;</button>
+        </div>
+        <div class="properties-content">
+            <div class="property-group">
+                <label>Name:</label>
+                <input type="text" id="circleName" readonly>
+            </div>
+            <div class="property-group">
+                <label>Type:</label>
+                <select id="circleType">
+                    <option value="ground">Ground</option>
+                    <option value="waterway">Waterway</option>
+                    <option value="highway">Highway</option>
+                    <option value="green">Green</option>
+                    <option value="building">Building</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Color:</label>
+                <input type="color" id="circleColor" value="#663300">
+            </div>
+            <div class="property-group" id="circleDiameterGroup">
+                <label>Diameter:</label>
+                <input type="number" id="circleDiameter" step="0.1" min="0.1" value="1.0">
+            </div>
+            <div class="property-group" id="circleHeightGroup">
+                <label>Height:</label>
+                <input type="number" id="circleHeight" step="0.1" min="0.1" value="0.1">
+            </div>
+        </div>
+        <div class="properties-footer">
+            <button class="btn btn-primary" id="saveCircleProperties">Save</button>
+            <button class="btn btn-secondary" id="cancelCircleProperties">Cancel</button>
         </div>
     </div>
 

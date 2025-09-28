@@ -8,6 +8,7 @@ class SelectionManager {
         this.canvas = canvas;
         
         this.selectedObjects = [];
+        this.selectableObjects = [];
         this.highlightMaterial = null;
         this.outlineMaterial = null;
         this.originalMaterials = new Map();
@@ -73,12 +74,9 @@ class SelectionManager {
      * Add an object to the list of selectable objects
      */
     addSelectableObject(object) {
-        if (object && !this.selectableObjects) {
-            this.selectableObjects = [];
-        }
-        
-        if (object && this.selectableObjects && !this.selectableObjects.includes(object)) {
+        if (object && !this.selectableObjects.includes(object)) {
             this.selectableObjects.push(object);
+            console.log('Added selectable object:', object.name);
         }
     }
 
@@ -90,6 +88,7 @@ class SelectionManager {
             const index = this.selectableObjects.indexOf(object);
             if (index > -1) {
                 this.selectableObjects.splice(index, 1);
+                console.log('Removed selectable object:', object.name);
             }
         }
         
@@ -192,13 +191,22 @@ class SelectionManager {
 
         // Perform raycast
         const pickResult = this.scene.pick(x, y, (mesh) => {
-            // Select building meshes, 2D shapes, extrusions, and trees, not ground or other utility meshes
+            // Check if mesh is in selectableObjects array
+            if (this.selectableObjects.includes(mesh)) {
+                return true;
+            }
+            
+            // Fallback: Select building meshes, 2D shapes, extrusions, and trees, not ground or other utility meshes
             // Exclude wireframe clones from selection
             return mesh.name && 
                    !mesh.name.includes('_wireframe') && // Exclude wireframe clones
                    !mesh.name.includes('_edge_wireframe') && // Exclude edge wireframe clones
                    (
                        mesh.name.startsWith('building_') ||
+                       mesh.name.startsWith('ground_') ||
+                       mesh.name.startsWith('waterway_') ||
+                       mesh.name.startsWith('highway_') ||
+                       mesh.name.startsWith('green_') ||
                        mesh.name.includes('rectangle') ||
                        mesh.name.includes('circle') ||
                        mesh.name.includes('triangle') ||
@@ -209,7 +217,13 @@ class SelectionManager {
                        mesh.name.includes('_extrusion') || // Include extrusion meshes
                        mesh.name.startsWith('tree_') || // Include tree parent nodes
                        mesh.name.includes('_tree_') || // Include tree meshes
-                       mesh.name.startsWith('simple_tree_') // Include simple tree meshes
+                       mesh.name.startsWith('simple_tree_') || // Include simple tree meshes
+                       // Include circles by checking userData
+                       (mesh.userData && mesh.userData.shapeType === 'circle') ||
+                       // Include buildings from circles
+                       (mesh.userData && mesh.userData.shapeType === 'building' && mesh.userData.dimensions && mesh.userData.dimensions.diameterTop !== undefined) ||
+                       // Include rectangles by checking userData
+                       (mesh.userData && mesh.userData.shapeType === 'rectangle')
                    );
         });
 
