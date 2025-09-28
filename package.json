@@ -10,12 +10,19 @@
   "dependencies": {
     "@babylonjs/core": "^6.0.0",
     "@babylonjs/loaders": "^6.0.0",
-    "@babylonjs/materials": "^6.0.0"
+    "@babylonjs/materials": "^6.0.0",
+    "earcut": "^3.0.2"
   },
   "devDependencies": {
     "http-server": "^14.1.1"
   },
-  "keywords": ["babylonjs", "3d", "digital-twin", "stl", "editor"],
+  "keywords": [
+    "babylonjs",
+    "3d",
+    "digital-twin",
+    "stl",
+    "editor"
+  ],
   "author": "Digital Twin Developer",
   "license": "MIT"
 }

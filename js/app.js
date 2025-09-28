@@ -393,6 +393,42 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
+    window.test3DPolygonConversion = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.test3DPolygonConversion();
+        }
+    };
+    
+    window.testComplexConcavePolygon = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.testComplexConcavePolygon();
+        }
+    };
+    
+    window.testStarPolygon = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.testStarPolygon();
+        }
+    };
+    
+    window.checkEarcutStatus = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.checkEarcutStatus();
+        }
+    };
+    
+    window.testUpwardOnlyPolygon = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.testUpwardOnlyPolygon();
+        }
+    };
+    
+    window.comparePolygonModes = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.polygonManager) {
+            return window.digitalTwinApp.polygonManager.comparePolygonModes();
+        }
+    };
+    
     window.testDeleteSelected = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
             console.log('Testing delete selected functionality...');

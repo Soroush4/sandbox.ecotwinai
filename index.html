@@ -358,6 +358,7 @@
     <script src="js/libs/babylon.js"></script>
     <script src="js/libs/babylonjs.materials.min.js"></script>
     <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://unpkg.com/earcut@2.2.4/dist/earcut.min.js"></script>
     <script src="js/modules/SceneManager.js?v=2"></script>
     <script src="js/modules/BuildingGenerator.js"></script>
     <script src="js/modules/LightingManager.js"></script>
@@ -459,6 +460,72 @@
         <div class="properties-footer">
             <button class="btn btn-primary" id="saveCircleProperties">Save</button>
             <button class="btn btn-secondary" id="cancelCircleProperties">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Polygon Properties Popup -->
+    <div id="polygonPropertiesPopup" class="properties-popup">
+        <div class="properties-header">
+            <h3>Polygon Properties</h3>
+            <button class="close-btn" id="closePolygonProperties">&times;</button>
+        </div>
+        <div class="properties-content">
+            <div class="property-group">
+                <label>Name:</label>
+                <input type="text" id="polygonName" readonly>
+            </div>
+            <div class="property-group">
+                <label>Type:</label>
+                <select id="polygonType">
+                    <option value="land">Land</option>
+                    <option value="water">Water</option>
+                    <option value="road">Road</option>
+                    <option value="green">Green Space</option>
+                    <option value="building">Building Area</option>
+                    <option value="parking">Parking</option>
+                    <option value="garden">Garden</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Color:</label>
+                <input type="color" id="polygonColor" value="#32CD32">
+            </div>
+            <div class="property-group">
+                <label>Height:</label>
+                <input type="number" id="polygonHeight" step="0.01" min="0.01" max="10" value="0.01">
+            </div>
+            <div class="property-group">
+                <label>Vertices:</label>
+                <input type="number" id="polygonVertices" readonly>
+            </div>
+            <div class="property-group">
+                <label>Area:</label>
+                <input type="text" id="polygonArea" readonly>
+            </div>
+            <div class="property-group">
+                <label>Perimeter:</label>
+                <input type="text" id="polygonPerimeter" readonly>
+            </div>
+            <div class="property-group">
+                <label>Material:</label>
+                <select id="polygonMaterial">
+                    <option value="standard">Standard</option>
+                    <option value="grass">Grass</option>
+                    <option value="concrete">Concrete</option>
+                    <option value="asphalt">Asphalt</option>
+                    <option value="water">Water</option>
+                    <option value="sand">Sand</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Opacity:</label>
+                <input type="range" id="polygonOpacity" min="0.1" max="1.0" step="0.1" value="1.0">
+                <span id="polygonOpacityValue">100%</span>
+            </div>
+        </div>
+        <div class="properties-footer">
+            <button class="btn btn-primary" id="savePolygonProperties">Save</button>
+            <button class="btn btn-secondary" id="cancelPolygonProperties">Cancel</button>
         </div>
     </div>
 
