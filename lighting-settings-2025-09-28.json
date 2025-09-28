@@ -1,0 +1,26 @@
+{
+  "lightIntensity": 1.6,
+  "hemisphericIntensity": 0.8,
+  "shadowDarkness": 0.4,
+  "shadowBias": 0.00043,
+  "shadowNormalBias": 0.01,
+  "shadowDepthScale": 85,
+  "shadowOrthoScale": 260,
+  "shadowFrustumSize": 350,
+  "objectShadowsEnabled": true,
+  "hardShadowsEnabled": true,
+  "lightPosition": {
+    "x": -30,
+    "y": 50,
+    "z": 20
+  },
+  "lightDirection": {
+    "x": 0.5,
+    "y": -0.8,
+    "z": 0.3
+  },
+  "shadowMinZ": 0.01,
+  "shadowMaxZ": 500,
+  "timestamp": "2025-09-28T03:57:06.412Z",
+  "version": "1.0"
+}

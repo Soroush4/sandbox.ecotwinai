@@ -208,6 +208,51 @@
                     <button id="gridTogglePref" class="toggle-btn active">
                     </button>
                 </div>
+                <div class="control-group">
+                    <label for="shadowTogglePref">Object Shadows</label>
+                    <button id="shadowTogglePref" class="toggle-btn active">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="hardShadowTogglePref">Hard Shadows (Performance)</label>
+                    <button id="hardShadowTogglePref" class="toggle-btn active">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="lightIntensityPref">Light Intensity</label>
+                    <input type="range" id="lightIntensityPref" min="0.5" max="3.0" step="0.1" value="1.6">
+                    <span id="lightIntensityValuePref">1.6</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowDarknessPref">Shadow Darkness</label>
+                    <input type="range" id="shadowDarknessPref" min="0.1" max="0.8" step="0.05" value="0.4">
+                    <span id="shadowDarknessValuePref">0.4</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowBiasPref">Shadow Bias</label>
+                    <input type="range" id="shadowBiasPref" min="0.00001" max="0.001" step="0.00001" value="0.00043">
+                    <span id="shadowBiasValuePref">0.00043</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowNormalBiasPref">Shadow Normal Bias</label>
+                    <input type="range" id="shadowNormalBiasPref" min="0.01" max="0.2" step="0.01" value="0.01">
+                    <span id="shadowNormalBiasValuePref">0.01</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowDepthScalePref">Shadow Depth Scale</label>
+                    <input type="range" id="shadowDepthScalePref" min="10" max="200" step="5" value="85">
+                    <span id="shadowDepthScaleValuePref">85</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowOrthoScalePref">Shadow Ortho Scale</label>
+                    <input type="range" id="shadowOrthoScalePref" min="50" max="500" step="10" value="260">
+                    <span id="shadowOrthoScaleValuePref">260</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowFrustumSizePref">Shadow Frustum Size</label>
+                    <input type="range" id="shadowFrustumSizePref" min="100" max="600" step="10" value="350">
+                    <span id="shadowFrustumSizeValuePref">350</span>
+                </div>
             </div>
 
             <!-- Building Settings -->
@@ -243,6 +288,20 @@
                 </div>
             </div>
 
+            <!-- Statistics -->
+            <div class="preferences-section">
+                <h4>Statistics</h4>
+                <div class="control-group">
+                    <label for="statisticsTogglePref">Show Statistics</label>
+                    <button id="statisticsTogglePref" class="btn btn-toggle">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/chart.svg#icon"></use>
+                        </svg>
+                        <span class="toggle-text">Show Statistics</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- Action Buttons -->
             <div class="preferences-section">
                 <h4>Actions</h4>
@@ -260,6 +319,14 @@
                             <use href="icons/reset.svg#icon"></use>
                         </svg>
                         Reset Scene
+                    </button>
+                </div>
+                <div class="control-group">
+                    <button id="saveLightingSettingsPref" class="btn btn-primary">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/save.svg#icon"></use>
+                        </svg>
+                        Save Lighting Settings
                     </button>
                 </div>
             </div>
@@ -295,6 +362,7 @@
     <script src="js/modules/Shape2DManager.js"></script>
     <script src="js/modules/TreeManager.js"></script>
     <script src="js/modules/PolygonManager.js"></script>
+    <script src="js/modules/FPSMonitor.js"></script>
     <script src="js/modules/UIManager.js"></script>
     <!-- Properties Popup -->
     <div id="propertiesPopup" class="properties-popup">

@@ -292,7 +292,6 @@ class RotateManager {
             if (obj.name.includes('_extrusion')) {
                 center.addInPlace(obj.position);
                 objectCount++;
-                console.log(`Adding extrusion ${obj.name} to center calculation at position:`, obj.position);
             } else {
                 // For regular shapes, calculate center based on shape type
                 let shapeCenter = obj.position.clone();
@@ -304,13 +303,11 @@ class RotateManager {
                         // Calculate center position for gizmo (same as extrusion center)
                         shapeCenter.x += dimensions.width / 2;
                         shapeCenter.z += dimensions.height / 2;
-                        console.log(`Calculated rectangle center for gizmo: ${shapeCenter}`);
                     }
                 }
                 
                 center.addInPlace(shapeCenter);
                 objectCount++;
-                console.log(`Adding shape ${obj.name} to center calculation at position:`, shapeCenter);
             }
         });
         

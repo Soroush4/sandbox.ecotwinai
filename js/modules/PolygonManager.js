@@ -43,7 +43,6 @@ class PolygonManager {
         this.isCurrentlyDrawing = true;
         this.points = [];
         this.clearPreview();
-        console.log('Polygon drawing started');
     }
 
     /**
@@ -54,7 +53,6 @@ class PolygonManager {
         this.points = [];
         this.isSnappedToFirst = false;
         this.clearPreview();
-        console.log('Polygon drawing stopped');
     }
 
     /**
@@ -66,7 +64,6 @@ class PolygonManager {
 
         // If we're snapped to first point, complete the polygon instead of adding a new point
         if (this.isSnappedToFirst && this.points.length >= this.minPoints) {
-            console.log('Completing polygon by clicking on first point');
             this.completePolygon();
             return;
         }
@@ -76,8 +73,6 @@ class PolygonManager {
         newPoint.y = 0.01; // Slightly above ground to avoid z-fighting
         
         this.points.push(newPoint);
-        console.log(`Point ${this.points.length} added:`, newPoint);
-        console.log(`Polygon will connect points in order: ${this.points.map((p, i) => `${i + 1}→${i + 2}`).join(', ')}${this.points.length >= this.minPoints ? `, ${this.points.length}→1 (closing)` : ''}`);
 
         // Update preview (this will automatically redraw the polygon)
         this.updatePreview();
@@ -89,14 +84,11 @@ class PolygonManager {
      */
     removeLastPoint() {
         if (!this.isCurrentlyDrawing || this.points.length === 0) {
-            console.log('No points to remove or not currently drawing');
             return false;
         }
 
         // Remove the last point
         const removedPoint = this.points.pop();
-        console.log(`Point ${this.points.length + 1} removed:`, removedPoint);
-        console.log(`Remaining points: ${this.points.length}`);
 
         // Reset snap state
         this.isSnappedToFirst = false;
@@ -106,9 +98,7 @@ class PolygonManager {
 
         // Show feedback message
         if (this.points.length === 0) {
-            console.log('All points removed. Click to add new points.');
         } else {
-            console.log(`Continue adding points. Current: ${this.points.length} points`);
         }
 
         return true;
@@ -207,11 +197,9 @@ class PolygonManager {
                     snapIndicator.renderingGroupId = 1;
                     this.previewLines.push(snapIndicator);
                     
-                    console.log('Snapped to first point');
                 } else if (this.isSnappedToFirst && distanceToFirst > this.snapDistance * 1.5) {
                     // Unsnap if moved far enough away
                     this.isSnappedToFirst = false;
-                    console.log('Unsnapped from first point');
                 }
             }
             
@@ -335,7 +323,6 @@ class PolygonManager {
         // Position the polygon at the center of points
         this.currentPolygon.position = center;
 
-        console.log(`Polygon redrawn with ${cleanedPoints.length} points (cleaned from ${this.points.length})`);
     }
 
     /**
@@ -398,7 +385,6 @@ class PolygonManager {
         const isComplex = this.isComplexPolygon(points);
         
         if (isComplex) {
-            console.log('Complex polygon detected, using advanced triangulation');
             this.triangulateComplexPolygon(points, indices);
             return;
         }
@@ -483,13 +469,11 @@ class PolygonManager {
         
         // Check for self-intersections
         if (this.hasSelfIntersections(points)) {
-            console.log('Self-intersecting polygon detected');
             return true;
         }
         
         // Check for concavity
         if (this.isConcavePolygon(points)) {
-            console.log('Concave polygon detected');
             return true;
         }
         
@@ -580,14 +564,12 @@ class PolygonManager {
      * @param {number[]} indices - Array to store triangle indices
      */
     triangulateComplexPolygon(points, indices) {
-        console.log('Using complex polygon triangulation for', points.length, 'points');
         
         // For complex polygons, use a more robust approach
         // First, try to decompose into simpler polygons
         const simplePolygons = this.decomposeComplexPolygon(points);
         
         if (simplePolygons.length > 1) {
-            console.log('Decomposed into', simplePolygons.length, 'simple polygons');
             // Triangulate each simple polygon
             simplePolygons.forEach(polygon => {
                 this.triangulateSimplePolygon(polygon, indices);
@@ -736,7 +718,6 @@ class PolygonManager {
         for (let i = 0; i < points.length; i++) {
             for (let j = i + 1; j < points.length; j++) {
                 if (BABYLON.Vector3.Distance(points[i], points[j]) < 0.001) {
-                    console.warn('Duplicate points detected in polygon');
                     return false;
                 }
             }
@@ -750,7 +731,6 @@ class PolygonManager {
             
             const cross = (curr.x - prev.x) * (next.z - prev.z) - (curr.z - prev.z) * (next.x - prev.x);
             if (Math.abs(cross) < 0.001) {
-                console.warn('Collinear points detected in polygon');
                 return false;
             }
         }
@@ -1076,7 +1056,6 @@ class PolygonManager {
             this.selectionManager.addSelectableObject(this.currentPolygon);
         }
 
-        console.log(`Polygon completed with ${this.points.length} points - closed shape`);
 
         // Reset for next polygon
         this.points = [];
@@ -1102,7 +1081,6 @@ class PolygonManager {
         this.points = [];
         this.isSnappedToFirst = false;
         this.isCurrentlyDrawing = false;
-        console.log('Polygon drawing cancelled');
         
         // Call cancellation callback
         if (this.onPolygonCancelled) {
@@ -1149,14 +1127,12 @@ class PolygonManager {
      */
     setSnapDistance(distance) {
         this.snapDistance = Math.max(0.1, distance);
-        console.log(`Snap distance set to: ${this.snapDistance}`);
     }
 
     /**
      * Test polygon creation with sample points
      */
     testPolygonCreation() {
-        console.log('Testing polygon creation...');
         
         // Create a test triangle
         const testPoints = [
@@ -1169,14 +1145,12 @@ class PolygonManager {
         this.createPolygon();
         this.completePolygon();
         
-        console.log('Test polygon created with points:', testPoints);
     }
 
     /**
      * Test E-shape polygon creation
      */
     testEShapePolygon() {
-        console.log('Testing E-shape polygon creation...');
         
         // Create E-shape points (concave polygon)
         const eShapePoints = [
@@ -1194,14 +1168,12 @@ class PolygonManager {
         this.createPolygon();
         this.completePolygon();
         
-        console.log('E-shape polygon created with points:', eShapePoints);
     }
 
     /**
      * Test complex polygon with self-intersections
      */
     testComplexPolygon() {
-        console.log('Testing complex polygon creation...');
         
         // Create a star-like shape (self-intersecting)
         const complexPoints = [
@@ -1218,14 +1190,12 @@ class PolygonManager {
         this.createPolygon();
         this.completePolygon();
         
-        console.log('Complex polygon created with points:', complexPoints);
     }
 
     /**
      * Test polygon with negative coordinates (concave in -Z direction)
      */
     testNegativeZConcavePolygon() {
-        console.log('Testing polygon with negative Z concave...');
         
         // Create a simple concave polygon in the -Z direction
         // Simple L-shape that's concave inward
@@ -1251,14 +1221,12 @@ class PolygonManager {
         this.createPolygon();
         this.completePolygon();
         
-        console.log('Negative Z concave polygon created with points:', negativeZPoints);
     }
 
     /**
      * Test polygon with negative coordinates (concave in -X direction)
      */
     testNegativeXConcavePolygon() {
-        console.log('Testing polygon with negative X concave...');
         
         // Create a polygon that's concave in the -X direction
         const negativeXPoints = [
@@ -1277,14 +1245,12 @@ class PolygonManager {
         this.createPolygon();
         this.completePolygon();
         
-        console.log('Negative X concave polygon created with points:', negativeXPoints);
     }
 
     /**
      * Test polygon with positive coordinates (concave in +Z direction)
      */
     testPositiveZConcavePolygon() {
-        console.log('Testing polygon with positive Z concave...');
         
         // Create a polygon that's concave in the +Z direction
         const positiveZPoints = [
@@ -1303,14 +1269,12 @@ class PolygonManager {
         this.createPolygon();
         this.completePolygon();
         
-        console.log('Positive Z concave polygon created with points:', positiveZPoints);
     }
 
     /**
      * Test polygon with positive coordinates (concave in +X direction)
      */
     testPositiveXConcavePolygon() {
-        console.log('Testing polygon with positive X concave...');
         
         // Create a simple concave polygon in the +X direction
         // Simple L-shape that's concave inward
@@ -1336,7 +1300,6 @@ class PolygonManager {
         this.createPolygon();
         this.completePolygon();
         
-        console.log('Positive X concave polygon created with points:', positiveXPoints);
     }
 
     /**
@@ -1345,8 +1308,6 @@ class PolygonManager {
      * @param {string} name - Polygon name for logging
      */
     debugPolygonWinding(points, name) {
-        console.log(`\n=== Debugging ${name} ===`);
-        console.log('Points:', points.map((p, i) => `${i}: (${p.x}, ${p.z})`).join(' → '));
         
         let totalCross = 0;
         for (let i = 0; i < points.length; i++) {
@@ -1356,13 +1317,8 @@ class PolygonManager {
             
             const cross = this.calculateCrossProduct(prev, curr, next);
             totalCross += cross;
-            console.log(`Vertex ${i}: cross = ${cross.toFixed(6)}`);
         }
         
-        console.log(`Total cross product: ${totalCross.toFixed(6)}`);
-        console.log(`Winding order: ${totalCross > 0 ? 'Counter-clockwise' : 'Clockwise'}`);
-        console.log(`Is concave: ${this.isConcavePolygon(points)}`);
-        console.log('========================\n');
     }
 
     /**
@@ -1383,7 +1339,6 @@ class PolygonManager {
         
         // If clockwise, reverse the order
         if (totalCross < 0) {
-            console.log('Reversing polygon winding order to counter-clockwise');
             return points.slice().reverse();
         }
         
@@ -1394,7 +1349,6 @@ class PolygonManager {
      * Test snap functionality
      */
     testSnapFunctionality() {
-        console.log('Testing snap functionality...');
         
         // Start drawing
         this.startDrawing();
@@ -1404,28 +1358,19 @@ class PolygonManager {
         this.addPoint(new BABYLON.Vector3(2, 0, 0));
         this.addPoint(new BABYLON.Vector3(2, 0, 2));
         
-        console.log('Points added:', this.points.length);
-        console.log('Min points required:', this.minPoints);
-        console.log('Can snap:', this.points.length >= this.minPoints);
         
         // Test snap distance
         const testPoint = new BABYLON.Vector3(0.1, 0, 0.1); // Close to first point
         const distance = BABYLON.Vector3.Distance(testPoint, this.points[0]);
-        console.log('Distance to first point:', distance);
-        console.log('Snap distance:', this.snapDistance);
-        console.log('Should snap:', distance <= this.snapDistance);
         
         // Test updatePreview with snap
         this.updatePreview(testPoint);
-        console.log('Is snapped to first:', this.isSnappedToFirst);
         
         // Test completing polygon by clicking on first point
         if (this.isSnappedToFirst) {
-            console.log('Testing completion by clicking first point...');
             this.addPoint(this.points[0]); // This should complete the polygon
         }
         
-        console.log('Snap test completed');
     }
 
     /**
@@ -1449,7 +1394,6 @@ class PolygonManager {
         // Update the mesh with flipped normals
         polygonMesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
         
-        console.log('Polygon normals flipped');
     }
 
     /**
@@ -1467,7 +1411,6 @@ class PolygonManager {
      * Force a complete redraw of the polygon and preview
      */
     forceRedraw() {
-        console.log('Forcing complete polygon redraw...');
         
         // Clear everything
         this.clearPreview();
@@ -1478,7 +1421,6 @@ class PolygonManager {
         // Update preview
         this.updatePreview();
         
-        console.log('Polygon redraw completed');
     }
 
     /**

@@ -108,7 +108,7 @@ class BuildingGenerator {
         // Apply material
         building.material = material;
 
-        // Enable shadows
+        // Enable shadows - buildings should both cast and receive shadows
         building.receiveShadows = true;
         building.castShadows = true;
 

@@ -228,8 +228,6 @@ class SelectionManager {
             
             // Handle double-click: zoom to extent
             if (isDoubleClick) {
-                console.log(`Double-click detected on: ${selectedObject.name}`);
-                console.log(`Selected object type:`, selectedObject.constructor.name);
                 this.zoomToMeshExtent(selectedObject);
                 return; // Don't process as regular selection
             }
@@ -301,7 +299,6 @@ class SelectionManager {
         // Find the original mesh in the scene
         const originalMesh = this.scene.getMeshByName(originalName);
         if (originalMesh) {
-            console.log(`Found original mesh: ${originalName} from wireframe: ${wireframeMesh.name}`);
             return originalMesh;
         }
         
@@ -318,7 +315,6 @@ class SelectionManager {
         if (mesh.name && (mesh.name.includes('_wireframe') || mesh.name.includes('_edge_wireframe'))) {
             const originalMesh = this.findOriginalMeshFromWireframe(mesh);
             if (originalMesh) {
-                console.log(`Using original mesh for zoom: ${originalMesh.name}`);
                 return originalMesh;
             }
         }
@@ -433,9 +429,6 @@ class SelectionManager {
         }
 
         try {
-            console.log(`Attempting to zoom to mesh: ${mesh.name}`);
-            console.log(`Mesh type:`, mesh.constructor.name);
-            console.log(`Mesh position:`, mesh.position);
             
             // Get the best mesh for zoom calculation
             const targetMesh = this.getBestMeshForZoom(mesh);
@@ -528,7 +521,7 @@ class SelectionManager {
     selectObject(mesh, isMultiSelect = false, includeExtrusion = true) {
         console.log(`Selecting object: ${mesh.name} (type: ${mesh.constructor.name})`);
         
-        // Additional debugging for TransformNodes
+        // Additional debugging for different object types
         if (mesh instanceof BABYLON.TransformNode) {
             console.log(`TransformNode details:`, {
                 name: mesh.name,
@@ -545,6 +538,15 @@ class SelectionManager {
             } catch (error) {
                 console.error('Error getting child meshes:', error);
             }
+        } else if (mesh instanceof BABYLON.Mesh) {
+            console.log(`Mesh details:`, {
+                name: mesh.name,
+                position: mesh.position,
+                rotation: mesh.rotation,
+                scaling: mesh.scaling,
+                hasMaterial: !!mesh.material,
+                renderingGroupId: mesh.renderingGroupId
+            });
         }
         
         // Clear previous selection if not in multi-select mode
@@ -644,7 +646,8 @@ class SelectionManager {
         }
         
         // Handle TransformNodes (like tree parents) by creating wireframes for their children
-        if (mesh instanceof BABYLON.TransformNode) {
+        // Only treat as TransformNode if it's actually a TransformNode AND has child meshes
+        if (mesh instanceof BABYLON.TransformNode && mesh.getChildMeshes && mesh.getChildMeshes().length > 0) {
             this.highlightTransformNode(mesh);
             return;
         }
@@ -707,8 +710,9 @@ class SelectionManager {
             if (allMeshes.length === 0) {
                 console.warn(`No child meshes found for TransformNode ${transformNode.name} using any method`);
                 
-                // If no child meshes found, create a simple bounding box wireframe
-                this.createBoundingBoxWireframe(transformNode);
+                // For TransformNodes without child meshes, don't create a bounding box wireframe
+                // This prevents the issue where buildings (which are regular meshes) get incorrect wireframes
+                console.log(`Skipping wireframe creation for TransformNode ${transformNode.name} - no child meshes found`);
                 return;
             }
             
@@ -801,7 +805,7 @@ class SelectionManager {
         
         console.log(`Removing highlight from ${mesh.name}`);
         
-        // Handle TransformNodes (like tree parents)
+        // Handle TransformNodes (like tree parents) - only if they actually have wireframe clones
         if (mesh instanceof BABYLON.TransformNode && mesh.wireframeClones) {
             console.log(`Removing wireframes for TransformNode ${mesh.name}`);
             mesh.wireframeClones.forEach(wireframeClone => {
@@ -813,12 +817,14 @@ class SelectionManager {
             mesh.wireframeClones = null;
             
             // Also remove wireframe references from child meshes
-            const childMeshes = mesh.getChildMeshes();
-            childMeshes.forEach(childMesh => {
-                if (childMesh.wireframeClone) {
-                    childMesh.wireframeClone = null;
-                }
-            });
+            if (mesh.getChildMeshes) {
+                const childMeshes = mesh.getChildMeshes();
+                childMeshes.forEach(childMesh => {
+                    if (childMesh.wireframeClone) {
+                        childMesh.wireframeClone = null;
+                    }
+                });
+            }
             return;
         }
         
@@ -852,19 +858,21 @@ class SelectionManager {
             return;
         }
         
-        // Handle TransformNodes (like tree parents)
+        // Handle TransformNodes (like tree parents) - only if they actually have wireframe clones
         if (mesh instanceof BABYLON.TransformNode && mesh.wireframeClones) {
             // For TransformNodes, the wireframe clones are already parented to the TransformNode
             // so they automatically inherit the transforms. We just need to update their individual transforms.
-            const childMeshes = mesh.getChildMeshes();
-            childMeshes.forEach(childMesh => {
-                if (childMesh.wireframeClone) {
-                    // Update child mesh wireframe transforms
-                    childMesh.wireframeClone.position = childMesh.position.clone();
-                    childMesh.wireframeClone.rotation = childMesh.rotation.clone();
-                    childMesh.wireframeClone.scaling = childMesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
-                }
-            });
+            if (mesh.getChildMeshes) {
+                const childMeshes = mesh.getChildMeshes();
+                childMeshes.forEach(childMesh => {
+                    if (childMesh.wireframeClone) {
+                        // Update child mesh wireframe transforms
+                        childMesh.wireframeClone.position = childMesh.position.clone();
+                        childMesh.wireframeClone.rotation = childMesh.rotation.clone();
+                        childMesh.wireframeClone.scaling = childMesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
+                    }
+                });
+            }
             return;
         }
         

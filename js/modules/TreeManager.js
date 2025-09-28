@@ -39,7 +39,6 @@ class TreeManager {
             try {
                 const model = await this.loadTreeModel(`assets/Models/Trees/${treeType}.glb`);
                 this.treeModels.set(treeType, model);
-                // console.log(`Tree model ${treeType} loaded successfully`);
             } catch (error) {
                 // console.error(`Failed to load tree model ${treeType}:`, error);
             }
@@ -53,10 +52,7 @@ class TreeManager {
         return new Promise((resolve, reject) => {
             BABYLON.SceneLoader.ImportMeshAsync("", "", path, this.scene)
                 .then((result) => {
-                    // console.log(`Loaded tree model from ${path}:`, result);
-                    // console.log(`Meshes count:`, result.meshes.length);
                     result.meshes.forEach((mesh, index) => {
-                        // console.log(`Mesh ${index}:`, mesh.name, 'enabled:', mesh.isEnabled());
                         mesh.setEnabled(false);
                     });
                     resolve(result);
@@ -79,7 +75,6 @@ class TreeManager {
 
         this.isPlacingTree = true;
         this.selectedTreeType = treeType;
-        // console.log(`Tree placement mode activated for tree type: ${treeType}`);
     }
 
     /**
@@ -88,7 +83,6 @@ class TreeManager {
     stopTreePlacement() {
         this.isPlacingTree = false;
         this.selectedTreeType = null;
-        // console.log('Tree placement mode deactivated');
     }
 
     /**
@@ -128,7 +122,7 @@ class TreeManager {
                 mesh.position = BABYLON.Vector3.Zero();
                 // Set same rendering priority as buildings
                 mesh.renderingGroupId = 1;
-                // Enable shadows like buildings
+                // Enable shadows - trees should both cast and receive shadows
                 mesh.receiveShadows = true;
                 mesh.castShadows = true;
             });
@@ -160,13 +154,10 @@ class TreeManager {
             // Add tree to shadow system
             if (this.lightingManager) {
                 clonedMeshes.forEach(mesh => {
-                    this.lightingManager.addShadowCaster(mesh);
+                    this.lightingManager.updateShadowsForNewObject(mesh);
                 });
             }
 
-            // console.log(`Tree placed at position:`, position);
-            // console.log(`Tree parent position:`, treeParent.position);
-            // console.log(`Tree rotation:`, treeParent.rotation.y, 'radians');
             // console.log(`Tree uniform scale:`, randomHeightScale);
             // console.log(`Cloned meshes count:`, clonedMeshes.length);
             return treeData;
@@ -213,7 +204,7 @@ class TreeManager {
             trunk.renderingGroupId = 1;
             leaves.renderingGroupId = 1;
             
-            // Enable shadows like buildings
+            // Enable shadows - trees should both cast and receive shadows
             trunk.receiveShadows = true;
             trunk.castShadows = true;
             leaves.receiveShadows = true;
@@ -257,8 +248,8 @@ class TreeManager {
 
             // Add tree to shadow system
             if (this.lightingManager) {
-                this.lightingManager.addShadowCaster(trunk);
-                this.lightingManager.addShadowCaster(leaves);
+                this.lightingManager.updateShadowsForNewObject(trunk);
+                this.lightingManager.updateShadowsForNewObject(leaves);
             }
 
             // console.log(`Simple tree created at position:`, position);

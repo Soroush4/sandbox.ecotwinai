@@ -19,6 +19,7 @@ class UIManager {
         this.isInitialized = false;
         this.statsInterval = null;
         this.isGlobalMode = false; // Default to local mode
+        this.preferencesListenersSetup = false; // Track if preferences listeners are setup
         
         this.init();
     }
@@ -419,7 +420,6 @@ class UIManager {
                 this.hidePolygonDrawingInstructions();
                 this.deactivatePolygonTool();
                 this.activateSelectTool();
-                console.log('Polygon completed via callback');
             };
             
             this.polygonManager.onPolygonCancelled = () => {
@@ -427,13 +427,11 @@ class UIManager {
                 this.hidePolygonDrawingInstructions();
                 this.deactivatePolygonTool();
                 this.activateSelectTool();
-                console.log('Polygon cancelled via callback');
             };
             
             this.polygonManager.startDrawing();
             this.disableCameraControls();
             this.showPolygonDrawingInstructions();
-            console.log('Polygon drawing started');
         }
     }
 
@@ -602,7 +600,6 @@ class UIManager {
      */
     testEShapePolygon() {
         if (this.polygonManager) {
-            console.log('Testing E-shape polygon from UI...');
             this.polygonManager.testEShapePolygon();
         }
     }
@@ -612,7 +609,6 @@ class UIManager {
      */
     testComplexPolygon() {
         if (this.polygonManager) {
-            console.log('Testing complex polygon from UI...');
             this.polygonManager.testComplexPolygon();
         }
     }
@@ -625,7 +621,6 @@ class UIManager {
             this.polygonManager.stopDrawing();
             this.enableCameraControls();
             this.hidePolygonDrawingInstructions();
-            console.log('Polygon drawing stopped');
         }
     }
 
@@ -636,7 +631,6 @@ class UIManager {
         if (this.polygonManager) {
             this.polygonManager.stopDrawing();
             this.hidePolygonDrawingInstructions();
-            console.log('Polygon drawing stopped for tree tool activation');
         }
     }
 
@@ -647,7 +641,6 @@ class UIManager {
         if (this.polygonManager) {
             this.polygonManager.completePolygon();
             // Callbacks will handle the rest
-            console.log('Polygon drawing completed');
         }
     }
 
@@ -658,7 +651,6 @@ class UIManager {
         if (this.polygonManager) {
             this.polygonManager.cancelDrawing();
             // Callbacks will handle the rest
-            console.log('Polygon drawing cancelled');
         }
     }
 
@@ -730,7 +722,6 @@ class UIManager {
             // If opening the submenu, deactivate all other tools
             if (!isVisible) {
                 this.deselectAllOtherTools();
-                console.log('Tree submenu opened - all other tools deactivated');
             }
         }
     }
@@ -750,7 +741,6 @@ class UIManager {
      */
     selectTreeType(treeType) {
         if (!this.treeManager) {
-            console.log('TreeManager not available');
             return;
         }
 
@@ -784,7 +774,6 @@ class UIManager {
 
         // Start tree placement
         this.treeManager.startTreePlacement(treeType);
-        console.log(`Tree placement mode activated for tree type: ${treeType}`);
     }
 
     /**
@@ -813,7 +802,6 @@ class UIManager {
         // Reset to select tool state (but don't activate select tool visually)
         this.currentTransformMode = null;
 
-        console.log('All other tools deselected and deactivated - tree tool is now active');
     }
 
     /**
@@ -838,7 +826,6 @@ class UIManager {
         // They will be re-enabled only when another tool is selected
 
         // Reset drag variables (they will be reset in the next mouse event)
-        console.log('Tree placement mode deactivated');
     }
 
     /**
@@ -1120,7 +1107,6 @@ Transform your 3D models into powerful energy analysis tools.`;
     selectAll() {
         if (this.selectionManager) {
             this.selectionManager.selectAll();
-            console.log('Select All: All 3D models selected except ground');
         }
     }
 
@@ -1130,7 +1116,6 @@ Transform your 3D models into powerful energy analysis tools.`;
     clearSelection() {
         if (this.selectionManager) {
             this.selectionManager.clearSelection();
-            console.log('Clear Selection: All selections cleared');
         }
     }
 
@@ -1206,7 +1191,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (window && overlay) {
             window.classList.add('show');
             overlay.classList.add('show');
-            this.setupPreferencesListeners();
+            // Only setup listeners once
+            if (!this.preferencesListenersSetup) {
+                this.setupPreferencesListeners();
+                this.preferencesListenersSetup = true;
+            }
             this.syncPreferencesState();
         }
     }
@@ -1252,6 +1241,92 @@ Transform your 3D models into powerful energy analysis tools.`;
             });
         }
 
+        // Shadow toggle
+        const shadowToggle = document.getElementById('shadowTogglePref');
+        if (shadowToggle) {
+            shadowToggle.addEventListener('click', () => {
+                this.toggleObjectShadows();
+            });
+        }
+
+        // Hard shadow toggle
+        const hardShadowToggle = document.getElementById('hardShadowTogglePref');
+        if (hardShadowToggle) {
+            hardShadowToggle.addEventListener('click', () => {
+                this.toggleHardShadows();
+            });
+        }
+
+        // Light intensity slider
+        const lightIntensitySlider = document.getElementById('lightIntensityPref');
+        if (lightIntensitySlider) {
+            lightIntensitySlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setLightIntensity(value);
+                this.updateLightIntensityDisplay(value);
+            });
+        }
+
+        // Shadow darkness slider
+        const shadowDarknessSlider = document.getElementById('shadowDarknessPref');
+        if (shadowDarknessSlider) {
+            shadowDarknessSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowDarkness(value);
+                this.updateShadowDarknessDisplay(value);
+            });
+        }
+
+        // Shadow bias slider
+        const shadowBiasSlider = document.getElementById('shadowBiasPref');
+        if (shadowBiasSlider) {
+            shadowBiasSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowBias(value);
+                this.updateShadowBiasDisplay(value);
+            });
+        }
+
+        // Shadow normal bias slider
+        const shadowNormalBiasSlider = document.getElementById('shadowNormalBiasPref');
+        if (shadowNormalBiasSlider) {
+            shadowNormalBiasSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowNormalBias(value);
+                this.updateShadowNormalBiasDisplay(value);
+            });
+        }
+
+        // Shadow depth scale slider
+        const shadowDepthScaleSlider = document.getElementById('shadowDepthScalePref');
+        if (shadowDepthScaleSlider) {
+            shadowDepthScaleSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowDepthScale(value);
+                this.updateShadowDepthScaleDisplay(value);
+            });
+        }
+
+        // Shadow ortho scale slider
+        const shadowOrthoScaleSlider = document.getElementById('shadowOrthoScalePref');
+        if (shadowOrthoScaleSlider) {
+            shadowOrthoScaleSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowOrthoScale(value);
+                this.updateShadowOrthoScaleDisplay(value);
+            });
+        }
+
+        // Shadow frustum size slider
+        const shadowFrustumSizeSlider = document.getElementById('shadowFrustumSizePref');
+        if (shadowFrustumSizeSlider) {
+            shadowFrustumSizeSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowFrustumSize(value);
+                this.updateShadowFrustumSizeDisplay(value);
+            });
+        }
+
 
         // Reset camera
         const resetCameraBtn = document.getElementById('resetCameraPref');
@@ -1277,6 +1352,22 @@ Transform your 3D models into powerful energy analysis tools.`;
             });
         }
 
+        // Save lighting settings
+        const saveLightingBtn = document.getElementById('saveLightingSettingsPref');
+        if (saveLightingBtn) {
+            saveLightingBtn.addEventListener('click', () => {
+                this.saveLightingSettings();
+            });
+        }
+
+        // Statistics toggle button
+        const statisticsTogglePref = document.getElementById('statisticsTogglePref');
+        if (statisticsTogglePref) {
+            statisticsTogglePref.addEventListener('click', () => {
+                this.toggleStatistics();
+            });
+        }
+
         // Range inputs
         this.setupPreferencesRangeInputs();
     }
@@ -1292,6 +1383,89 @@ Transform your 3D models into powerful energy analysis tools.`;
             gridTogglePref.classList.toggle('active', isGridVisible);
         }
 
+        // Sync shadow toggle state
+        const shadowTogglePref = document.getElementById('shadowTogglePref');
+        if (shadowTogglePref) {
+            const areObjectShadowsEnabled = this.lightingManager.areObjectShadowsEnabled();
+            shadowTogglePref.classList.toggle('active', areObjectShadowsEnabled);
+        }
+
+        // Sync hard shadow toggle state
+        const hardShadowTogglePref = document.getElementById('hardShadowTogglePref');
+        if (hardShadowTogglePref) {
+            const areHardShadowsEnabled = this.lightingManager.areHardShadowsEnabled();
+            hardShadowTogglePref.classList.toggle('active', areHardShadowsEnabled);
+        }
+
+        // Sync light intensity
+        const lightIntensitySlider = document.getElementById('lightIntensityPref');
+        const lightIntensityValue = document.getElementById('lightIntensityValuePref');
+        if (lightIntensitySlider && lightIntensityValue) {
+            const currentIntensity = this.lightingManager.getDirectionalIntensity();
+            lightIntensitySlider.value = currentIntensity;
+            lightIntensityValue.textContent = currentIntensity.toFixed(1);
+        }
+
+        // Sync shadow darkness
+        const shadowDarknessSlider = document.getElementById('shadowDarknessPref');
+        const shadowDarknessValue = document.getElementById('shadowDarknessValuePref');
+        if (shadowDarknessSlider && shadowDarknessValue) {
+            const currentDarkness = this.lightingManager.getShadowDarkness();
+            shadowDarknessSlider.value = currentDarkness;
+            shadowDarknessValue.textContent = currentDarkness.toFixed(2);
+        }
+
+        // Sync shadow bias
+        const shadowBiasSlider = document.getElementById('shadowBiasPref');
+        const shadowBiasValue = document.getElementById('shadowBiasValuePref');
+        if (shadowBiasSlider && shadowBiasValue) {
+            const currentBias = this.lightingManager.getShadowBias();
+            shadowBiasSlider.value = currentBias;
+            shadowBiasValue.textContent = currentBias.toFixed(5);
+        }
+
+        // Sync shadow normal bias
+        const shadowNormalBiasSlider = document.getElementById('shadowNormalBiasPref');
+        const shadowNormalBiasValue = document.getElementById('shadowNormalBiasValuePref');
+        if (shadowNormalBiasSlider && shadowNormalBiasValue) {
+            const currentNormalBias = this.lightingManager.getShadowNormalBias();
+            shadowNormalBiasSlider.value = currentNormalBias;
+            shadowNormalBiasValue.textContent = currentNormalBias.toFixed(2);
+        }
+
+        // Sync shadow depth scale
+        const shadowDepthScaleSlider = document.getElementById('shadowDepthScalePref');
+        const shadowDepthScaleValue = document.getElementById('shadowDepthScaleValuePref');
+        if (shadowDepthScaleSlider && shadowDepthScaleValue) {
+            const currentDepthScale = this.lightingManager.getShadowDepthScale();
+            shadowDepthScaleSlider.value = currentDepthScale;
+            shadowDepthScaleValue.textContent = currentDepthScale.toFixed(0);
+        }
+
+        // Sync shadow ortho scale
+        const shadowOrthoScaleSlider = document.getElementById('shadowOrthoScalePref');
+        const shadowOrthoScaleValue = document.getElementById('shadowOrthoScaleValuePref');
+        if (shadowOrthoScaleSlider && shadowOrthoScaleValue) {
+            const currentOrthoScale = this.lightingManager.getShadowOrthoScale();
+            shadowOrthoScaleSlider.value = currentOrthoScale;
+            shadowOrthoScaleValue.textContent = currentOrthoScale.toFixed(0);
+        }
+
+        // Sync shadow frustum size
+        const shadowFrustumSizeSlider = document.getElementById('shadowFrustumSizePref');
+        const shadowFrustumSizeValue = document.getElementById('shadowFrustumSizeValuePref');
+        if (shadowFrustumSizeSlider && shadowFrustumSizeValue) {
+            const currentFrustumSize = this.lightingManager.getShadowFrustumSize();
+            shadowFrustumSizeSlider.value = currentFrustumSize;
+            shadowFrustumSizeValue.textContent = currentFrustumSize.toFixed(0);
+        }
+
+        // Sync statistics toggle state
+        const statisticsTogglePref = document.getElementById('statisticsTogglePref');
+        if (statisticsTogglePref && window.fpsMonitor) {
+            const isStatisticsVisible = window.fpsMonitor.isVisible;
+            statisticsTogglePref.classList.toggle('active', isStatisticsVisible);
+        }
     }
 
     /**
@@ -1410,6 +1584,183 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Save current lighting settings
+     */
+    saveLightingSettings() {
+        if (!this.lightingManager) {
+            console.error('LightingManager not available');
+            return;
+        }
+
+        // Collect all current lighting settings
+        const settings = {
+            // Light settings
+            lightIntensity: this.lightingManager.getDirectionalIntensity(),
+            hemisphericIntensity: this.lightingManager.hemisphericLight ? this.lightingManager.hemisphericLight.intensity : 0.8,
+            
+            // Shadow settings
+            shadowDarkness: this.lightingManager.getShadowDarkness(),
+            shadowBias: this.lightingManager.getShadowBias(),
+            shadowNormalBias: this.lightingManager.getShadowNormalBias(),
+            shadowDepthScale: this.lightingManager.getShadowDepthScale(),
+            shadowOrthoScale: this.lightingManager.getShadowOrthoScale(),
+            shadowFrustumSize: this.lightingManager.getShadowFrustumSize(),
+            
+            // Shadow toggles
+            objectShadowsEnabled: this.lightingManager.areObjectShadowsEnabled(),
+            hardShadowsEnabled: this.lightingManager.areHardShadowsEnabled(),
+            
+            // Light position and direction
+            lightPosition: this.lightingManager.directionalLight ? {
+                x: this.lightingManager.directionalLight.position.x,
+                y: this.lightingManager.directionalLight.position.y,
+                z: this.lightingManager.directionalLight.position.z
+            } : null,
+            lightDirection: this.lightingManager.directionalLight ? {
+                x: this.lightingManager.directionalLight.direction.x,
+                y: this.lightingManager.directionalLight.direction.y,
+                z: this.lightingManager.directionalLight.direction.z
+            } : null,
+            
+            // Shadow frustum settings
+            shadowMinZ: this.lightingManager.directionalLight ? this.lightingManager.directionalLight.shadowMinZ : 0.01,
+            shadowMaxZ: this.lightingManager.directionalLight ? this.lightingManager.directionalLight.shadowMaxZ : 500,
+            
+            // Timestamp
+            timestamp: new Date().toISOString(),
+            version: '1.0'
+        };
+
+        // Create downloadable JSON file
+        const dataStr = JSON.stringify(settings, null, 2);
+        const dataBlob = new Blob([dataStr], {type: 'application/json'});
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(dataBlob);
+        link.download = `lighting-settings-${new Date().toISOString().split('T')[0]}.json`;
+        
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Also log to console for easy copy-paste
+        
+        // Show success message
+        this.showNotification('Lighting settings saved successfully!', 'success');
+        
+        return settings;
+    }
+
+    /**
+     * Load lighting settings from JSON
+     */
+    loadLightingSettings(settings) {
+        if (!this.lightingManager || !settings) {
+            console.error('LightingManager not available or settings invalid');
+            return;
+        }
+
+        try {
+            // Apply light settings
+            if (settings.lightIntensity !== undefined) {
+                this.lightingManager.setDirectionalIntensity(settings.lightIntensity);
+            }
+            if (settings.hemisphericIntensity !== undefined && this.lightingManager.hemisphericLight) {
+                this.lightingManager.hemisphericLight.intensity = settings.hemisphericIntensity;
+            }
+
+            // Apply shadow settings
+            if (settings.shadowDarkness !== undefined) {
+                this.lightingManager.setShadowDarkness(settings.shadowDarkness);
+            }
+            if (settings.shadowBias !== undefined) {
+                this.lightingManager.setShadowBias(settings.shadowBias);
+            }
+            if (settings.shadowNormalBias !== undefined) {
+                this.lightingManager.setShadowNormalBias(settings.shadowNormalBias);
+            }
+            if (settings.shadowDepthScale !== undefined) {
+                this.lightingManager.setShadowDepthScale(settings.shadowDepthScale);
+            }
+            if (settings.shadowOrthoScale !== undefined) {
+                this.lightingManager.setShadowOrthoScale(settings.shadowOrthoScale);
+            }
+            if (settings.shadowFrustumSize !== undefined) {
+                this.lightingManager.setShadowFrustumSize(settings.shadowFrustumSize);
+            }
+
+            // Apply shadow toggles
+            if (settings.objectShadowsEnabled !== undefined) {
+                if (settings.objectShadowsEnabled !== this.lightingManager.areObjectShadowsEnabled()) {
+                    this.lightingManager.toggleObjectShadows();
+                }
+            }
+            if (settings.hardShadowsEnabled !== undefined) {
+                if (settings.hardShadowsEnabled !== this.lightingManager.areHardShadowsEnabled()) {
+                    this.lightingManager.toggleHardShadows();
+                }
+            }
+
+            // Apply light position and direction
+            if (settings.lightPosition && this.lightingManager.directionalLight) {
+                this.lightingManager.directionalLight.position = new BABYLON.Vector3(
+                    settings.lightPosition.x,
+                    settings.lightPosition.y,
+                    settings.lightPosition.z
+                );
+            }
+            if (settings.lightDirection && this.lightingManager.directionalLight) {
+                this.lightingManager.directionalLight.direction = new BABYLON.Vector3(
+                    settings.lightDirection.x,
+                    settings.lightDirection.y,
+                    settings.lightDirection.z
+                );
+            }
+
+            // Apply shadow frustum settings
+            if (settings.shadowMinZ !== undefined && this.lightingManager.directionalLight) {
+                this.lightingManager.directionalLight.shadowMinZ = settings.shadowMinZ;
+            }
+            if (settings.shadowMaxZ !== undefined && this.lightingManager.directionalLight) {
+                this.lightingManager.directionalLight.shadowMaxZ = settings.shadowMaxZ;
+            }
+
+            // Sync UI with new settings
+            this.syncPreferencesState();
+
+            this.showNotification('Lighting settings loaded successfully!', 'success');
+
+        } catch (error) {
+            console.error('Error loading lighting settings:', error);
+            this.showNotification('Error loading lighting settings', 'error');
+        }
+    }
+
+    /**
+     * Toggle statistics display
+     */
+    toggleStatistics() {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.toggleVisibility();
+            
+            // Update button state
+            const statisticsTogglePref = document.getElementById('statisticsTogglePref');
+            if (statisticsTogglePref) {
+                const isVisible = window.fpsMonitor.isVisible;
+                if (isVisible) {
+                    statisticsTogglePref.classList.add('active');
+                } else {
+                    statisticsTogglePref.classList.remove('active');
+                }
+            }
+            
+        } else {
+        }
+    }
+
+    /**
      * Create empty scene with only ground
      */
     createEmptyScene() {
@@ -1476,6 +1827,153 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         if (gridTogglePref) {
             gridTogglePref.classList.toggle('active', isVisible);
+        }
+    }
+
+    /**
+     * Toggle object shadows
+     */
+    toggleObjectShadows() {
+        const areEnabled = this.lightingManager.toggleObjectShadows();
+        const shadowTogglePref = document.getElementById('shadowTogglePref');
+        
+        if (shadowTogglePref) {
+            shadowTogglePref.classList.toggle('active', areEnabled);
+        }
+        
+        return areEnabled;
+    }
+
+    /**
+     * Toggle hard shadows
+     */
+    toggleHardShadows() {
+        const areEnabled = this.lightingManager.toggleHardShadows();
+        const hardShadowTogglePref = document.getElementById('hardShadowTogglePref');
+        
+        if (hardShadowTogglePref) {
+            hardShadowTogglePref.classList.toggle('active', areEnabled);
+        }
+        
+        return areEnabled;
+    }
+
+    /**
+     * Set light intensity
+     */
+    setLightIntensity(intensity) {
+        this.lightingManager.setDirectionalIntensity(intensity);
+    }
+
+    /**
+     * Update light intensity display
+     */
+    updateLightIntensityDisplay(intensity) {
+        const lightIntensityValue = document.getElementById('lightIntensityValuePref');
+        if (lightIntensityValue) {
+            lightIntensityValue.textContent = intensity.toFixed(1);
+        }
+    }
+
+    /**
+     * Set shadow darkness
+     */
+    setShadowDarkness(darkness) {
+        this.lightingManager.setShadowDarkness(darkness);
+    }
+
+    /**
+     * Update shadow darkness display
+     */
+    updateShadowDarknessDisplay(darkness) {
+        const shadowDarknessValue = document.getElementById('shadowDarknessValuePref');
+        if (shadowDarknessValue) {
+            shadowDarknessValue.textContent = darkness.toFixed(2);
+        }
+    }
+
+    /**
+     * Set shadow bias
+     */
+    setShadowBias(bias) {
+        this.lightingManager.setShadowBias(bias);
+    }
+
+    /**
+     * Update shadow bias display
+     */
+    updateShadowBiasDisplay(bias) {
+        const shadowBiasValue = document.getElementById('shadowBiasValuePref');
+        if (shadowBiasValue) {
+            shadowBiasValue.textContent = bias.toFixed(5);
+        }
+    }
+
+    /**
+     * Set shadow normal bias
+     */
+    setShadowNormalBias(normalBias) {
+        this.lightingManager.setShadowNormalBias(normalBias);
+    }
+
+    /**
+     * Update shadow normal bias display
+     */
+    updateShadowNormalBiasDisplay(normalBias) {
+        const shadowNormalBiasValue = document.getElementById('shadowNormalBiasValuePref');
+        if (shadowNormalBiasValue) {
+            shadowNormalBiasValue.textContent = normalBias.toFixed(2);
+        }
+    }
+
+    /**
+     * Set shadow depth scale
+     */
+    setShadowDepthScale(depthScale) {
+        this.lightingManager.setShadowDepthScale(depthScale);
+    }
+
+    /**
+     * Update shadow depth scale display
+     */
+    updateShadowDepthScaleDisplay(depthScale) {
+        const shadowDepthScaleValue = document.getElementById('shadowDepthScaleValuePref');
+        if (shadowDepthScaleValue) {
+            shadowDepthScaleValue.textContent = depthScale.toFixed(0);
+        }
+    }
+
+    /**
+     * Set shadow ortho scale
+     */
+    setShadowOrthoScale(orthoScale) {
+        this.lightingManager.setShadowOrthoScale(orthoScale);
+    }
+
+    /**
+     * Update shadow ortho scale display
+     */
+    updateShadowOrthoScaleDisplay(orthoScale) {
+        const shadowOrthoScaleValue = document.getElementById('shadowOrthoScaleValuePref');
+        if (shadowOrthoScaleValue) {
+            shadowOrthoScaleValue.textContent = orthoScale.toFixed(0);
+        }
+    }
+
+    /**
+     * Set shadow frustum size
+     */
+    setShadowFrustumSize(frustumSize) {
+        this.lightingManager.setShadowFrustumSize(frustumSize);
+    }
+
+    /**
+     * Update shadow frustum size display
+     */
+    updateShadowFrustumSizeDisplay(frustumSize) {
+        const shadowFrustumSizeValue = document.getElementById('shadowFrustumSizeValuePref');
+        if (shadowFrustumSizeValue) {
+            shadowFrustumSizeValue.textContent = frustumSize.toFixed(0);
         }
     }
 
@@ -1627,11 +2125,9 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     test2DShapes() {
         if (!this.shape2DManager) {
-            console.log('Shape2DManager not available');
             return;
         }
 
-        console.log('Creating test 2D shapes...');
 
         // Create a line
         const startPoint = new BABYLON.Vector3(-10, 0, 0);
@@ -1661,7 +2157,6 @@ Transform your 3D models into powerful energy analysis tools.`;
         ];
         this.shape2DManager.createPolyline(polylinePoints, new BABYLON.Color3(1, 0, 1));
 
-        console.log('Test 2D shapes created successfully!');
     }
 
     /**
@@ -1669,7 +2164,6 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     createRectangle() {
         if (!this.shape2DManager) {
-            console.log('Shape2DManager not available');
             return;
         }
 
@@ -1685,7 +2179,6 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Start interactive rectangle drawing
         this.shape2DManager.startInteractiveDrawing('rectangle');
-        console.log('Rectangle drawing mode activated - Click and drag on the ground to draw');
     }
 
     /**
@@ -1693,7 +2186,6 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     createCircle() {
         if (!this.shape2DManager) {
-            console.log('Shape2DManager not available');
             return;
         }
 
@@ -1709,7 +2201,6 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Start interactive circle drawing
         this.shape2DManager.startInteractiveDrawing('circle');
-        console.log('Circle drawing mode activated - Click and drag on the ground to draw');
     }
 
 
@@ -1955,7 +2446,6 @@ Transform your 3D models into powerful energy analysis tools.`;
                         activeTool.classList.remove('active');
                     }
                     
-                    console.log('Polygon drawing cancelled');
                     return;
                 } else if (event.key === 'Enter') {
                     this.completePolygonDrawing();
@@ -1966,9 +2456,15 @@ Transform your 3D models into powerful energy analysis tools.`;
                         activeTool.classList.remove('active');
                     }
                     
-                    console.log('Polygon drawing completed');
                     return;
                 }
+            }
+
+            // Handle Shift+F for statistics toggle
+            if (event.shiftKey && event.key.toLowerCase() === 'f') {
+                event.preventDefault();
+                this.toggleStatistics();
+                return;
             }
 
             // Handle Delete key for selected objects (only when not drawing polygon)
@@ -3992,7 +4488,6 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     clear2DShapes() {
         if (!this.shape2DManager) {
-            console.log('Shape2DManager not available');
             return;
         }
 

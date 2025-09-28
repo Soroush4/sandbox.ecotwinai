@@ -425,6 +425,47 @@ body {
     left: 23px;
 }
 
+/* Statistics Toggle Button */
+.btn-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    background: #f8f9fa;
+    color: #333;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 0.9rem;
+    min-width: 140px;
+}
+
+.btn-toggle:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.btn-toggle.active {
+    background-color: #4CAF50;
+    color: white;
+    border-color: #4CAF50;
+}
+
+.btn-toggle .toggle-text {
+    margin-left: 8px;
+}
+
+.btn-toggle.active .toggle-text::after {
+    content: " (ON)";
+    font-weight: bold;
+}
+
+.btn-toggle:not(.active) .toggle-text::after {
+    content: " (OFF)";
+    opacity: 0.7;
+}
+
 /* Input Styles */
 input[type="range"] {
     width: 100%;

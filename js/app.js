@@ -64,9 +64,13 @@ class DigitalTwinApp {
             this.shape2DManager = new Shape2DManager(this.sceneManager.getScene(), this.selectionManager);
             this.treeManager = new TreeManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
             this.polygonManager = new PolygonManager(this.sceneManager.getScene(), this.selectionManager);
+            this.fpsMonitor = new FPSMonitor(this.sceneManager.getScene());
             
             // Setup shadows for ground
             this.lightingManager.addShadowReceiver(this.sceneManager.getGround());
+            
+            // Setup shadows for all objects in the scene
+            this.lightingManager.setupShadowsForAllObjects();
             
             // Initialize UI manager
             this.uiManager = new UIManager(
@@ -83,6 +87,9 @@ class DigitalTwinApp {
                 this.treeManager,
                 this.polygonManager
             );
+            
+            // Make FPS monitor globally accessible
+            window.fpsMonitor = this.fpsMonitor;
             
             // Auto-generate buildings on page load
             this.autoGenerateBuildings();
@@ -136,8 +143,11 @@ class DigitalTwinApp {
             // Add buildings to scene and setup shadows
             buildings.forEach(building => {
                 this.sceneManager.addBuilding(building);
-                this.lightingManager.addShadowCaster(building.mesh);
+                this.lightingManager.updateShadowsForNewObject(building.mesh);
             });
+            
+            // Re-setup shadows for all objects after adding buildings
+            this.lightingManager.setupShadowsForAllObjects();
             
             
         } catch (error) {
@@ -249,6 +259,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Create global app instance
     window.digitalTwinApp = new DigitalTwinApp();
     
+    // Make FPS monitor globally accessible
+    window.fpsMonitor = null;
+    
     // Add global debug functions
     window.debugCamera = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.cameraController) {
@@ -306,21 +319,18 @@ document.addEventListener('DOMContentLoaded', () => {
     
     window.testTreeRotation = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
-            console.log('Random tree rotation:', window.digitalTwinApp.treeManager.getRandomTreeRotation());
             return window.digitalTwinApp.treeManager.getRandomTreeRotation();
         }
     };
     
     window.testTreeScale = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
-            console.log('Random tree scale:', window.digitalTwinApp.treeManager.getRandomTreeScale());
             return window.digitalTwinApp.treeManager.getRandomTreeScale();
         }
     };
     
     window.testTreeHeightScale = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
-            console.log('Random tree height scale:', window.digitalTwinApp.treeManager.getRandomTreeHeightScale());
             return window.digitalTwinApp.treeManager.getRandomTreeHeightScale();
         }
     };
@@ -328,7 +338,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.setTreeHeightParams = (minHeight, maxHeight) => {
         if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
             window.digitalTwinApp.treeManager.setHeightParameters(minHeight, maxHeight);
-            console.log(`Tree height parameters set: min=${minHeight}, max=${maxHeight}`);
             return window.digitalTwinApp.treeManager.getHeightParameters();
         }
     };
@@ -345,9 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return mesh.name === 'ground';
             });
             const isOnGround = pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'ground';
-            console.log(`Point (${x}, ${y}) is on ground:`, isOnGround);
             if (pickResult && pickResult.hit) {
-                console.log('Hit mesh:', pickResult.pickedMesh.name);
             }
             return isOnGround;
         }
@@ -357,10 +364,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.digitalTwinApp && window.digitalTwinApp.sceneManager) {
             const pickResult = window.digitalTwinApp.sceneManager.getScene().pick(x, y);
             if (pickResult && pickResult.hit && pickResult.pickedMesh) {
-                console.log(`Point (${x}, ${y}) is over mesh:`, pickResult.pickedMesh.name);
                 return pickResult.pickedMesh.name;
             } else {
-                console.log(`Point (${x}, ${y}) is over: nothing`);
                 return null;
             }
         }
@@ -368,12 +373,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     window.testTreePlacementPath = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
-            console.log('Testing tree placement path...');
-            console.log('1. Start tree placement mode first by clicking tree tool');
-            console.log('2. Then test these coordinates:');
-            console.log('   - Ground area: testMeshDetection(400, 300)');
-            console.log('   - Building area: testMeshDetection(200, 200)');
-            console.log('   - Empty area: testMeshDetection(50, 50)');
             return 'Tree placement path test ready';
         }
     };
@@ -535,6 +534,714 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('Meshes with wireframes:', meshesWithWireframes.map(m => `${m.name} -> ${m.wireframeClone ? m.wireframeClone.name : 'null'}`));
             
             return `Debug: ${selectionManager.getSelectionCount()} selected, ${wireframes.length} wireframes, ${meshesWithWireframes.length} references`;
+        }
+    };
+    
+    window.testShadowToggle = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Toggle ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Current shadow state:');
+            console.log(`- Shadows enabled: ${lightingManager.areShadowsEnabled()}`);
+            console.log(`- Object shadows enabled: ${lightingManager.areObjectShadowsEnabled()}`);
+            
+            const stats = lightingManager.getStats();
+            console.log('Shadow statistics:', stats);
+            
+            console.log('Toggling object shadows...');
+            const newState = lightingManager.toggleObjectShadows();
+            console.log(`Object shadows are now: ${newState ? 'enabled' : 'disabled'}`);
+            
+            return `Shadow toggle test completed. Object shadows: ${newState ? 'enabled' : 'disabled'}`;
+        }
+    };
+    
+    window.testShadowToggleUI = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing Shadow Toggle UI ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            console.log('Toggling object shadows via UI...');
+            const newState = uiManager.toggleObjectShadows();
+            console.log(`Object shadows are now: ${newState ? 'enabled' : 'disabled'}`);
+            
+            return `Shadow toggle UI test completed. Object shadows: ${newState ? 'enabled' : 'disabled'}`;
+        }
+    };
+    
+    window.testShadowReceiving = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Receiving ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            const scene = window.digitalTwinApp.sceneManager.getScene();
+            
+            console.log('Checking shadow receiving status for all objects:');
+            scene.meshes.forEach(mesh => {
+                if (lightingManager.isSolidObject(mesh)) {
+                    console.log(`${mesh.name}: receiveShadows = ${mesh.receiveShadows}`);
+                }
+            });
+            
+            const stats = lightingManager.getStats();
+            console.log('Shadow statistics:', stats);
+            
+            return 'Shadow receiving test completed - check console for details';
+        }
+    };
+    
+    window.testHardShadows = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Hard Shadows ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Current shadow settings:');
+            console.log(`- Hard shadows enabled: ${lightingManager.areHardShadowsEnabled()}`);
+            console.log(`- Object shadows enabled: ${lightingManager.areObjectShadowsEnabled()}`);
+            
+            const stats = lightingManager.getStats();
+            console.log('Shadow statistics:', stats);
+            
+            console.log('Toggling hard shadows...');
+            const newState = lightingManager.toggleHardShadows();
+            console.log(`Hard shadows are now: ${newState ? 'enabled (performance optimized)' : 'disabled (quality optimized)'}`);
+            
+            return `Hard shadow test completed. Hard shadows: ${newState ? 'enabled' : 'disabled'}`;
+        }
+    };
+    
+    window.testHardShadowsUI = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing Hard Shadows UI ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            console.log('Toggling hard shadows via UI...');
+            const newState = uiManager.toggleHardShadows();
+            console.log(`Hard shadows are now: ${newState ? 'enabled (performance optimized)' : 'disabled (quality optimized)'}`);
+            
+            return `Hard shadow UI test completed. Hard shadows: ${newState ? 'enabled' : 'disabled'}`;
+        }
+    };
+    
+    window.testShadowPerformance = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Performance ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            const scene = window.digitalTwinApp.sceneManager.getScene();
+            
+            console.log('Performance comparison:');
+            console.log('1. Testing with soft shadows (quality optimized)...');
+            lightingManager.toggleHardShadows(); // Disable hard shadows
+            const softStats = lightingManager.getStats();
+            console.log('Soft shadows stats:', softStats);
+            
+            console.log('2. Testing with hard shadows (performance optimized)...');
+            lightingManager.toggleHardShadows(); // Enable hard shadows
+            const hardStats = lightingManager.getStats();
+            console.log('Hard shadows stats:', hardStats);
+            
+            console.log('Performance difference:');
+            console.log(`FPS with soft shadows: ${softStats.fps}`);
+            console.log(`FPS with hard shadows: ${hardStats.fps}`);
+            console.log(`Performance improvement: ${((hardStats.fps - softStats.fps) / softStats.fps * 100).toFixed(1)}%`);
+            
+            return `Performance test completed. Check console for FPS comparison`;
+        }
+    };
+    
+    window.testGroundShadows = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Ground Shadows ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            const scene = window.digitalTwinApp.sceneManager.getScene();
+            
+            console.log('Testing object shadows toggle while preserving ground shadows...');
+            
+            console.log('1. Object shadows ENABLED:');
+            lightingManager.toggleObjectShadows(); // Enable if disabled
+            const enabledStats = lightingManager.getStats();
+            console.log('Stats with object shadows enabled:', enabledStats);
+            
+            // Check ground shadow receiving
+            const ground = scene.getMeshByName('ground');
+            if (ground) {
+                console.log(`Ground receiveShadows: ${ground.receiveShadows}`);
+            }
+            
+            console.log('2. Object shadows DISABLED:');
+            lightingManager.toggleObjectShadows(); // Disable
+            const disabledStats = lightingManager.getStats();
+            console.log('Stats with object shadows disabled:', disabledStats);
+            
+            // Check ground shadow receiving again
+            if (ground) {
+                console.log(`Ground receiveShadows: ${ground.receiveShadows}`);
+            }
+            
+            // Check shadow casters
+            const shadowCasters = lightingManager.shadowGenerator.getShadowMap().renderList;
+            console.log(`Shadow casters count: ${shadowCasters.length}`);
+            console.log('Shadow casters:', shadowCasters.map(mesh => mesh.name));
+            
+            return `Ground shadows test completed. Ground should still receive shadows when object shadows are disabled.`;
+        }
+    };
+    
+    window.testShadowNoise = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Noise Reduction ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Current shadow settings:');
+            const stats = lightingManager.getStats();
+            console.log('Shadow statistics:', stats);
+            
+            console.log('Optimizing shadow settings to reduce noise...');
+            lightingManager.optimizeShadowSettings();
+            
+            console.log('Shadow settings optimized. Check for reduced noise on object surfaces.');
+            console.log('Key improvements:');
+            console.log('- Increased bias to reduce shadow acne');
+            console.log('- Increased normalBias to reduce noise');
+            console.log('- Enabled PCF for smoother edges');
+            console.log('- Enabled exponential shadow maps');
+            console.log('- Set high filtering quality');
+            
+            return 'Shadow noise optimization completed. Check visual quality.';
+        }
+    };
+    
+    window.testShadowQualityComparison = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Quality Comparison ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('1. Testing HARD shadows (current default):');
+            lightingManager.toggleHardShadows(); // Ensure hard shadows
+            const hardStats = lightingManager.getStats();
+            console.log('Hard shadows stats:', hardStats);
+            console.log('Hard shadows should have less noise but sharper edges');
+            
+            console.log('2. Testing SOFT shadows:');
+            lightingManager.toggleHardShadows(); // Switch to soft shadows
+            const softStats = lightingManager.getStats();
+            console.log('Soft shadows stats:', softStats);
+            console.log('Soft shadows should have smoother edges but potentially more noise');
+            
+            console.log('3. Switching back to HARD shadows (recommended):');
+            lightingManager.toggleHardShadows(); // Back to hard shadows
+            console.log('Hard shadows restored - optimized for performance and reduced noise');
+            
+            return 'Shadow quality comparison completed. Hard shadows recommended for reduced noise.';
+        }
+    };
+    
+    window.testDefaultShadowSettings = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Default Shadow Settings ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Checking default shadow configuration:');
+            const stats = lightingManager.getStats();
+            console.log('Default shadow statistics:', stats);
+            
+            console.log('Expected defaults:');
+            console.log('- hardShadowsEnabled: true (DEFAULT)');
+            console.log('- objectShadowsEnabled: true');
+            console.log('- shadowsEnabled: true');
+            console.log('- directionalLight intensity: 1.2 (balanced)');
+            console.log('- shadow darkness: 0.3 (balanced visibility)');
+            
+            console.log('Actual values:');
+            console.log(`- hardShadowsEnabled: ${stats.hardShadowsEnabled}`);
+            console.log(`- objectShadowsEnabled: ${stats.objectShadowsEnabled}`);
+            console.log(`- shadowsEnabled: ${stats.shadowsEnabled}`);
+            console.log(`- directionalIntensity: ${stats.directionalIntensity}`);
+            
+            const isCorrect = stats.hardShadowsEnabled === true && 
+                            stats.objectShadowsEnabled === true && 
+                            stats.shadowsEnabled === true;
+            
+            console.log(`Default settings are ${isCorrect ? 'CORRECT' : 'INCORRECT'}`);
+            
+            return `Default shadow settings test completed. Settings are ${isCorrect ? 'correct' : 'incorrect'}.`;
+        }
+    };
+    
+    window.testShadowDistribution = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Distribution ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Current light position and settings:');
+            const directionalLight = lightingManager.directionalLight;
+            if (directionalLight) {
+                console.log(`Light position: (${directionalLight.position.x}, ${directionalLight.position.y}, ${directionalLight.position.z})`);
+                console.log(`Light direction: (${directionalLight.direction.x}, ${directionalLight.direction.y}, ${directionalLight.direction.z})`);
+                console.log(`Light intensity: ${directionalLight.intensity}`);
+                console.log(`Shadow ortho scale: ${directionalLight.shadowOrthoScale}`);
+                console.log(`Shadow frustum size: ${directionalLight.shadowFrustumSize}`);
+            }
+            
+            console.log('Optimizing light position for better shadow distribution...');
+            lightingManager.optimizeLightPosition();
+            
+            console.log('Optimized settings:');
+            if (directionalLight) {
+                console.log(`New light position: (${directionalLight.position.x}, ${directionalLight.position.y}, ${directionalLight.position.z})`);
+                console.log(`New light direction: (${directionalLight.direction.x}, ${directionalLight.direction.y}, ${directionalLight.direction.z})`);
+                console.log(`New shadow ortho scale: ${directionalLight.shadowOrthoScale}`);
+                console.log(`New shadow frustum size: ${directionalLight.shadowFrustumSize}`);
+            }
+            
+            return 'Shadow distribution optimization completed. Check for better shadow coverage across the ground.';
+        }
+    };
+    
+    window.testLightIntensity = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Light Intensity ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Testing different light intensities:');
+            
+            console.log('1. Current intensity (1.2):');
+            lightingManager.setDirectionalIntensity(1.2);
+            console.log('Intensity set to 1.2 - balanced lighting');
+            
+            console.log('2. Lower intensity (0.8):');
+            lightingManager.setDirectionalIntensity(0.8);
+            console.log('Intensity set to 0.8 - softer lighting');
+            
+            console.log('3. Higher intensity (1.5):');
+            lightingManager.setDirectionalIntensity(1.5);
+            console.log('Intensity set to 1.5 - brighter lighting');
+            
+            console.log('4. Restoring balanced intensity (1.2):');
+            lightingManager.setDirectionalIntensity(1.2);
+            console.log('Intensity restored to 1.2 - recommended balance');
+            
+            return 'Light intensity test completed. 1.2 is recommended for balanced lighting.';
+        }
+    };
+    
+    window.resetShadowSettings = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Resetting Shadow Settings ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Resetting shadow settings to stable default state...');
+            lightingManager.resetShadowSettings();
+            
+            console.log('Shadow settings reset completed. Using proven stable configuration.');
+            console.log('Reset values:');
+            console.log('- bias: 0.0001');
+            console.log('- normalBias: 0.05');
+            console.log('- depthScale: 50');
+            console.log('- darkness: 0.3');
+            console.log('- shadowOrthoScale: 80');
+            console.log('- shadowFrustumSize: 120');
+            
+            return 'Shadow settings reset to stable state.';
+        }
+    };
+    
+    window.fixShadowArtifacts = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Fixing Shadow Artifacts ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Applying conservative shadow settings...');
+            lightingManager.fineTuneShadowSettings();
+            
+            console.log('Shadow artifacts fix applied with conservative approach.');
+            console.log('Conservative settings:');
+            console.log('- bias: 0.0001 (balanced)');
+            console.log('- normalBias: 0.05 (balanced)');
+            console.log('- depthScale: 50 (standard)');
+            
+            return 'Shadow artifacts fix completed with conservative approach.';
+        }
+    };
+    
+    window.fixShadowFrustumCulling = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Fixing Shadow Frustum Culling ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Applying shadow frustum culling fix...');
+            lightingManager.fixShadowFrustumCulling();
+            
+            console.log('Shadow frustum culling fix applied.');
+            console.log('Key improvements:');
+            console.log('- shadowOrthoScale: 250 (even larger coverage)');
+            console.log('- shadowFrustumSize: 400 (even larger coverage)');
+            console.log('- shadowMinZ: 0.005 (even closer)');
+            console.log('- shadowMaxZ: 600 (even farther)');
+            console.log('- Shadow map resolution: 8192 (higher quality)');
+            console.log('- Ultra-reduced bias for maximum precision');
+            
+            return 'Shadow frustum culling fix completed. Shadows should now work across entire scene.';
+        }
+    };
+    
+    window.ultraFineShadowTuning = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Ultra-Fine Shadow Tuning ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Applying ultra-fine shadow tuning...');
+            lightingManager.ultraFineShadowTuning();
+            
+            console.log('Ultra-fine shadow tuning applied.');
+            console.log('Ultra-precise settings:');
+            console.log('- shadowOrthoScale: 300 (ultra-large coverage)');
+            console.log('- shadowFrustumSize: 500 (ultra-large coverage)');
+            console.log('- shadowMinZ: 0.001 (ultra-close)');
+            console.log('- shadowMaxZ: 800 (ultra-far)');
+            console.log('- bias: 0.000005 (ultra-reduced for maximum precision)');
+            console.log('- normalBias: 0.005 (ultra-reduced for maximum precision)');
+            console.log('- depthScale: 10 (ultra-reduced for maximum precision)');
+            
+            return 'Ultra-fine shadow tuning completed. Maximum precision and coverage applied.';
+        }
+    };
+    
+    window.optimizeShadowPerformance = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Optimizing Shadow Performance ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Applying shadow performance optimization...');
+            lightingManager.optimizeShadowResolution();
+            
+            console.log('Shadow performance optimization applied.');
+            console.log('Performance optimizations:');
+            console.log('- Shadow map resolution: 4096 (balanced)');
+            console.log('- Hard shadows enabled (better performance)');
+            console.log('- Optimized shadow settings');
+            console.log('- Reduced shadow complexity');
+            
+            return 'Shadow performance optimization completed. Frame rate should improve.';
+        }
+    };
+    
+    window.testShadowPerformance = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Performance ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Testing different shadow performance settings:');
+            
+            console.log('1. Current settings:');
+            console.log(`- Hard shadows: ${lightingManager.areHardShadowsEnabled()}`);
+            console.log(`- Object shadows: ${lightingManager.areObjectShadowsEnabled()}`);
+            console.log(`- Light intensity: ${lightingManager.getDirectionalIntensity()}`);
+            console.log(`- Shadow darkness: ${lightingManager.getShadowDarkness()}`);
+            
+            console.log('2. Performance optimization:');
+            lightingManager.optimizeShadowResolution();
+            console.log('Performance optimization applied');
+            
+            console.log('3. Hard shadows toggle test:');
+            const wasHardShadows = lightingManager.areHardShadowsEnabled();
+            lightingManager.toggleHardShadows();
+            console.log(`Hard shadows toggled from ${wasHardShadows} to ${lightingManager.areHardShadowsEnabled()}`);
+            
+            console.log('Shadow performance test completed. Check frame rate improvements.');
+            
+            return 'Shadow performance test completed.';
+        }
+    };
+    
+    window.fineTuneShadowEdgeCases = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Fine-Tuning Shadow Edge Cases ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Applying fine-tuning for remaining edge cases...');
+            lightingManager.fineTuneEdgeCases();
+            
+            console.log('Fine-tuning applied for edge cases.');
+            console.log('Enhanced settings:');
+            console.log('- bias: 0.0002 (increased for edge cases)');
+            console.log('- normalBias: 0.08 (increased for better edge handling)');
+            console.log('- depthScale: 75 (increased for better precision)');
+            console.log('- Enhanced shadow frustum coverage');
+            
+            return 'Fine-tuning for edge cases completed. Check problematic areas.';
+        }
+    };
+    
+    window.testShadowEdgeCases = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Edge Cases ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Testing different shadow settings for edge cases:');
+            
+            console.log('1. Standard settings:');
+            lightingManager.configureShadowQuality();
+            console.log('Standard shadow settings applied');
+            
+            console.log('2. Fine-tuned settings:');
+            lightingManager.fineTuneShadowSettings();
+            console.log('Fine-tuned shadow settings applied');
+            
+            console.log('3. Shadow frustum culling fix:');
+            lightingManager.fixShadowFrustumCulling();
+            console.log('Shadow frustum culling fix applied');
+            
+            console.log('4. Fine-tuning for edge cases:');
+            lightingManager.fineTuneEdgeCases();
+            console.log('Fine-tuning for edge cases applied');
+            
+            console.log('Edge case testing completed. All optimizations applied.');
+            
+            return 'Shadow edge case testing completed.';
+        }
+    };
+    
+    window.saveCurrentLightingSettings = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Saving Current Lighting Settings ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            console.log('Saving current lighting settings...');
+            const settings = uiManager.saveLightingSettings();
+            
+            console.log('Settings saved successfully!');
+            console.log('File downloaded and settings logged to console.');
+            console.log('You can copy the JSON from console to use as defaults.');
+            
+            return 'Lighting settings saved successfully!';
+        }
+    };
+    
+    window.loadLightingSettingsFromJSON = (jsonString) => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Loading Lighting Settings from JSON ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            try {
+                const settings = JSON.parse(jsonString);
+                console.log('Loading settings:', settings);
+                uiManager.loadLightingSettings(settings);
+                
+                console.log('Settings loaded successfully!');
+                return 'Lighting settings loaded successfully!';
+            } catch (error) {
+                console.error('Error parsing JSON:', error);
+                return 'Error parsing JSON settings';
+            }
+        }
+    };
+    
+    window.checkSettingsConsistency = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Checking Settings Consistency ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Current scene settings:');
+            console.log(`- Light Intensity: ${lightingManager.getDirectionalIntensity()}`);
+            console.log(`- Shadow Darkness: ${lightingManager.getShadowDarkness()}`);
+            console.log(`- Shadow Bias: ${lightingManager.getShadowBias()}`);
+            console.log(`- Shadow Normal Bias: ${lightingManager.getShadowNormalBias()}`);
+            console.log(`- Shadow Depth Scale: ${lightingManager.getShadowDepthScale()}`);
+            console.log(`- Shadow Ortho Scale: ${lightingManager.getShadowOrthoScale()}`);
+            console.log(`- Shadow Frustum Size: ${lightingManager.getShadowFrustumSize()}`);
+            console.log(`- Object Shadows: ${lightingManager.areObjectShadowsEnabled()}`);
+            console.log(`- Hard Shadows: ${lightingManager.areHardShadowsEnabled()}`);
+            
+            console.log('\nExpected values from user settings:');
+            console.log('- Light Intensity: 1.6');
+            console.log('- Shadow Darkness: 0.4');
+            console.log('- Shadow Bias: 0.00043');
+            console.log('- Shadow Normal Bias: 0.01');
+            console.log('- Shadow Depth Scale: 85');
+            console.log('- Shadow Ortho Scale: 260');
+            console.log('- Shadow Frustum Size: 350');
+            console.log('- Object Shadows: true');
+            console.log('- Hard Shadows: true');
+            
+            return 'Settings consistency check completed. Check console for details.';
+        }
+    };
+    
+    window.applyOptimizedSettings = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Applying Optimized Settings ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('Applying optimized shadow settings...');
+            lightingManager.applyOptimizedShadowSettings();
+            
+            console.log('Optimized settings applied successfully!');
+            return 'Optimized settings applied successfully!';
+        }
+    };
+    
+    window.toggleFPSMonitor = () => {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.toggleVisibility();
+            console.log('FPS Monitor visibility toggled');
+            return 'FPS Monitor visibility toggled';
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
+        }
+    };
+    
+    window.showFPSMonitor = () => {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.show();
+            console.log('FPS Monitor shown');
+            return 'FPS Monitor shown';
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
+        }
+    };
+    
+    window.hideFPSMonitor = () => {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.hide();
+            console.log('FPS Monitor hidden');
+            return 'FPS Monitor hidden';
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
+        }
+    };
+    
+    window.getFPSStats = () => {
+        if (window.fpsMonitor) {
+            const stats = window.fpsMonitor.getFPSStats();
+            console.log('=== FPS Statistics ===');
+            console.log(`Current FPS: ${stats.current.toFixed(1)}`);
+            console.log(`Average FPS: ${stats.average.toFixed(1)}`);
+            console.log(`Min FPS: ${stats.min.toFixed(1)}`);
+            console.log(`Max FPS: ${stats.max.toFixed(1)}`);
+            console.log(`History length: ${stats.history.length}`);
+            return stats;
+        } else {
+            console.log('FPS Monitor not available');
+            return null;
+        }
+    };
+    
+    window.resetFPSHistory = () => {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.resetHistory();
+            console.log('FPS history reset');
+            return 'FPS history reset';
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
+        }
+    };
+    
+    window.getSceneStatistics = () => {
+        if (window.fpsMonitor) {
+            const stats = window.fpsMonitor.getSceneStatistics();
+            console.log('=== Scene Statistics ===');
+            console.log(`Total Vertices: ${stats.vertices.toLocaleString()}`);
+            console.log(`Total Faces: ${stats.faces.toLocaleString()}`);
+            console.log(`Total Meshes: ${stats.meshes}`);
+            return stats;
+        } else {
+            console.log('FPS Monitor not available');
+            return null;
+        }
+    };
+    
+    window.getFullMonitorStats = () => {
+        if (window.fpsMonitor) {
+            const fpsStats = window.fpsMonitor.getFPSStats();
+            const sceneStats = window.fpsMonitor.getSceneStatistics();
+            const optimizationState = window.fpsMonitor.getOptimizationState();
+            
+            console.log('=== Full Monitor Statistics ===');
+            console.log('FPS Stats:', fpsStats);
+            console.log('Scene Stats:', sceneStats);
+            console.log('Optimization State:', optimizationState);
+            
+            return {
+                fps: fpsStats,
+                scene: sceneStats,
+                optimization: optimizationState
+            };
+        } else {
+            console.log('FPS Monitor not available');
+            return null;
+        }
+    };
+    
+    window.setAutoOptimization = (enabled) => {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.setAutoOptimization(enabled);
+            console.log(`Auto-optimization ${enabled ? 'enabled' : 'disabled'}`);
+            return `Auto-optimization ${enabled ? 'enabled' : 'disabled'}`;
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
+        }
+    };
+    
+    window.setFPSThresholds = (thresholds) => {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.setFPSThresholds(thresholds);
+            console.log('FPS thresholds updated:', thresholds);
+            return 'FPS thresholds updated';
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
+        }
+    };
+    
+    window.getOptimizationState = () => {
+        if (window.fpsMonitor) {
+            const state = window.fpsMonitor.getOptimizationState();
+            console.log('=== Optimization State ===');
+            console.log(`Auto-optimization: ${state.autoOptimizationEnabled ? 'Enabled' : 'Disabled'}`);
+            console.log(`FPS Thresholds:`, state.fpsThresholds);
+            console.log(`Current State:`, state.optimizationState);
+            console.log(`Original Shadow Resolution: ${state.originalShadowResolution || 'Not set'}`);
+            return state;
+        } else {
+            console.log('FPS Monitor not available');
+            return null;
+        }
+    };
+    
+    window.resetOptimizationState = () => {
+        if (window.fpsMonitor) {
+            window.fpsMonitor.resetOptimizationState();
+            console.log('Optimization state reset');
+            return 'Optimization state reset';
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
+        }
+    };
+    
+    window.testAutoOptimization = () => {
+        if (window.fpsMonitor) {
+            console.log('=== Testing Auto-Optimization ===');
+            
+            // Test with low FPS simulation
+            console.log('Simulating low FPS (25) to trigger optimizations...');
+            window.fpsMonitor.performAutoOptimization(25);
+            
+            setTimeout(() => {
+                console.log('Simulating good FPS (50) to restore optimizations...');
+                window.fpsMonitor.performAutoOptimization(50);
+            }, 2000);
+            
+            return 'Auto-optimization test started';
+        } else {
+            console.log('FPS Monitor not available');
+            return 'FPS Monitor not available';
         }
     };
     
