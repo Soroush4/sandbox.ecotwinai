@@ -526,6 +526,26 @@ class SelectionManager {
      * Select an object
      */
     selectObject(mesh, isMultiSelect = false, includeExtrusion = true) {
+        console.log(`Selecting object: ${mesh.name} (type: ${mesh.constructor.name})`);
+        
+        // Additional debugging for TransformNodes
+        if (mesh instanceof BABYLON.TransformNode) {
+            console.log(`TransformNode details:`, {
+                name: mesh.name,
+                position: mesh.position,
+                rotation: mesh.rotation,
+                scaling: mesh.scaling,
+                hasGetChildMeshes: typeof mesh.getChildMeshes === 'function'
+            });
+            
+            // Try to get child meshes immediately
+            try {
+                const childMeshes = mesh.getChildMeshes();
+                console.log(`Child meshes found: ${childMeshes.length}`, childMeshes.map(m => m.name));
+            } catch (error) {
+                console.error('Error getting child meshes:', error);
+            }
+        }
         
         // Clear previous selection if not in multi-select mode
         if (!isMultiSelect) {
@@ -662,14 +682,82 @@ class SelectionManager {
         
         // Get all child meshes
         const childMeshes = transformNode.getChildMeshes();
+        console.log(`TransformNode ${transformNode.name} has ${childMeshes.length} child meshes:`, childMeshes.map(m => m.name));
+        
         if (childMeshes.length === 0) {
             console.warn(`TransformNode ${transformNode.name} has no child meshes to highlight`);
+            
+            // Try alternative method to find child meshes
+            const scene = this.scene;
+            const allMeshes = scene.meshes.filter(mesh => 
+                mesh.parent === transformNode && mesh instanceof BABYLON.Mesh
+            );
+            console.log(`Alternative method found ${allMeshes.length} child meshes:`, allMeshes.map(m => m.name));
+            
+            // Debug: Check all meshes in scene that might be related to this tree
+            const relatedMeshes = scene.meshes.filter(mesh => 
+                mesh.name && mesh.name.includes(transformNode.name.replace('tree_', '').replace('simple_tree_', ''))
+            );
+            console.log(`Related meshes in scene: ${relatedMeshes.length}`, relatedMeshes.map(m => `${m.name} (parent: ${m.parent ? m.parent.name : 'none'})`));
+            
+            // Debug: Check if meshes are disposed
+            const disposedMeshes = relatedMeshes.filter(mesh => mesh.isDisposed());
+            console.log(`Disposed related meshes: ${disposedMeshes.length}`, disposedMeshes.map(m => m.name));
+            
+            if (allMeshes.length === 0) {
+                console.warn(`No child meshes found for TransformNode ${transformNode.name} using any method`);
+                
+                // If no child meshes found, create a simple bounding box wireframe
+                this.createBoundingBoxWireframe(transformNode);
+                return;
+            }
+            
+            // Use the alternative method
+            this.createWireframesForMeshes(transformNode, allMeshes);
             return;
         }
         
         // Create wireframes for all child meshes
+        this.createWireframesForMeshes(transformNode, childMeshes);
+    }
+
+    /**
+     * Create a simple bounding box wireframe for TransformNodes without child meshes
+     */
+    createBoundingBoxWireframe(transformNode) {
+        console.log(`Creating bounding box wireframe for TransformNode ${transformNode.name}`);
+        
+        // Create a simple box wireframe as fallback
+        const boxSize = 2; // Default size for trees
+        const wireframeBox = BABYLON.MeshBuilder.CreateBox(`${transformNode.name}_wireframe_box`, {
+            size: boxSize
+        }, this.scene);
+        
+        // Apply wireframe material
+        const edgeWireframeMaterial = this.edgeWireframeMaterial.clone(`edge_wireframe_${transformNode.name}_box`);
+        wireframeBox.material = edgeWireframeMaterial;
+        
+        // Set rendering group
+        wireframeBox.renderingGroupId = 2;
+        
+        // Parent to the TransformNode to inherit its transforms
+        wireframeBox.setParent(transformNode);
+        
+        // Position at center
+        wireframeBox.position = BABYLON.Vector3.Zero();
+        
+        // Store reference
+        transformNode.wireframeClones = [wireframeBox];
+        
+        console.log(`Created bounding box wireframe for TransformNode ${transformNode.name}`);
+    }
+
+    /**
+     * Create wireframes for a list of meshes and parent them to a TransformNode
+     */
+    createWireframesForMeshes(transformNode, meshes) {
         const wireframeClones = [];
-        childMeshes.forEach(childMesh => {
+        meshes.forEach(childMesh => {
             if (childMesh instanceof BABYLON.Mesh) {
                 // Store original material
                 this.originalMaterials.set(childMesh, childMesh.material);
@@ -760,7 +848,28 @@ class SelectionManager {
      * Update wireframe transforms to match the original mesh
      */
     updateWireframeTransforms(mesh) {
-        if (!mesh || !mesh.wireframeClone) {
+        if (!mesh) {
+            return;
+        }
+        
+        // Handle TransformNodes (like tree parents)
+        if (mesh instanceof BABYLON.TransformNode && mesh.wireframeClones) {
+            // For TransformNodes, the wireframe clones are already parented to the TransformNode
+            // so they automatically inherit the transforms. We just need to update their individual transforms.
+            const childMeshes = mesh.getChildMeshes();
+            childMeshes.forEach(childMesh => {
+                if (childMesh.wireframeClone) {
+                    // Update child mesh wireframe transforms
+                    childMesh.wireframeClone.position = childMesh.position.clone();
+                    childMesh.wireframeClone.rotation = childMesh.rotation.clone();
+                    childMesh.wireframeClone.scaling = childMesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
+                }
+            });
+            return;
+        }
+        
+        // Handle regular meshes
+        if (!mesh.wireframeClone) {
             return;
         }
         

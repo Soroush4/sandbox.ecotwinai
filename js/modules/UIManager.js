@@ -630,6 +630,17 @@ class UIManager {
     }
 
     /**
+     * Stop polygon drawing for tree tool (without enabling camera controls)
+     */
+    stopPolygonDrawingForTreeTool() {
+        if (this.polygonManager) {
+            this.polygonManager.stopDrawing();
+            this.hidePolygonDrawingInstructions();
+            console.log('Polygon drawing stopped for tree tool activation');
+        }
+    }
+
+    /**
      * Complete polygon drawing
      */
     completePolygonDrawing() {
@@ -715,6 +726,12 @@ class UIManager {
         if (treeSubmenu) {
             const isVisible = treeSubmenu.style.display !== 'none';
             treeSubmenu.style.display = isVisible ? 'none' : 'block';
+            
+            // If opening the submenu, deactivate all other tools
+            if (!isVisible) {
+                this.deselectAllOtherTools();
+                console.log('Tree submenu opened - all other tools deactivated');
+            }
         }
     }
 
@@ -750,6 +767,9 @@ class UIManager {
             selectedOption.classList.add('active');
         }
 
+        // Deselect all other tools when tree tool is selected
+        this.deselectAllOtherTools();
+
         // Disable camera controls during tree placement
         this.disableCameraControls();
 
@@ -765,6 +785,35 @@ class UIManager {
         // Start tree placement
         this.treeManager.startTreePlacement(treeType);
         console.log(`Tree placement mode activated for tree type: ${treeType}`);
+    }
+
+    /**
+     * Deselect all other tools when tree tool is selected
+     */
+    deselectAllOtherTools() {
+        // Remove active class from all drawing tools
+        const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
+        allDrawingTools.forEach(tool => tool.classList.remove('active'));
+
+        // Remove active class from all transform tools (except coordinate toggle)
+        const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
+        allTransformTools.forEach(tool => tool.classList.remove('active'));
+
+        // Deactivate all transform modes
+        this.deactivateCurrentMode();
+
+        // Deactivate polygon drawing if active (but don't enable camera controls)
+        this.stopPolygonDrawingForTreeTool();
+
+        // Clear any active selections
+        if (this.selectionManager) {
+            this.selectionManager.clearSelection();
+        }
+
+        // Reset to select tool state (but don't activate select tool visually)
+        this.currentTransformMode = null;
+
+        console.log('All other tools deselected and deactivated - tree tool is now active');
     }
 
     /**
@@ -897,6 +946,9 @@ class UIManager {
         if (this.selectionManager) {
             // Selection manager is already listening for clicks
         }
+        
+        // Enable camera controls for selection mode
+        this.enableCameraControls();
     }
 
     /**
@@ -914,6 +966,9 @@ class UIManager {
             this.moveManager.activate();
         }
         
+        // Enable camera controls for move mode
+        this.enableCameraControls();
+        
         // Show move instructions
         this.showMoveInstructions();
     }
@@ -927,6 +982,9 @@ class UIManager {
             this.showRotateInstructions();
         } else {
         }
+        
+        // Enable camera controls for rotate mode
+        this.enableCameraControls();
     }
 
     /**
@@ -938,6 +996,9 @@ class UIManager {
             this.showScaleInstructions();
         } else {
         }
+        
+        // Enable camera controls for scale mode
+        this.enableCameraControls();
     }
 
     /**
