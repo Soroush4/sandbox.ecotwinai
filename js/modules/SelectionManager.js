@@ -26,6 +26,17 @@ class SelectionManager {
         
         this.setupHighlightMaterial();
         this.setupEventListeners();
+        
+        // Make test functions available globally for debugging
+        window.testWireframeRotation = () => this.testWireframeRotation();
+        window.testTransformToolsWireframe = () => this.testTransformToolsWireframe();
+        window.fixTreeScaling = () => this.fixTreeScaling();
+        window.debugTreeStructure = () => this.debugTreeStructure();
+        window.findTreeMeshes = () => this.findTreeMeshes();
+        window.selectCorrectTree = () => this.selectCorrectTree();
+        window.autoSelectTransformNode = () => this.autoSelectTransformNode();
+        window.testRotation = (degrees) => this.testRotation(degrees);
+        window.recreateWireframe = () => this.recreateWireframe();
     }
 
     /**
@@ -535,6 +546,13 @@ class SelectionManager {
     selectObject(mesh, isMultiSelect = false, includeExtrusion = true) {
         console.log(`Selecting object: ${mesh.name} (type: ${mesh.constructor.name})`);
         
+        // Auto-select TransformNode parent for tree meshes
+        if (mesh.parent && mesh.parent instanceof BABYLON.TransformNode && 
+            (mesh.parent.name.includes('tree_') || mesh.parent.name.includes('simple_tree_'))) {
+            console.log(`Auto-selecting TransformNode parent: ${mesh.parent.name}`);
+            mesh = mesh.parent; // Select the parent TransformNode instead
+        }
+        
         // Additional debugging for different object types
         if (mesh instanceof BABYLON.TransformNode) {
             console.log(`TransformNode details:`, {
@@ -659,6 +677,12 @@ class SelectionManager {
             return;
         }
         
+        // Skip wireframe creation for trees - they don't need wireframes
+        // if (mesh.name && (mesh.name.includes('tree_') || mesh.name.includes('simple_tree_'))) {
+        //     console.log(`Skipping wireframe creation for tree: ${mesh.name}`);
+        //     return;
+        // }
+        
         // Handle TransformNodes (like tree parents) by creating wireframes for their children
         // Only treat as TransformNode if it's actually a TransformNode AND has child meshes
         if (mesh instanceof BABYLON.TransformNode && mesh.getChildMeshes && mesh.getChildMeshes().length > 0) {
@@ -697,6 +721,12 @@ class SelectionManager {
             return;
         }
         
+        // Skip wireframe creation for trees - they don't need wireframes
+        // if (transformNode.name.includes('tree_') || transformNode.name.includes('simple_tree_')) {
+        //     console.log(`Skipping wireframe creation for tree: ${transformNode.name}`);
+        //     return;
+        // }
+        
         // Get all child meshes
         const childMeshes = transformNode.getChildMeshes();
         console.log(`TransformNode ${transformNode.name} has ${childMeshes.length} child meshes:`, childMeshes.map(m => m.name));
@@ -710,6 +740,16 @@ class SelectionManager {
                 mesh.parent === transformNode && mesh instanceof BABYLON.Mesh
             );
             console.log(`Alternative method found ${allMeshes.length} child meshes:`, allMeshes.map(m => m.name));
+            
+            // Debug: Check all meshes in scene and their parents
+            console.log(`Total meshes in scene: ${scene.meshes.length}`);
+            const meshesWithParents = scene.meshes.filter(mesh => mesh.parent);
+            console.log(`Meshes with parents: ${meshesWithParents.length}`);
+            meshesWithParents.forEach(mesh => {
+                if (mesh.parent && mesh.parent.name && mesh.parent.name.includes('tree_')) {
+                    console.log(`Mesh ${mesh.name} has parent ${mesh.parent.name}`);
+                }
+            });
             
             // Debug: Check all meshes in scene that might be related to this tree
             const relatedMeshes = scene.meshes.filter(mesh => 
@@ -800,6 +840,18 @@ class SelectionManager {
                 // This ensures the wireframe appears at the same location as the extrusion
                 wireframeClone.position = childMesh.position.clone();
                 
+                // Test different rotation angles to find the correct one
+                console.log(`Child mesh ${childMesh.name} rotation:`, childMesh.rotation);
+                console.log(`Child mesh ${childMesh.name} world rotation:`, childMesh.rotationQuaternion ? childMesh.rotationQuaternion.toEulerAngles() : 'No quaternion');
+                
+                // Test different rotation options - uncomment the one that works:
+                
+                // Let wireframe inherit rotation from parent TransformNode
+                // Don't set rotation at all - let parent handle it completely
+                // wireframeClone.rotation = BABYLON.Vector3.Zero();
+                
+                console.log(`Wireframe rotation set to:`, wireframeClone.rotation);
+                
                 // Store reference
                 childMesh.wireframeClone = wireframeClone;
                 wireframeClones.push(wireframeClone);
@@ -886,7 +938,9 @@ class SelectionManager {
                     if (childMesh.wireframeClone) {
                         // Update child mesh wireframe transforms
                         childMesh.wireframeClone.position = childMesh.position.clone();
-                        childMesh.wireframeClone.rotation = childMesh.rotation.clone();
+                        // Let wireframe inherit rotation from parent TransformNode
+                        // Don't set rotation at all - let parent handle it completely
+                        // childMesh.wireframeClone.rotation = BABYLON.Vector3.Zero();
                         childMesh.wireframeClone.scaling = childMesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
                     }
                 });
@@ -915,6 +969,473 @@ class SelectionManager {
         this.selectedObjects.forEach(mesh => {
             this.updateWireframeTransforms(mesh);
         });
+    }
+
+    /**
+     * Test wireframe rotation issues - comprehensive debugging
+     */
+    testWireframeRotation() {
+        console.log("=== WIREFRAME ROTATION TEST START ===");
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected for testing");
+            return;
+        }
+
+        selectedObjects.forEach((obj, index) => {
+            console.log(`\n--- Testing Object ${index + 1}: ${obj.name} ---`);
+            console.log(`Object type: ${obj.constructor.name}`);
+            console.log(`Is TransformNode: ${obj instanceof BABYLON.TransformNode}`);
+            
+            // Test 1: Object's own transforms
+            console.log(`Object position:`, obj.position);
+            console.log(`Object rotation:`, obj.rotation);
+            console.log(`Object scaling:`, obj.scaling);
+            
+            // Test 2: World matrix
+            const worldMatrix = obj.getWorldMatrix();
+            console.log(`Object world matrix:`, worldMatrix);
+            
+            // Test 3: Child meshes (for TransformNodes)
+            if (obj instanceof BABYLON.TransformNode) {
+                const childMeshes = obj.getChildMeshes();
+                console.log(`Child meshes count: ${childMeshes.length}`);
+                
+                childMeshes.forEach((child, childIndex) => {
+                    console.log(`  Child ${childIndex + 1}: ${child.name}`);
+                    console.log(`    Child position:`, child.position);
+                    console.log(`    Child rotation:`, child.rotation);
+                    console.log(`    Child scaling:`, child.scaling);
+                    console.log(`    Child world position:`, child.getAbsolutePosition());
+                    
+                    // Test 4: Wireframe clone if exists
+                    if (child.wireframeClone) {
+                        console.log(`    Wireframe clone exists: ${child.wireframeClone.name}`);
+                        console.log(`    Wireframe position:`, child.wireframeClone.position);
+                        console.log(`    Wireframe rotation:`, child.wireframeClone.rotation);
+                        console.log(`    Wireframe scaling:`, child.wireframeClone.scaling);
+                        console.log(`    Wireframe parent:`, child.wireframeClone.parent ? child.wireframeClone.parent.name : 'none');
+                        
+                        // Test 5: Rotation comparison
+                        const rotationDiff = child.rotation.subtract(child.wireframeClone.rotation);
+                        console.log(`    Rotation difference:`, rotationDiff);
+                        console.log(`    Rotation difference magnitude:`, rotationDiff.length());
+                        
+                        // Test 6: Position comparison
+                        const positionDiff = child.getAbsolutePosition().subtract(child.wireframeClone.getAbsolutePosition());
+                        console.log(`    Position difference:`, positionDiff);
+                        console.log(`    Position difference magnitude:`, positionDiff.length());
+                    } else {
+                        console.log(`    No wireframe clone found`);
+                    }
+                });
+            } else {
+                // Test 4: Regular mesh wireframe
+                if (obj.wireframeClone) {
+                    console.log(`Wireframe clone exists: ${obj.wireframeClone.name}`);
+                    console.log(`Wireframe position:`, obj.wireframeClone.position);
+                    console.log(`Wireframe rotation:`, obj.wireframeClone.rotation);
+                    console.log(`Wireframe scaling:`, obj.wireframeClone.scaling);
+                    
+                    // Test 5: Rotation comparison
+                    const rotationDiff = obj.rotation.subtract(obj.wireframeClone.rotation);
+                    console.log(`Rotation difference:`, rotationDiff);
+                    console.log(`Rotation difference magnitude:`, rotationDiff.length());
+                } else {
+                    console.log(`No wireframe clone found`);
+                }
+            }
+            
+            // Test 7: Scene mesh analysis
+            const scene = this.scene;
+            const relatedMeshes = scene.meshes.filter(mesh => 
+                mesh.name && mesh.name.includes(obj.name.replace('tree_', '').replace('simple_tree_', ''))
+            );
+            console.log(`Related meshes in scene: ${relatedMeshes.length}`);
+            relatedMeshes.forEach(mesh => {
+                console.log(`  Related mesh: ${mesh.name} (parent: ${mesh.parent ? mesh.parent.name : 'none'})`);
+            });
+        });
+        
+        console.log("\n=== WIREFRAME ROTATION TEST END ===");
+    }
+
+    /**
+     * Test transform tools wireframe behavior
+     */
+    testTransformToolsWireframe() {
+        console.log("=== TRANSFORM TOOLS WIREFRAME TEST START ===");
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected for transform testing");
+            return;
+        }
+
+        selectedObjects.forEach((obj, index) => {
+            console.log(`\n--- Transform Test Object ${index + 1}: ${obj.name} ---`);
+            
+            // Test before transform
+            console.log("BEFORE TRANSFORM:");
+            this.logObjectTransforms(obj);
+            
+            // Simulate a small rotation
+            const originalRotation = obj.rotation.clone();
+            obj.rotation.y += 0.1; // Small rotation
+            
+            console.log("AFTER ROTATION:");
+            this.logObjectTransforms(obj);
+            
+            // Update wireframes
+            this.updateWireframeTransforms(obj);
+            
+            console.log("AFTER WIREFRAME UPDATE:");
+            this.logObjectTransforms(obj);
+            
+            // Restore original rotation
+            obj.rotation = originalRotation;
+            this.updateWireframeTransforms(obj);
+            
+            console.log("AFTER RESTORE:");
+            this.logObjectTransforms(obj);
+        });
+        
+        console.log("\n=== TRANSFORM TOOLS WIREFRAME TEST END ===");
+    }
+
+    /**
+     * Helper function to log object transforms
+     */
+    logObjectTransforms(obj) {
+        console.log(`  Object ${obj.name}:`);
+        console.log(`    Position:`, obj.position);
+        console.log(`    Rotation:`, obj.rotation);
+        console.log(`    Scaling:`, obj.scaling);
+        
+        if (obj instanceof BABYLON.TransformNode) {
+            const childMeshes = obj.getChildMeshes();
+            childMeshes.forEach((child, index) => {
+                console.log(`    Child ${index + 1} ${child.name}:`);
+                console.log(`      Position:`, child.position);
+                console.log(`      Rotation:`, child.rotation);
+                console.log(`      Scaling:`, child.scaling);
+                
+                if (child.wireframeClone) {
+                    console.log(`      Wireframe Position:`, child.wireframeClone.position);
+                    console.log(`      Wireframe Rotation:`, child.wireframeClone.rotation);
+                    console.log(`      Wireframe Scaling:`, child.wireframeClone.scaling);
+                    
+                    // Calculate differences
+                    const posDiff = child.getAbsolutePosition().subtract(child.wireframeClone.getAbsolutePosition());
+                    const rotDiff = child.rotation.subtract(child.wireframeClone.rotation);
+                    console.log(`      Position Diff:`, posDiff);
+                    console.log(`      Rotation Diff:`, rotDiff);
+                }
+            });
+        } else if (obj.wireframeClone) {
+            console.log(`    Wireframe Position:`, obj.wireframeClone.position);
+            console.log(`    Wireframe Rotation:`, obj.wireframeClone.rotation);
+            console.log(`    Wireframe Scaling:`, obj.wireframeClone.scaling);
+            
+            // Calculate differences
+            const posDiff = obj.getAbsolutePosition().subtract(obj.wireframeClone.getAbsolutePosition());
+            const rotDiff = obj.rotation.subtract(obj.wireframeClone.rotation);
+            console.log(`    Position Diff:`, posDiff);
+            console.log(`    Rotation Diff:`, rotDiff);
+        }
+    }
+
+    /**
+     * Fix tree scaling issue - make Y scaling positive
+     */
+    fixTreeScaling() {
+        console.log("=== FIXING TREE SCALING ===");
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected for scaling fix");
+            return;
+        }
+
+        selectedObjects.forEach((obj, index) => {
+            if (obj instanceof BABYLON.TransformNode) {
+                console.log(`Fixing scaling for ${obj.name}:`);
+                console.log(`Before:`, obj.scaling);
+                
+                // Make Y scaling positive if it's negative
+                if (obj.scaling.y < 0) {
+                    obj.scaling.y = Math.abs(obj.scaling.y);
+                    console.log(`Fixed Y scaling to:`, obj.scaling.y);
+                }
+                
+                console.log(`After:`, obj.scaling);
+                
+                // Update wireframes after fixing scaling
+                this.updateWireframeTransforms(obj);
+                
+                // Test if child meshes are now found
+                const childMeshes = obj.getChildMeshes();
+                console.log(`Child meshes found after fix: ${childMeshes.length}`);
+            }
+        });
+        
+        console.log("=== SCALING FIX COMPLETE ===");
+    }
+
+    /**
+     * Debug tree structure to understand why getChildMeshes() returns 0
+     */
+    debugTreeStructure() {
+        console.log("=== DEBUGGING TREE STRUCTURE ===");
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected for structure debugging");
+            return;
+        }
+
+        selectedObjects.forEach((obj, index) => {
+            if (obj instanceof BABYLON.TransformNode) {
+                console.log(`\n--- Debugging Tree: ${obj.name} ---`);
+                
+                // Method 1: getChildMeshes()
+                const childMeshes1 = obj.getChildMeshes();
+                console.log(`Method 1 - getChildMeshes(): ${childMeshes1.length} meshes`);
+                
+                // Method 2: Direct children check
+                const directChildren = obj.getChildren();
+                console.log(`Method 2 - getChildren(): ${directChildren.length} children`);
+                directChildren.forEach((child, i) => {
+                    console.log(`  Child ${i + 1}: ${child.name} (type: ${child.constructor.name})`);
+                });
+                
+                // Method 3: Scene mesh filtering
+                const scene = this.scene;
+                const allMeshes = scene.meshes;
+                console.log(`Method 3 - Total scene meshes: ${allMeshes.length}`);
+                
+                const meshesWithParents = allMeshes.filter(mesh => mesh.parent);
+                console.log(`Meshes with parents: ${meshesWithParents.length}`);
+                
+                const treeMeshes = meshesWithParents.filter(mesh => 
+                    mesh.parent && mesh.parent.name === obj.name
+                );
+                console.log(`Meshes with this tree as parent: ${treeMeshes.length}`);
+                treeMeshes.forEach((mesh, i) => {
+                    console.log(`  Tree mesh ${i + 1}: ${mesh.name} (type: ${mesh.constructor.name})`);
+                });
+                
+                // Method 4: Check for meshes with similar names
+                const similarNameMeshes = allMeshes.filter(mesh => 
+                    mesh.name && mesh.name.includes(obj.name.replace('tree_', '').replace('simple_tree_', ''))
+                );
+                console.log(`Meshes with similar names: ${similarNameMeshes.length}`);
+                similarNameMeshes.forEach((mesh, i) => {
+                    console.log(`  Similar mesh ${i + 1}: ${mesh.name} (parent: ${mesh.parent ? mesh.parent.name : 'none'})`);
+                });
+                
+                // Method 5: Check TransformNode properties
+                console.log(`TransformNode properties:`);
+                console.log(`  - hasGetChildMeshes: ${typeof obj.getChildMeshes === 'function'}`);
+                console.log(`  - hasGetChildren: ${typeof obj.getChildren === 'function'}`);
+                console.log(`  - children: ${obj.children ? obj.children.length : 'undefined'}`);
+                console.log(`  - _children: ${obj._children ? obj._children.length : 'undefined'}`);
+                
+                // Method 6: Check if meshes are actually in the scene
+                const allMeshNames = allMeshes.map(m => m.name).filter(name => name);
+                const treeRelatedNames = allMeshNames.filter(name => 
+                    name.includes('4_') || name.includes('tree_')
+                );
+                console.log(`All tree-related mesh names:`, treeRelatedNames);
+            }
+        });
+        
+        console.log("\n=== TREE STRUCTURE DEBUG COMPLETE ===");
+    }
+
+    /**
+     * Find all tree meshes in the scene
+     */
+    findTreeMeshes() {
+        console.log("=== FINDING ALL TREE MESHES ===");
+        
+        const scene = this.scene;
+        const allMeshes = scene.meshes;
+        
+        console.log(`Total meshes in scene: ${allMeshes.length}`);
+        
+        // Find all meshes with "tree" in their name
+        const treeMeshes = allMeshes.filter(mesh => 
+            mesh.name && mesh.name.toLowerCase().includes('tree')
+        );
+        
+        console.log(`Tree-related meshes: ${treeMeshes.length}`);
+        treeMeshes.forEach((mesh, i) => {
+            console.log(`  Tree mesh ${i + 1}: ${mesh.name}`);
+            console.log(`    Type: ${mesh.constructor.name}`);
+            console.log(`    Parent: ${mesh.parent ? mesh.parent.name : 'none'}`);
+            console.log(`    Position:`, mesh.position);
+            console.log(`    Scaling:`, mesh.scaling);
+            console.log(`    Enabled: ${mesh.isEnabled()}`);
+            console.log(`    Visible: ${mesh.isVisible}`);
+        });
+        
+        // Find all TransformNodes
+        const transformNodes = scene.transformNodes;
+        console.log(`\nTotal TransformNodes: ${transformNodes.length}`);
+        transformNodes.forEach((node, i) => {
+            console.log(`  TransformNode ${i + 1}: ${node.name}`);
+            console.log(`    Children: ${node.getChildren().length}`);
+            console.log(`    Child Meshes: ${node.getChildMeshes().length}`);
+        });
+        
+        // Check if there are any meshes that should be children of our selected tree
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length > 0) {
+            const selectedTree = selectedObjects[0];
+            console.log(`\nSelected tree: ${selectedTree.name}`);
+            
+            // Look for meshes that might belong to this tree
+            const potentialChildren = allMeshes.filter(mesh => 
+                mesh.name && (
+                    mesh.name.includes(selectedTree.name) ||
+                    mesh.name.includes('4_') ||
+                    mesh.name.includes('tree_4')
+                )
+            );
+            
+            console.log(`Potential children for ${selectedTree.name}: ${potentialChildren.length}`);
+            potentialChildren.forEach((mesh, i) => {
+                console.log(`  Potential child ${i + 1}: ${mesh.name}`);
+                console.log(`    Parent: ${mesh.parent ? mesh.parent.name : 'none'}`);
+                console.log(`    Should be child of: ${selectedTree.name}`);
+            });
+        }
+        
+        console.log("\n=== TREE MESH SEARCH COMPLETE ===");
+    }
+
+    /**
+     * Select the correct TransformNode instead of the mesh
+     */
+    selectCorrectTree() {
+        console.log("=== SELECTING CORRECT TREE ===");
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected");
+            return;
+        }
+
+        const selectedMesh = selectedObjects[0];
+        console.log(`Currently selected: ${selectedMesh.name} (type: ${selectedMesh.constructor.name})`);
+        
+        if (selectedMesh.parent && selectedMesh.parent instanceof BABYLON.TransformNode) {
+            const correctTransformNode = selectedMesh.parent;
+            console.log(`Found correct TransformNode: ${correctTransformNode.name}`);
+            console.log(`Child meshes: ${correctTransformNode.getChildMeshes().length}`);
+            
+            // Clear current selection
+            this.clearSelection();
+            
+            // Select the correct TransformNode
+            this.selectObject(correctTransformNode);
+            
+            console.log(`Now selected: ${correctTransformNode.name}`);
+            console.log("You can now run testWireframeRotation() to see the correct results!");
+        } else {
+            console.log("Selected object has no TransformNode parent");
+        }
+        
+        console.log("=== CORRECT TREE SELECTION COMPLETE ===");
+    }
+
+    /**
+     * Automatically select TransformNode when a tree mesh is selected
+     */
+    autoSelectTransformNode() {
+        console.log("=== AUTO SELECTING TRANSFORM NODE ===");
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected");
+            return;
+        }
+
+        const selectedMesh = selectedObjects[0];
+        console.log(`Currently selected: ${selectedMesh.name} (type: ${selectedMesh.constructor.name})`);
+        
+        // If it's a mesh with a TransformNode parent, select the parent instead
+        if (selectedMesh.parent && selectedMesh.parent instanceof BABYLON.TransformNode) {
+            const transformNode = selectedMesh.parent;
+            console.log(`Found TransformNode parent: ${transformNode.name}`);
+            
+            // Clear current selection
+            this.clearSelection();
+            
+            // Select the TransformNode
+            this.selectObject(transformNode);
+            
+            console.log(`Now selected TransformNode: ${transformNode.name}`);
+        } else {
+            console.log("Selected object has no TransformNode parent");
+        }
+        
+        console.log("=== AUTO SELECTION COMPLETE ===");
+    }
+
+    /**
+     * Test different rotation values quickly
+     */
+    testRotation(degrees) {
+        console.log(`=== TESTING ROTATION: ${degrees} DEGREES ===`);
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected");
+            return;
+        }
+
+        const obj = selectedObjects[0];
+        if (obj instanceof BABYLON.TransformNode && obj.wireframeClones) {
+            const childMeshes = obj.getChildMeshes();
+            childMeshes.forEach(childMesh => {
+                if (childMesh.wireframeClone) {
+                    const radians = (degrees * Math.PI) / 180;
+                    childMesh.wireframeClone.rotation = new BABYLON.Vector3(radians, 0, 0);
+                    console.log(`Set wireframe rotation to: ${degrees} degrees (${radians} radians)`);
+                }
+            });
+        }
+        
+        console.log("=== ROTATION TEST COMPLETE ===");
+    }
+
+    /**
+     * Recreate wireframe with correct rotation
+     */
+    recreateWireframe() {
+        console.log("=== RECREATING WIREFRAME ===");
+        
+        const selectedObjects = this.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log("No objects selected");
+            return;
+        }
+
+        const obj = selectedObjects[0];
+        if (obj instanceof BABYLON.TransformNode) {
+            // Remove existing wireframes
+            this.removeHighlight(obj);
+            
+            // Recreate wireframes
+            this.highlightTransformNode(obj);
+            
+            console.log("Wireframe recreated");
+        }
+        
+        console.log("=== WIREFRAME RECREATION COMPLETE ===");
     }
 
 

@@ -1016,9 +1016,10 @@ input[type="range"]::-moz-range-thumb {
     display: block;
 }
 
-/* Circle and Polygon Properties Popup - same positioning as main popup */
+/* Circle, Polygon, and Tree Properties Popup - same positioning as main popup */
 #circlePropertiesPopup,
-#polygonPropertiesPopup {
+#polygonPropertiesPopup,
+#treePropertiesPopup {
     position: fixed;
     top: calc(28px + 66.67vh + 10px); /* Below object list panel */
     right: 0;
@@ -1035,7 +1036,8 @@ input[type="range"]::-moz-range-thumb {
 }
 
 #circlePropertiesPopup.show,
-#polygonPropertiesPopup.show {
+#polygonPropertiesPopup.show,
+#treePropertiesPopup.show {
     display: block;
 }
 

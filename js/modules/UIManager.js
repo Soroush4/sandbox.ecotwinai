@@ -116,7 +116,10 @@ class UIManager {
                     userData: selectedObject.userData
                 });
                 
-                if (isCircle || isBuildingFromCircle) {
+                if (this.isTree(selectedObject)) {
+                    console.log('Showing tree properties popup');
+                    this.showTreePropertiesPopup(selectedObject);
+                } else if (isCircle || isBuildingFromCircle) {
                     console.log('Showing circle properties popup');
                     this.showCirclePropertiesPopup(selectedObject);
                 } else if (shapeType === 'polygon') {
@@ -2268,6 +2271,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 this.sceneManager.addBuilding(rectangle);
             }
             
+            // Switch back to select tool after completion
+            this.activateSelectTool();
+            
             console.log('Rectangle created:', rectangle.name);
         };
 
@@ -2304,6 +2310,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             if (this.sceneManager) {
                 this.sceneManager.addBuilding(circle);
             }
+            
+            // Switch back to select tool after completion
+            this.activateSelectTool();
             
             console.log('Circle created:', circle.name);
         };
@@ -2756,6 +2765,24 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.savePolygonProperties();
         });
 
+        // Tree properties popup event listeners
+        document.getElementById('closeTreeProperties').addEventListener('click', () => {
+            this.hideTreePropertiesPopup();
+        });
+
+        document.getElementById('cancelTreeProperties').addEventListener('click', () => {
+            this.cancelTreeProperties();
+        });
+
+        document.getElementById('saveTreeProperties').addEventListener('click', () => {
+            this.saveTreeProperties();
+        });
+
+        // Real-time scale update for trees
+        document.getElementById('treeScale').addEventListener('input', (e) => {
+            this.updateTreeScaleInRealTime(parseFloat(e.target.value));
+        });
+
         // Polygon type change listener
         document.getElementById('polygonType').addEventListener('change', (e) => {
             const newType = e.target.value;
@@ -2997,6 +3024,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         document.getElementById('propertiesPopup').classList.remove('show');
         document.getElementById('circlePropertiesPopup').classList.remove('show');
         document.getElementById('polygonPropertiesPopup').classList.remove('show');
+        document.getElementById('treePropertiesPopup').classList.remove('show');
         this.currentShape = null;
     }
 
@@ -3045,6 +3073,46 @@ Transform your 3D models into powerful energy analysis tools.`;
     hideCirclePropertiesPopup() {
         document.getElementById('circlePropertiesPopup').classList.remove('show');
         this.currentShape = null;
+    }
+
+    /**
+     * Show tree properties popup
+     */
+    showTreePropertiesPopup(tree) {
+        this.currentShape = tree;
+        
+        console.log('Showing tree properties for:', tree.name);
+        
+        // Get tree type from name (e.g., "tree_1_0" -> "1")
+        const treeType = this.getTreeTypeFromName(tree.name);
+        
+        // Fill form fields
+        document.getElementById('treeName').value = tree.name;
+        document.getElementById('treeCategory').value = 'Tree';
+        
+        // Set current scale value
+        const currentScale = tree.scaling.x; // Use X scaling as reference
+        document.getElementById('treeScale').value = currentScale.toFixed(1);
+        
+        // Show popup
+        document.getElementById('treePropertiesPopup').classList.add('show');
+    }
+
+    /**
+     * Hide tree properties popup
+     */
+    hideTreePropertiesPopup() {
+        document.getElementById('treePropertiesPopup').classList.remove('show');
+        this.currentShape = null;
+    }
+
+    /**
+     * Get tree type from tree name
+     */
+    getTreeTypeFromName(name) {
+        // Extract type from names like "tree_1_0" or "simple_tree_1_0"
+        const match = name.match(/(?:tree_|simple_tree_)(\d+)_/);
+        return match ? match[1] : '1';
     }
 
     /**
@@ -5297,6 +5365,67 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Hide popup
         this.hidePolygonPropertiesPopup();
+    }
+
+    /**
+     * Save tree properties
+     */
+    saveTreeProperties() {
+        if (!this.currentShape) return;
+
+        console.log('Saving tree properties');
+        
+        // Get scale value from input
+        const scaleValue = parseFloat(document.getElementById('treeScale').value);
+        
+        // Validate scale value
+        if (scaleValue < 1) {
+            alert('Scale must be at least 1.0');
+            return;
+        }
+        
+        // Apply scaling to the tree
+        this.currentShape.scaling = new BABYLON.Vector3(scaleValue, scaleValue, scaleValue);
+        
+        // Update wireframes if they exist
+        if (this.selectionManager) {
+            this.selectionManager.updateWireframeTransforms(this.currentShape);
+        }
+        
+        // Dispatch event to update object list
+        this.dispatchSceneChangeEvent();
+        
+        // Hide popup
+        this.hideTreePropertiesPopup();
+    }
+
+    /**
+     * Update tree scale in real-time
+     */
+    updateTreeScaleInRealTime(scaleValue) {
+        if (!this.currentShape) return;
+        
+        // Validate scale value
+        if (scaleValue < 1) {
+            return; // Don't update if below minimum
+        }
+        
+        // Apply scaling to the tree
+        this.currentShape.scaling = new BABYLON.Vector3(scaleValue, scaleValue, scaleValue);
+        
+        // Update wireframes if they exist
+        if (this.selectionManager) {
+            this.selectionManager.updateWireframeTransforms(this.currentShape);
+        }
+    }
+
+
+    /**
+     * Cancel tree properties changes
+     */
+    cancelTreeProperties() {
+        // Hide popup
+        this.hideTreePropertiesPopup();
     }
 
     /**
