@@ -79,26 +79,31 @@ class LightingManager {
             this.shadowGenerator.useBlurExponentialShadowMap = false;
             this.shadowGenerator.useKernelBlur = false;
             this.shadowGenerator.useContactHardeningShadow = false;
-            this.shadowGenerator.darkness = 0.4; // Optimized from user settings
-            this.shadowGenerator.normalBias = 0.01; // Optimized from user settings
-            this.shadowGenerator.depthScale = 85; // Optimized from user settings
-            this.shadowGenerator.bias = 0.00043; // Optimized from user settings
             this.shadowGenerator.usePercentageCloserFiltering = true; // Enable PCF for smoother edges
         } else {
             // Soft shadows - optimized for quality
             this.shadowGenerator.useBlurExponentialShadowMap = true;
             this.shadowGenerator.blurKernel = 64; // Increased for smoother shadows
-            this.shadowGenerator.darkness = 0.4; // Slightly darker shadows
-            this.shadowGenerator.normalBias = 0.01; // Reduced for better contact
-            this.shadowGenerator.depthScale = 50; // Better depth precision
-            this.shadowGenerator.bias = 0.00001; // Minimal bias for accuracy
             this.shadowGenerator.useContactHardeningShadow = true;
             this.shadowGenerator.contactHardeningLightSizeUVRatio = 0.1;
             this.shadowGenerator.usePercentageCloserFiltering = true; // Enable PCF
         }
 
-        // Set shadow map size and quality
-        this.shadowGenerator.setDarkness(this.hardShadowsEnabled ? 0.3 : 0.4);
+        // Apply current shadow settings (don't override with hardcoded values)
+        this.applyCurrentShadowSettings();
+    }
+
+    /**
+     * Apply current shadow settings to shadow generator
+     */
+    applyCurrentShadowSettings() {
+        if (!this.shadowGenerator) return;
+
+        // Apply current shadow settings from getter methods
+        this.shadowGenerator.setDarkness(this.getShadowDarkness());
+        this.shadowGenerator.bias = this.getShadowBias();
+        this.shadowGenerator.normalBias = this.getShadowNormalBias();
+        this.shadowGenerator.depthScale = this.getShadowDepthScale();
     }
 
     /**
@@ -189,12 +194,15 @@ class LightingManager {
     enableShadows() {
         this.shadowsEnabled = true;
         if (this.shadowGenerator) {
-            this.shadowGenerator.setDarkness(0.3);
+            // Don't override darkness here - let it be set by configureShadowQuality
+            // this.shadowGenerator.setDarkness(0.3);
             this.shadowGenerator.useBlurExponentialShadowMap = true;
             this.shadowGenerator.useKernelBlur = true;
             this.shadowGenerator.blurKernel = 32;
             // Re-enable shadow receiving on all meshes
             this.enableShadowReceivingOnAllMeshes();
+            // Reconfigure shadow quality to apply proper settings
+            this.configureShadowQuality();
         }
     }
 

@@ -1,12 +1,13 @@
 {
-  "lightIntensity": 1.6,
+  "lightIntensity": 1.2,
   "hemisphericIntensity": 0.8,
-  "shadowDarkness": 0.4,
-  "shadowBias": 0.00043,
+  "shadowDarkness": 0.55,
+  "shadowBias": 0.00006,
   "shadowNormalBias": 0.01,
-  "shadowDepthScale": 85,
-  "shadowOrthoScale": 260,
+  "shadowDepthScale": 70,
+  "shadowOrthoScale": 220,
   "shadowFrustumSize": 350,
+  "shadowsEnabled": true,
   "objectShadowsEnabled": true,
   "hardShadowsEnabled": true,
   "lightPosition": {
@@ -21,6 +22,6 @@
   },
   "shadowMinZ": 0.01,
   "shadowMaxZ": 500,
-  "timestamp": "2025-09-28T03:57:06.412Z",
+  "timestamp": "2025-09-29T00:19:38.266Z",
   "version": "1.0"
 }

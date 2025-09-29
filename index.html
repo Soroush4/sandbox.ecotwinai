@@ -7,6 +7,205 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="stylesheet" href="styles/main.css">
+    <style>
+        /* ===== DRAWING TOOLS ACTIVE STATES - INLINE OVERRIDE ===== */
+        /* Rectangle tool active state - Blue */
+        #drawingPanel .drawing-tools .tool-item[data-tool="rectangle"].active {
+            background: rgba(52, 152, 219, 0.3) !important;
+            border-color: rgba(52, 152, 219, 0.6) !important;
+            box-shadow: 0 0 10px rgba(52, 152, 219, 0.3) !important;
+        }
+
+        /* Circle tool active state - Green */
+        #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active {
+            background: rgba(46, 204, 113, 0.3) !important;
+            border-color: rgba(46, 204, 113, 0.6) !important;
+            box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
+        }
+
+        /* Polygon tool active state - Orange */
+        #drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active {
+            background: rgba(230, 126, 34, 0.3) !important;
+            border-color: rgba(230, 126, 34, 0.6) !important;
+            box-shadow: 0 0 10px rgba(230, 126, 34, 0.3) !important;
+        }
+
+        /* Tree tool active state - Purple */
+        #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active {
+            background: rgba(155, 89, 182, 0.3) !important;
+            border-color: rgba(155, 89, 182, 0.6) !important;
+            box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
+        }
+
+        /* Rectangle tool icon active state - Blue */
+        #drawingPanel .drawing-tools .tool-item[data-tool="rectangle"].active .tool-icon {
+            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%) !important;
+        }
+
+        /* Circle tool icon active state - Green */
+        #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active .tool-icon {
+            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
+        }
+
+        /* Polygon tool icon active state - Orange */
+        #drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active .tool-icon {
+            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%) !important;
+        }
+
+        /* Tree tool icon active state - Purple */
+        #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active .tool-icon {
+            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
+        }
+    </style>
+    <script>
+        // Force CSS injection with higher specificity
+        document.addEventListener('DOMContentLoaded', function() {
+            const style = document.createElement('style');
+            style.textContent = `
+                /* ===== DRAWING TOOLS ACTIVE STATES - JAVASCRIPT INJECTION ===== */
+                body #drawingPanel .drawing-tools .tool-item[data-tool="rectangle"].active {
+                    background: rgba(52, 152, 219, 0.3) !important;
+                    border-color: rgba(52, 152, 219, 0.6) !important;
+                    box-shadow: 0 0 10px rgba(52, 152, 219, 0.3) !important;
+                }
+                body #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active {
+                    background: rgba(46, 204, 113, 0.3) !important;
+                    border-color: rgba(46, 204, 113, 0.6) !important;
+                    box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
+                }
+                body #drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active {
+                    background: rgba(230, 126, 34, 0.3) !important;
+                    border-color: rgba(230, 126, 34, 0.6) !important;
+                    box-shadow: 0 0 10px rgba(230, 126, 34, 0.3) !important;
+                }
+                body #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active {
+                    background: rgba(155, 89, 182, 0.3) !important;
+                    border-color: rgba(155, 89, 182, 0.6) !important;
+                    box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
+                }
+                body #drawingPanel .drawing-tools .tool-item[data-tool="rectangle"].active .tool-icon {
+                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%) !important;
+                }
+                body #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active .tool-icon {
+                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
+                }
+                body #drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active .tool-icon {
+                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%) !important;
+                }
+                body #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active .tool-icon {
+                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
+                }
+            `;
+            document.head.appendChild(style);
+            console.log('CSS injected via JavaScript with higher specificity');
+            
+            // Also add event listeners to force styles
+            setTimeout(function() {
+                const drawingTools = document.querySelectorAll('#drawingPanel .tool-item');
+                const transformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
+                
+                // Function to reset all drawing tools to normal state
+                function resetAllDrawingTools() {
+                    drawingTools.forEach(tool => {
+                        tool.classList.remove('active');
+                        // Reset inline styles
+                        tool.style.background = '';
+                        tool.style.borderColor = '';
+                        tool.style.boxShadow = '';
+                        const icon = tool.querySelector('.tool-icon');
+                        if (icon) {
+                            icon.style.filter = '';
+                        }
+                    });
+                }
+                
+                // Function to reset all transform tools to normal state
+                function resetAllTransformTools() {
+                    transformTools.forEach(tool => {
+                        tool.classList.remove('active');
+                        // Reset inline styles
+                        tool.style.background = '';
+                        tool.style.borderColor = '';
+                        tool.style.boxShadow = '';
+                        const icon = tool.querySelector('.tool-icon');
+                        if (icon) {
+                            icon.style.filter = '';
+                        }
+                    });
+                }
+                
+                // Function to apply active styles to a tool
+                function applyActiveStyles(tool, toolName) {
+                    if (toolName === 'rectangle') {
+                        tool.style.background = 'rgba(52, 152, 219, 0.3)';
+                        tool.style.borderColor = 'rgba(52, 152, 219, 0.6)';
+                        tool.style.boxShadow = '0 0 10px rgba(52, 152, 219, 0.3)';
+                        const icon = tool.querySelector('.tool-icon');
+                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%)';
+                    } else if (toolName === 'circle') {
+                        tool.style.background = 'rgba(46, 204, 113, 0.3)';
+                        tool.style.borderColor = 'rgba(46, 204, 113, 0.6)';
+                        tool.style.boxShadow = '0 0 10px rgba(46, 204, 113, 0.3)';
+                        const icon = tool.querySelector('.tool-icon');
+                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%)';
+                    } else if (toolName === 'polygon') {
+                        tool.style.background = 'rgba(230, 126, 34, 0.3)';
+                        tool.style.borderColor = 'rgba(230, 126, 34, 0.6)';
+                        tool.style.boxShadow = '0 0 10px rgba(230, 126, 34, 0.3)';
+                        const icon = tool.querySelector('.tool-icon');
+                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%)';
+                    } else if (toolName === 'tree') {
+                        tool.style.background = 'rgba(155, 89, 182, 0.3)';
+                        tool.style.borderColor = 'rgba(155, 89, 182, 0.6)';
+                        tool.style.boxShadow = '0 0 10px rgba(155, 89, 182, 0.3)';
+                        const icon = tool.querySelector('.tool-icon');
+                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%)';
+                    }
+                }
+                
+                // Add event listeners to drawing tools
+                drawingTools.forEach(tool => {
+                    tool.addEventListener('click', function() {
+                        const toolName = this.getAttribute('data-tool');
+                        console.log('Drawing tool clicked:', toolName);
+                        
+                        // Reset all drawing tools first
+                        resetAllDrawingTools();
+                        
+                        // Reset all transform tools
+                        resetAllTransformTools();
+                        
+                        // Add active class to clicked tool
+                        this.classList.add('active');
+                        
+                        // Apply active styles to clicked tool
+                        applyActiveStyles(this, toolName);
+                        
+                        console.log('Styles applied via JavaScript for:', toolName);
+                    });
+                });
+                
+                // Add event listeners to transform tools
+                transformTools.forEach(tool => {
+                    tool.addEventListener('click', function() {
+                        const toolName = this.getAttribute('data-tool');
+                        console.log('Transform tool clicked:', toolName);
+                        
+                        // Reset all transform tools first
+                        resetAllTransformTools();
+                        
+                        // Reset all drawing tools
+                        resetAllDrawingTools();
+                        
+                        // Add active class to clicked tool
+                        this.classList.add('active');
+                        
+                        console.log('Transform tool activated:', toolName);
+                    });
+                });
+            }, 1000);
+        });
+    </script>
 </head>
 <body>
     <div id="app">

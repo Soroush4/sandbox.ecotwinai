@@ -768,20 +768,10 @@ input[type="range"]::-moz-range-thumb {
     /* Square buttons with smaller size */
 }
 
-.drawing-tools .tool-item.active {
-    background: rgba(52, 152, 219, 0.3);
-    border-color: rgba(52, 152, 219, 0.6);
-    box-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
-}
-
 .drawing-tools .tool-item .tool-icon {
     width: 16px;
     height: 16px;
     filter: brightness(0) saturate(100%) invert(100%);
-}
-
-.drawing-tools .tool-item.active .tool-icon {
-    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%);
 }
 
 /* Tree Tool Styles - removed tool-label styles since tree button doesn't have text */
@@ -825,9 +815,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .tree-option.active {
-    background: rgba(52, 152, 219, 0.3);
-    border-color: rgba(52, 152, 219, 0.6);
-    box-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
+    background: rgba(155, 89, 182, 0.3);
+    border-color: rgba(155, 89, 182, 0.6);
+    box-shadow: 0 0 10px rgba(155, 89, 182, 0.3);
 }
 
 .tree-option .tree-icon {
@@ -837,7 +827,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .tree-option.active .tree-icon {
-    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%);
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%);
 }
 
 /* Tree Height Controls */
@@ -1730,6 +1720,7 @@ input[type="range"]::-moz-range-thumb {
     }
 }
 
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .drawing-panel {
@@ -1755,4 +1746,53 @@ input[type="range"]::-moz-range-thumb {
         min-width: 300px;
         margin: 20px;
     }
+}
+
+/* ===== DRAWING TOOLS ACTIVE STATES - FINAL OVERRIDE ===== */
+/* Rectangle tool active state - Blue */
+#drawingPanel .drawing-tools .tool-item[data-tool="rectangle"].active {
+    background: rgba(52, 152, 219, 0.3) !important;
+    border-color: rgba(52, 152, 219, 0.6) !important;
+    box-shadow: 0 0 10px rgba(52, 152, 219, 0.3) !important;
+}
+
+/* Circle tool active state - Green */
+#drawingPanel .drawing-tools .tool-item[data-tool="circle"].active {
+    background: rgba(46, 204, 113, 0.3) !important;
+    border-color: rgba(46, 204, 113, 0.6) !important;
+    box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
+}
+
+/* Polygon tool active state - Orange */
+#drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active {
+    background: rgba(230, 126, 34, 0.3) !important;
+    border-color: rgba(230, 126, 34, 0.6) !important;
+    box-shadow: 0 0 10px rgba(230, 126, 34, 0.3) !important;
+}
+
+/* Tree tool active state - Purple */
+#drawingPanel .drawing-tools .tool-item[data-tool="tree"].active {
+    background: rgba(155, 89, 182, 0.3) !important;
+    border-color: rgba(155, 89, 182, 0.6) !important;
+    box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
+}
+
+/* Rectangle tool icon active state - Blue */
+#drawingPanel .drawing-tools .tool-item[data-tool="rectangle"].active .tool-icon {
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%) !important;
+}
+
+/* Circle tool icon active state - Green */
+#drawingPanel .drawing-tools .tool-item[data-tool="circle"].active .tool-icon {
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
+}
+
+/* Polygon tool icon active state - Orange */
+#drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active .tool-icon {
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%) !important;
+}
+
+/* Tree tool icon active state - Purple */
+#drawingPanel .drawing-tools .tool-item[data-tool="tree"].active .tool-icon {
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
 }

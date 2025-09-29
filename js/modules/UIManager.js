@@ -193,9 +193,19 @@ class UIManager {
         const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
         allTransformTools.forEach(tool => tool.classList.remove('active'));
 
-        // Remove active class from all drawing tools
+        // Remove active class from all drawing tools and reset their styles
         const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
-        allDrawingTools.forEach(tool => tool.classList.remove('active'));
+        allDrawingTools.forEach(tool => {
+            tool.classList.remove('active');
+            // Reset inline styles
+            tool.style.background = '';
+            tool.style.borderColor = '';
+            tool.style.boxShadow = '';
+            const icon = tool.querySelector('.tool-icon');
+            if (icon) {
+                icon.style.filter = '';
+            }
+        });
 
         // Add active class to selected tool
         const selectedTool = document.querySelector(`#transformPanel [data-tool="${toolName}"]`);
@@ -363,9 +373,19 @@ class UIManager {
         const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
         allDrawingTools.forEach(tool => tool.classList.remove('active'));
 
-        // Remove active class from all transform tools (except coordinate toggle)
+        // Remove active class from all transform tools (except coordinate toggle) and reset their styles
         const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
-        allTransformTools.forEach(tool => tool.classList.remove('active'));
+        allTransformTools.forEach(tool => {
+            tool.classList.remove('active');
+            // Reset inline styles
+            tool.style.background = '';
+            tool.style.borderColor = '';
+            tool.style.boxShadow = '';
+            const icon = tool.querySelector('.tool-icon');
+            if (icon) {
+                icon.style.filter = '';
+            }
+        });
 
         // Add active class to selected tool
         const selectedTool = document.querySelector(`#drawingPanel [data-tool="${toolName}"]`);
@@ -1656,6 +1676,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             shadowFrustumSize: this.lightingManager.getShadowFrustumSize(),
             
             // Shadow toggles
+            shadowsEnabled: this.lightingManager.areShadowsEnabled(),
             objectShadowsEnabled: this.lightingManager.areObjectShadowsEnabled(),
             hardShadowsEnabled: this.lightingManager.areHardShadowsEnabled(),
             
@@ -1740,13 +1761,22 @@ Transform your 3D models into powerful energy analysis tools.`;
                 this.lightingManager.setShadowFrustumSize(settings.shadowFrustumSize);
             }
 
-            // Apply shadow toggles
+            // Apply shadow toggles - force apply settings regardless of current state
+            if (settings.shadowsEnabled !== undefined) {
+                if (settings.shadowsEnabled) {
+                    this.lightingManager.enableShadows();
+                } else {
+                    this.lightingManager.disableShadows();
+                }
+            }
             if (settings.objectShadowsEnabled !== undefined) {
+                // Force set object shadows state
                 if (settings.objectShadowsEnabled !== this.lightingManager.areObjectShadowsEnabled()) {
                     this.lightingManager.toggleObjectShadows();
                 }
             }
             if (settings.hardShadowsEnabled !== undefined) {
+                // Force set hard shadows state
                 if (settings.hardShadowsEnabled !== this.lightingManager.areHardShadowsEnabled()) {
                     this.lightingManager.toggleHardShadows();
                 }

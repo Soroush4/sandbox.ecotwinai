@@ -92,6 +92,9 @@ class DigitalTwinApp {
                 this.circleManager
             );
             
+            // Load lighting settings from JSON file
+            await this.loadLightingSettingsFromFile();
+            
             // Make FPS monitor globally accessible
             window.fpsMonitor = this.fpsMonitor;
             
@@ -132,6 +135,31 @@ class DigitalTwinApp {
         const loading = document.getElementById('loading');
         if (loading) {
             loading.style.display = show ? 'flex' : 'none';
+        }
+    }
+
+    /**
+     * Load lighting settings from JSON file
+     */
+    async loadLightingSettingsFromFile() {
+        try {
+            // Try to load the lighting settings JSON file
+            const response = await fetch('lighting-settings-2025-09-28.json');
+            if (response.ok) {
+                const settings = await response.json();
+                console.log('Loading lighting settings from file:', settings);
+                
+                if (this.uiManager && this.uiManager.loadLightingSettings) {
+                    this.uiManager.loadLightingSettings(settings);
+                    console.log('Lighting settings loaded successfully from file');
+                } else {
+                    console.warn('UI Manager not ready for loading settings');
+                }
+            } else {
+                console.log('No lighting settings file found, using defaults');
+            }
+        } catch (error) {
+            console.log('Could not load lighting settings file, using defaults:', error.message);
         }
     }
 
@@ -805,6 +833,170 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log(`Default settings are ${isCorrect ? 'CORRECT' : 'INCORRECT'}`);
             
             return `Default shadow settings test completed. Settings are ${isCorrect ? 'correct' : 'incorrect'}.`;
+        }
+    };
+    
+    window.testShadowSettingsJSON = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing Shadow Settings JSON Save/Load ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('1. Current shadow state:');
+            console.log(`- shadowsEnabled: ${lightingManager.areShadowsEnabled()}`);
+            console.log(`- objectShadowsEnabled: ${lightingManager.areObjectShadowsEnabled()}`);
+            console.log(`- hardShadowsEnabled: ${lightingManager.areHardShadowsEnabled()}`);
+            
+            console.log('2. Saving current settings...');
+            const savedSettings = uiManager.saveLightingSettings();
+            console.log('Saved settings include shadowsEnabled:', savedSettings.shadowsEnabled !== undefined);
+            
+            console.log('3. Testing JSON loading with shadowsEnabled: true...');
+            const testSettings = {
+                ...savedSettings,
+                shadowsEnabled: true
+            };
+            uiManager.loadLightingSettings(testSettings);
+            
+            console.log('4. Verifying loaded settings:');
+            console.log(`- shadowsEnabled: ${lightingManager.areShadowsEnabled()}`);
+            console.log(`- objectShadowsEnabled: ${lightingManager.areObjectShadowsEnabled()}`);
+            console.log(`- hardShadowsEnabled: ${lightingManager.areHardShadowsEnabled()}`);
+            
+            const testPassed = lightingManager.areShadowsEnabled() === true;
+            console.log(`JSON save/load test ${testPassed ? 'PASSED' : 'FAILED'}`);
+            
+            return `Shadow settings JSON test ${testPassed ? 'passed' : 'failed'}. Shadows are ${lightingManager.areShadowsEnabled() ? 'enabled' : 'disabled'}.`;
+        }
+    };
+    
+    window.testLightingSettingsLoad = async () => {
+        if (window.digitalTwinApp) {
+            console.log('=== Testing Lighting Settings File Load ===');
+            
+            console.log('1. Testing automatic loading of lighting-settings-2025-09-28.json...');
+            await window.digitalTwinApp.loadLightingSettingsFromFile();
+            
+            console.log('2. Current lighting settings:');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            if (lightingManager) {
+                console.log(`- Light intensity: ${lightingManager.getDirectionalIntensity()}`);
+                console.log(`- Shadow darkness: ${lightingManager.getShadowDarkness()}`);
+                console.log(`- Shadow bias: ${lightingManager.getShadowBias()}`);
+                console.log(`- Shadow depth scale: ${lightingManager.getShadowDepthScale()}`);
+                console.log(`- Shadow ortho scale: ${lightingManager.getShadowOrthoScale()}`);
+                console.log(`- Shadows enabled: ${lightingManager.areShadowsEnabled()}`);
+                console.log(`- Object shadows enabled: ${lightingManager.areObjectShadowsEnabled()}`);
+                console.log(`- Hard shadows enabled: ${lightingManager.areHardShadowsEnabled()}`);
+                
+                // Check if values match the JSON file
+                const expectedValues = {
+                    lightIntensity: 1.2,
+                    shadowDarkness: 0.55,
+                    shadowBias: 0.00006,
+                    shadowDepthScale: 70,
+                    shadowOrthoScale: 220,
+                    shadowsEnabled: true,
+                    objectShadowsEnabled: true,
+                    hardShadowsEnabled: true
+                };
+                
+                const actualValues = {
+                    lightIntensity: lightingManager.getDirectionalIntensity(),
+                    shadowDarkness: lightingManager.getShadowDarkness(),
+                    shadowBias: lightingManager.getShadowBias(),
+                    shadowDepthScale: lightingManager.getShadowDepthScale(),
+                    shadowOrthoScale: lightingManager.getShadowOrthoScale(),
+                    shadowsEnabled: lightingManager.areShadowsEnabled(),
+                    objectShadowsEnabled: lightingManager.areObjectShadowsEnabled(),
+                    hardShadowsEnabled: lightingManager.areHardShadowsEnabled()
+                };
+                
+                console.log('3. Comparing with expected values from JSON file:');
+                let allMatch = true;
+                for (const [key, expected] of Object.entries(expectedValues)) {
+                    const actual = actualValues[key];
+                    const matches = Math.abs(actual - expected) < 0.001; // Allow small floating point differences
+                    console.log(`- ${key}: expected ${expected}, actual ${actual}, ${matches ? 'MATCH' : 'MISMATCH'}`);
+                    if (!matches) allMatch = false;
+                }
+                
+                console.log(`Settings load test ${allMatch ? 'PASSED' : 'FAILED'}`);
+                return `Lighting settings load test ${allMatch ? 'passed' : 'failed'}. All values ${allMatch ? 'match' : 'do not match'} the JSON file.`;
+            }
+        }
+    };
+    
+    window.testShadowInitialization = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Testing Shadow Initialization ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('1. Current shadow state after initialization:');
+            console.log(`- shadowsEnabled: ${lightingManager.areShadowsEnabled()}`);
+            console.log(`- objectShadowsEnabled: ${lightingManager.areObjectShadowsEnabled()}`);
+            console.log(`- hardShadowsEnabled: ${lightingManager.areHardShadowsEnabled()}`);
+            
+            console.log('2. Shadow generator state:');
+            if (lightingManager.shadowGenerator) {
+                console.log(`- Shadow generator exists: true`);
+                console.log(`- Shadow darkness: ${lightingManager.shadowGenerator.getDarkness()}`);
+                console.log(`- Shadow bias: ${lightingManager.shadowGenerator.bias}`);
+                console.log(`- Shadow normal bias: ${lightingManager.shadowGenerator.normalBias}`);
+                console.log(`- Shadow depth scale: ${lightingManager.shadowGenerator.depthScale}`);
+                console.log(`- Shadow map size: ${lightingManager.shadowGenerator.getShadowMap().getSize().width}x${lightingManager.shadowGenerator.getShadowMap().getSize().height}`);
+            } else {
+                console.log(`- Shadow generator exists: false`);
+            }
+            
+            console.log('3. Testing shadow visibility:');
+            const scene = window.digitalTwinApp.sceneManager.getScene();
+            const ground = scene.getMeshByName('ground');
+            if (ground) {
+                console.log(`- Ground receiveShadows: ${ground.receiveShadows}`);
+            }
+            
+            // Check shadow casters
+            if (lightingManager.shadowGenerator) {
+                const shadowCasters = lightingManager.shadowGenerator.getShadowMap().renderList;
+                console.log(`- Shadow casters count: ${shadowCasters.length}`);
+                console.log(`- Shadow casters: ${shadowCasters.map(mesh => mesh.name).join(', ')}`);
+            }
+            
+            const shadowsWorking = lightingManager.areShadowsEnabled() && 
+                                 lightingManager.shadowGenerator && 
+                                 lightingManager.shadowGenerator.getDarkness() > 0;
+            
+            console.log(`Shadow initialization test ${shadowsWorking ? 'PASSED' : 'FAILED'}`);
+            return `Shadow initialization test ${shadowsWorking ? 'passed' : 'failed'}. Shadows are ${shadowsWorking ? 'working' : 'not working'} properly.`;
+        }
+    };
+    
+    window.forceEnableShadows = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            console.log('=== Force Enabling Shadows ===');
+            const lightingManager = window.digitalTwinApp.lightingManager;
+            
+            console.log('1. Current state before forcing:');
+            console.log(`- shadowsEnabled: ${lightingManager.areShadowsEnabled()}`);
+            console.log(`- shadow darkness: ${lightingManager.shadowGenerator ? lightingManager.shadowGenerator.getDarkness() : 'N/A'}`);
+            
+            console.log('2. Force enabling shadows...');
+            lightingManager.enableShadows();
+            
+            console.log('3. State after forcing:');
+            console.log(`- shadowsEnabled: ${lightingManager.areShadowsEnabled()}`);
+            console.log(`- shadow darkness: ${lightingManager.shadowGenerator ? lightingManager.shadowGenerator.getDarkness() : 'N/A'}`);
+            
+            console.log('4. Applying current shadow settings...');
+            lightingManager.applyCurrentShadowSettings();
+            
+            console.log('5. Final state:');
+            console.log(`- shadow darkness: ${lightingManager.shadowGenerator ? lightingManager.shadowGenerator.getDarkness() : 'N/A'}`);
+            console.log(`- shadow bias: ${lightingManager.shadowGenerator ? lightingManager.shadowGenerator.bias : 'N/A'}`);
+            console.log(`- shadow depth scale: ${lightingManager.shadowGenerator ? lightingManager.shadowGenerator.depthScale : 'N/A'}`);
+            
+            return 'Force enable shadows completed. Check console for details.';
         }
     };
     
