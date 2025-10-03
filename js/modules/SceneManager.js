@@ -6,7 +6,7 @@ class SceneManager {
         this.canvas = document.getElementById(canvasId);
         this.engine = null;
         this.scene = null;
-        this.ground = null;
+        this.ground = null; // Large transparent ground for drawing
         this.buildings = [];
         this.isInitialized = false;
         
@@ -30,7 +30,7 @@ class SceneManager {
 
             // Disable physics for now - not needed for building visualization
 
-            // Create ground plane
+            // Create large transparent ground
             this.createGround();
 
             // Setup scene events
@@ -47,41 +47,51 @@ class SceneManager {
     }
 
     /**
-     * Create the ground plane
+     * Create a large transparent ground plane for drawing
      */
     createGround() {
-        // Create ground mesh
+        // Create large ground mesh for extended drawing area
         this.ground = BABYLON.MeshBuilder.CreateGround("earth", {
-            width: 100,
-            height: 100,
-            subdivisions: 50
+            width: 500,  // Large area for drawing
+            height: 500, // Large area for drawing
+            subdivisions: 50 // Good subdivisions for smooth drawing
         }, this.scene);
 
-        // Create ground material with gray grid texture
+        // Create slightly transparent ground material with grid texture
         const groundMaterial = new BABYLON.StandardMaterial("groundMaterial", this.scene);
-        groundMaterial.diffuseColor = new BABYLON.Color3(0.6, 0.6, 0.6); // Gray color
+        groundMaterial.diffuseColor = new BABYLON.Color3(0.7, 0.7, 0.7); // Light gray color
         groundMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         groundMaterial.roughness = 0.8;
+        groundMaterial.alpha = 0.8; // Slightly transparent
         
-        // Add gray grid texture
+        // Add grid texture
         groundMaterial.diffuseTexture = new BABYLON.Texture("data:image/svg+xml;base64," + 
             btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
-                <rect width="100" height="100" fill="#808080"/>
+                <rect width="100" height="100" fill="#b0b0b0"/>
                 <defs>
                     <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
-                        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#666666" stroke-width="0.5"/>
+                        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="#888888" stroke-width="0.3"/>
                     </pattern>
                 </defs>
                 <rect width="100" height="100" fill="url(#grid)"/>
             </svg>`), this.scene);
-        groundMaterial.diffuseTexture.uScale = 10;
-        groundMaterial.diffuseTexture.vScale = 10;
+        groundMaterial.diffuseTexture.uScale = 20; // Scale for larger ground
+        groundMaterial.diffuseTexture.vScale = 20;
 
         this.ground.material = groundMaterial;
         this.ground.receiveShadows = true;
+        this.ground.isPickable = true; // Make it pickable for drawing
 
         // Position ground
         this.ground.position.y = 0;
+        
+        console.log('Created large transparent ground for drawing:', {
+            name: this.ground.name,
+            size: '500x500',
+            position: this.ground.position,
+            alpha: groundMaterial.alpha,
+            isPickable: this.ground.isPickable
+        });
     }
 
     /**
@@ -154,6 +164,9 @@ class SceneManager {
      * Dispose of the scene
      */
     dispose() {
+        if (this.ground) {
+            this.ground.dispose();
+        }
         if (this.scene) {
             this.scene.dispose();
         }
@@ -181,6 +194,22 @@ class SceneManager {
      */
     getGround() {
         return this.ground;
+    }
+
+    /**
+     * Get intersection point on ground at screen coordinates
+     */
+    getGroundIntersection(x, y) {
+        const pickResult = this.scene.pick(x, y, (mesh) => {
+            return mesh.name === 'earth';
+        });
+        
+        if (pickResult && pickResult.hit && pickResult.pickedMesh && 
+            pickResult.pickedMesh.name === 'earth') {
+            return pickResult.pickedPoint;
+        }
+        
+        return null;
     }
 
     /**

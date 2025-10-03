@@ -2,9 +2,10 @@
  * CircleManager - Simple 3D Circle (Cylinder) Drawing
  */
 class CircleManager {
-    constructor(scene, lightingManager) {
+    constructor(scene, lightingManager, uiManager = null) {
         this.scene = scene;
         this.lightingManager = lightingManager;
+        this.uiManager = uiManager;
         
         // Drawing state
         this.isDrawing = false;
@@ -15,8 +16,11 @@ class CircleManager {
         
         // Material for preview
         this.tempMaterial = new BABYLON.StandardMaterial("tempCircleMaterial", this.scene);
-        this.tempMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0); // Brown for ground type
-        this.tempMaterial.alpha = 0.7;
+        // Use standardized preview color
+        const previewColor = this.uiManager ? this.uiManager.getDefaultPreviewColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
+        const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
+        this.tempMaterial.diffuseColor = previewColor;
+        this.tempMaterial.alpha = previewAlpha;
         this.tempMaterial.backFaceCulling = false;
         this.tempMaterial.twoSidedLighting = true;
         
@@ -26,6 +30,13 @@ class CircleManager {
         // Callbacks
         this.onDrawingStopped = null;
         this.onCircleCreated = null;
+    }
+
+    /**
+     * Set UIManager reference for standardized colors
+     */
+    setUIManager(uiManager) {
+        this.uiManager = uiManager;
     }
 
     /**
@@ -210,7 +221,7 @@ class CircleManager {
         const circle = this.createCircle(
             radius,
             new BABYLON.Vector3(this.drawingStartPoint.x, 0, this.drawingStartPoint.z),
-            new BABYLON.Color3(0.4, 0.2, 0), // Brown for ground type
+            new BABYLON.Color3(0.4, 0.3, 0.2), // Brown
             0.2, // Height
             'ground' // Type
         );
@@ -230,7 +241,7 @@ class CircleManager {
     /**
      * Create a simple 3D circle (cylinder)
      */
-    createCircle(radius, position = new BABYLON.Vector3(0, 0, 0), color = new BABYLON.Color3(0.4, 0.3, 0.2), height = 0.2, type = 'ground') {
+    createCircle(radius, position = new BABYLON.Vector3(0, 0, 0), color = null, height = 0.2, type = 'ground') {
         const uniqueName = this.generateUniqueNameByType(type);
         const diameter = radius * 2;
         
@@ -258,9 +269,12 @@ class CircleManager {
         if (color) {
             // Use provided color
             materialColor = color;
+        } else if (this.uiManager) {
+            // Use standardized color from UIManager
+            materialColor = this.uiManager.getColorByType(type);
         } else {
-            // Default brown for ground type
-            materialColor = new BABYLON.Color3(0.4, 0.2, 0);
+            // Fallback brown
+            materialColor = new BABYLON.Color3(0.4, 0.3, 0.2);
         }
         
         material.diffuseColor = materialColor;
@@ -358,8 +372,10 @@ class CircleManager {
         
         console.log('Updating circle:', shape.name, 'diameterTop:', newDiameterTop, 'diameterBottom:', newDiameterBottom, 'height:', newHeight);
         
-        // Store current position
+        // Store current transform properties
         const currentPosition = shape.position.clone();
+        const currentRotation = shape.rotation.clone();
+        const currentScaling = shape.scaling.clone();
         
         // Dispose old mesh
         if (shape.geometry) { shape.geometry.dispose(); }
@@ -375,16 +391,23 @@ class CircleManager {
             tessellation: 32
         }, this.scene);
         
-        // Position the new cylinder
+        // Restore all transform properties with smart Y positioning
+        // Calculate the bottom of the original circle
+        const originalHeight = shape.userData?.dimensions?.height || shape.userData?.originalHeight || newHeight;
+        const originalBottom = currentPosition.y - (originalHeight / 2);
+        
+        // Position new circle with same bottom but new height
         newCircle.position = new BABYLON.Vector3(
             currentPosition.x,
-            newHeight / 2, // Center vertically
+            originalBottom + (newHeight / 2), // Keep same bottom, adjust for new height
             currentPosition.z
         );
+        newCircle.rotation = currentRotation;
+        newCircle.scaling = currentScaling;
         
         // Create new material (color will be set later based on type)
         const material = new BABYLON.StandardMaterial(`${shape.name}Material`, this.scene);
-        material.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0); // Default brown (will be updated)
+        material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
         material.backFaceCulling = false;
         material.twoSidedLighting = true;
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
@@ -416,20 +439,25 @@ class CircleManager {
             originalHeight: newHeight
         };
         
-        // Update material color based on the current type
+        // Use the color selected by user (from color picker) if available
         let materialColor;
-        if (existingType === 'building') {
-            materialColor = new BABYLON.Color3(1, 1, 1); // White for buildings
-        } else if (existingType === 'ground') {
-            materialColor = new BABYLON.Color3(0.4, 0.2, 0); // Brown for ground
-        } else if (existingType === 'waterway') {
-            materialColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
-        } else if (existingType === 'highway') {
-            materialColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-        } else if (existingType === 'green') {
-            materialColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        const colorPicker = document.getElementById('circleColor');
+        if (colorPicker && colorPicker.value) {
+            // Convert hex to RGB
+            const hex = colorPicker.value;
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            if (result) {
+                materialColor = new BABYLON.Color3(
+                    parseInt(result[1], 16) / 255,
+                    parseInt(result[2], 16) / 255,
+                    parseInt(result[3], 16) / 255
+                );
+            } else {
+                materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
+            }
         } else {
-            materialColor = new BABYLON.Color3(0.4, 0.2, 0); // Default brown
+            // No fallback colors - user must choose from color picker
+            materialColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Default neutral gray
         }
         
         // Update the material color

@@ -8,14 +8,15 @@ class BuildingGenerator {
         this.buildingCount = 10;
         this.minHeight = 4;
         this.maxHeight = 20;
-        this.groundSize = 100;
+        this.groundSize = 500; // Large ground size for drawing
+        this.centerAreaSize = 100; // Smaller area for building placement near center
         this.buildingSpacing = 8; // Minimum distance between buildings
     }
 
     /**
      * Generate random buildings
      */
-    generateBuildings(count = null, minHeight = null, maxHeight = null) {
+    generateBuildings(count = null, minHeight = null, maxHeight = null, useLargeArea = false) {
         // Use provided parameters or defaults
         const numBuildings = count || this.buildingCount;
         const minH = minHeight || this.minHeight;
@@ -24,8 +25,8 @@ class BuildingGenerator {
         // Clear existing buildings
         this.clearBuildings();
 
-        // Generate building positions
-        const positions = this.generateBuildingPositions(numBuildings);
+        // Generate building positions (default: near center, large area: across full ground)
+        const positions = this.generateBuildingPositions(numBuildings, useLargeArea);
 
         // Create buildings
         for (let i = 0; i < numBuildings; i++) {
@@ -37,16 +38,35 @@ class BuildingGenerator {
     }
 
     /**
+     * Generate buildings on the large invisible area
+     */
+    generateBuildingsOnLargeArea(count = null, minHeight = null, maxHeight = null) {
+        return this.generateBuildings(count, minHeight, maxHeight, true);
+    }
+
+    /**
      * Generate valid building positions
      */
-    generateBuildingPositions(count) {
+    generateBuildingPositions(count, useLargeArea = false) {
         const positions = [];
         const maxAttempts = count * 10; // Prevent infinite loops
         let attempts = 0;
+        
+        // Use appropriate area size based on type
+        // Default: center area (100x100), Large area: full ground (500x500)
+        const areaSize = useLargeArea ? this.groundSize : this.centerAreaSize;
+        
+        console.log(`Generating buildings on ${useLargeArea ? 'large' : 'center'} area:`, {
+            areaSize: areaSize,
+            count: count,
+            useLargeArea: useLargeArea,
+            groundSize: this.groundSize,
+            centerAreaSize: this.centerAreaSize
+        });
 
         while (positions.length < count && attempts < maxAttempts) {
-            const x = (Math.random() - 0.5) * (this.groundSize - 10);
-            const z = (Math.random() - 0.5) * (this.groundSize - 10);
+            const x = (Math.random() - 0.5) * (areaSize - 10);
+            const z = (Math.random() - 0.5) * (areaSize - 10);
             
             // Check if position is valid (not too close to other buildings)
             if (this.isValidPosition(x, z, positions)) {
@@ -57,8 +77,8 @@ class BuildingGenerator {
 
         // If we couldn't place all buildings, place them anyway
         while (positions.length < count) {
-            const x = (Math.random() - 0.5) * (this.groundSize - 10);
-            const z = (Math.random() - 0.5) * (this.groundSize - 10);
+            const x = (Math.random() - 0.5) * (areaSize - 10);
+            const z = (Math.random() - 0.5) * (areaSize - 10);
             positions.push({ x, z });
         }
 

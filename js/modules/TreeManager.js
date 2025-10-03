@@ -106,6 +106,14 @@ class TreeManager {
                 if (mesh.name !== '__root__') {
                     const clonedMesh = mesh.clone(`${mesh.name}_tree_${this.treeCounter}`);
                     clonedMesh.setEnabled(true);
+                    
+                    // Clone the material to avoid sharing material references
+                    if (clonedMesh.material) {
+                        const originalMaterial = clonedMesh.material;
+                        const clonedMaterial = originalMaterial.clone(`${originalMaterial.name}_tree_${this.treeCounter}`);
+                        clonedMesh.material = clonedMaterial;
+                    }
+                    
                     clonedMeshes.push(clonedMesh);
                 }
             });
@@ -277,10 +285,21 @@ class TreeManager {
             this.selectionManager.removeSelectableObject(tree.parent);
         }
 
-        // Dispose all meshes
+        // Dispose all meshes and their materials
         tree.meshes.forEach(mesh => {
+            // Dispose the material only if it's not shared with other meshes
             if (mesh.material) {
-                mesh.material.dispose();
+                // Check if this material is used by other meshes in the scene
+                const isMaterialShared = this.scene.meshes.some(otherMesh => 
+                    otherMesh !== mesh && 
+                    otherMesh.material === mesh.material &&
+                    !otherMesh.isDisposed()
+                );
+                
+                // Only dispose the material if it's not shared
+                if (!isMaterialShared) {
+                    mesh.material.dispose();
+                }
             }
             mesh.dispose();
         });
@@ -441,6 +460,36 @@ class TreeManager {
             }
         });
         window.dispatchEvent(event);
+    }
+
+    /**
+     * Debug method to check material sharing between trees
+     */
+    debugMaterialSharing() {
+        console.log('=== TREE MATERIAL SHARING DEBUG ===');
+        
+        const materialUsage = new Map();
+        
+        // Count material usage across all meshes
+        this.scene.meshes.forEach(mesh => {
+            if (mesh.material && mesh.name && mesh.name.includes('tree')) {
+                const materialId = mesh.material.uniqueId || mesh.material.name;
+                if (!materialUsage.has(materialId)) {
+                    materialUsage.set(materialId, []);
+                }
+                materialUsage.get(materialId).push(mesh.name);
+            }
+        });
+        
+        console.log('Material usage analysis:');
+        materialUsage.forEach((meshes, materialId) => {
+            console.log(`Material ${materialId}: used by ${meshes.length} meshes`);
+            if (meshes.length > 1) {
+                console.log(`  Shared by: ${meshes.join(', ')}`);
+            }
+        });
+        
+        return materialUsage;
     }
 
     /**

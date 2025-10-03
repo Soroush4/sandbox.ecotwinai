@@ -23,7 +23,9 @@ class PolygonManager {
         
         // Material for polygon
         this.polygonMaterial = new BABYLON.StandardMaterial("polygonMaterial", this.scene);
-        this.polygonMaterial.diffuseColor = new BABYLON.Color3(0.545, 0.271, 0.075); // Brown color for ground (default)
+        // Use standardized color
+        const defaultColor = this.uiManager ? this.uiManager.getDefaultDrawingColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
+        this.polygonMaterial.diffuseColor = defaultColor;
         this.polygonMaterial.backFaceCulling = false; // Make it 2-sided
         this.polygonMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Normal specular
         this.polygonMaterial.roughness = 0.8; // Normal roughness
@@ -31,8 +33,11 @@ class PolygonManager {
         
         // Material for preview
         this.previewMaterial = new BABYLON.StandardMaterial("polygonPreviewMaterial", this.scene);
-        this.previewMaterial.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.2);
-        this.previewMaterial.alpha = 0.5;
+        // Use standardized preview color
+        const previewColor = this.uiManager ? this.uiManager.getDefaultPreviewColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
+        const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
+        this.previewMaterial.diffuseColor = previewColor;
+        this.previewMaterial.alpha = previewAlpha;
         this.previewMaterial.backFaceCulling = false;
         
         // Material for points
@@ -1233,15 +1238,18 @@ class PolygonManager {
             this.selectionManager.addSelectableObject(this.currentPolygon);
         }
 
+        // Store the created polygon before resetting
+        const createdPolygon = this.currentPolygon;
+        
         // Reset for next polygon
         this.points = [];
         this.currentPolygon = null;
         this.isSnappedToFirst = false;
         this.isCurrentlyDrawing = false;
         
-        // Call completion callback
+        // Call completion callback with the created polygon
         if (this.onPolygonCompleted) {
-            this.onPolygonCompleted();
+            this.onPolygonCompleted(createdPolygon);
         }
     }
 

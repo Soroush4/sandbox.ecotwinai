@@ -96,8 +96,8 @@ class UIManager {
             // Show selection info
             this.showSelectionInfo(count);
             
-            // Show properties popup for 2D shapes, rectangles, and buildings only when select tool is active
-            if (count === 1 && this.isSelectToolActive()) {
+            // Show properties popup for any selected object when any transform tool is active
+            if (count === 1 && this.isAnyTransformToolActive()) {
                 const selectedObject = selectedObjects[0];
                 const shapeType = this.getShapeType(selectedObject);
                 console.log('Selected object:', selectedObject.name, 'Shape type:', shapeType);
@@ -165,10 +165,8 @@ class UIManager {
                 const toolName = tool.getAttribute('data-tool');
                 this.selectTransformTool(toolName);
                 
-                // Hide properties popup when switching away from select tool
-                if (toolName !== 'select') {
-                    this.hidePropertiesPopup();
-                }
+                // Don't hide properties popup when switching between transform tools
+                // Properties popup will be managed by selection changes
             });
         });
     }
@@ -181,6 +179,12 @@ class UIManager {
         if (toolName === 'coordinate-toggle') {
             this.handleTransformToolSelection(toolName);
             return;
+        }
+
+        // If any drawing tool is active, stop all drawing operations
+        if (this.isDrawingModeActive()) {
+            console.log('Exiting drawing mode - stopping all drawing operations');
+            this.stopAllDrawingOperations();
         }
 
         // Deactivate tree placement when switching to transform tools
@@ -216,10 +220,8 @@ class UIManager {
             selectedTool.classList.add('active');
         }
 
-        // Hide properties popup when switching away from select tool
-        if (toolName !== 'select') {
-            this.hidePropertiesPopup();
-        }
+        // Don't hide properties popup when switching between transform tools
+        // Properties popup will be managed by selection changes
 
         // If switching to a transform tool (not select), ensure extrusions are selected
         if (toolName !== 'select' && this.selectionManager) {
@@ -359,6 +361,11 @@ class UIManager {
      * Select drawing tool
      */
     selectDrawingTool(toolName) {
+        // Clear any existing selection when switching to drawing tools
+        if (this.selectionManager) {
+            this.selectionManager.clearSelection();
+        }
+
         // Deactivate tree placement when switching to other drawing tools
         if (toolName !== 'tree') {
             this.deactivateTreePlacement();
@@ -471,11 +478,19 @@ class UIManager {
     startPolygonDrawing() {
         if (this.polygonManager) {
             // Set up callbacks for polygon completion and cancellation
-            this.polygonManager.onPolygonCompleted = () => {
+            this.polygonManager.onPolygonCompleted = (polygon) => {
                 this.enableCameraControls();
                 this.hidePolygonDrawingInstructions();
                 this.deactivatePolygonTool();
                 this.activateSelectTool();
+                
+                // Automatically select the newly created polygon
+                if (polygon && this.selectionManager) {
+                    this.selectionManager.selectObject(polygon, false, true);
+                }
+                
+                // Dispatch scene change event to update object list
+                this.dispatchSceneChangeEvent();
             };
             
             this.polygonManager.onPolygonCancelled = () => {
@@ -798,6 +813,11 @@ class UIManager {
     selectTreeType(treeType) {
         if (!this.treeManager) {
             return;
+        }
+
+        // Clear any existing selection when switching to tree tool
+        if (this.selectionManager) {
+            this.selectionManager.clearSelection();
         }
 
         // Hide submenu
@@ -1395,11 +1415,27 @@ Transform your 3D models into powerful energy analysis tools.`;
             });
         }
 
+        // Zoom to fit ground
+        const zoomToFitGroundBtn = document.getElementById('zoomToFitGroundPref');
+        if (zoomToFitGroundBtn) {
+            zoomToFitGroundBtn.addEventListener('click', () => {
+                this.zoomToFitGround();
+            });
+        }
+
         // Generate buildings
         const generateBtn = document.getElementById('generateBuildingsPref');
         if (generateBtn) {
             generateBtn.addEventListener('click', () => {
                 this.generateBuildings();
+            });
+        }
+
+        // Generate buildings on large area
+        const generateLargeBtn = document.getElementById('generateBuildingsLargePref');
+        if (generateLargeBtn) {
+            generateLargeBtn.addEventListener('click', () => {
+                this.generateBuildingsOnLargeArea();
             });
         }
 
@@ -1615,7 +1651,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Clear existing buildings
         this.sceneManager.clearBuildings();
 
-        // Generate new buildings
+        // Generate new buildings on default area
         const buildings = this.buildingGenerator.generateBuildings(count, minHeight, maxHeight);
 
         // Add buildings to scene and setup shadows
@@ -1632,6 +1668,42 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Show loading state
         this.showLoading(false);
         
+    }
+
+    /**
+     * Generate buildings on large area
+     */
+    generateBuildingsOnLargeArea() {
+        // Try to get values from preferences first, fallback to original elements
+        const countEl = document.getElementById('buildingCountPref') || document.getElementById('buildingCount');
+        const minHeightEl = document.getElementById('minHeightPref') || document.getElementById('minHeight');
+        const maxHeightEl = document.getElementById('maxHeightPref') || document.getElementById('maxHeight');
+        
+        const count = parseInt(countEl?.value) || 10;
+        const minHeight = parseInt(minHeightEl?.value) || 4;
+        const maxHeight = parseInt(maxHeightEl?.value) || 20;
+
+        // Clear existing buildings
+        this.sceneManager.clearBuildings();
+
+        // Generate new buildings on large area
+        const buildings = this.buildingGenerator.generateBuildingsOnLargeArea(count, minHeight, maxHeight);
+
+        // Add buildings to scene and setup shadows
+        buildings.forEach(building => {
+            this.sceneManager.addBuilding(building);
+            this.lightingManager.addShadowCaster(building.mesh);
+            
+            // Make building selectable
+            if (this.selectionManager) {
+                this.selectionManager.addSelectableObject(building.mesh);
+            }
+        });
+
+        // Show loading state
+        this.showLoading(false);
+        
+        console.log(`Generated ${buildings.length} buildings on large area (2000x2000)`);
     }
 
     /**
@@ -2068,6 +2140,13 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Zoom to fit ground
+     */
+    zoomToFitGround() {
+        this.cameraController.zoomToFitGround();
+    }
+
+    /**
      * Show/hide loading state
      */
     showLoading(show) {
@@ -2274,6 +2353,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Switch back to select tool after completion
             this.activateSelectTool();
             
+            // Automatically select the newly created rectangle
+            if (this.selectionManager) {
+                this.selectionManager.selectObject(rectangle, false, true);
+            }
+            
+            // Dispatch scene change event to update object list
+            this.dispatchSceneChangeEvent();
+            
             console.log('Rectangle created:', rectangle.name);
         };
 
@@ -2314,6 +2401,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Switch back to select tool after completion
             this.activateSelectTool();
             
+            // Automatically select the newly created circle
+            if (this.selectionManager) {
+                this.selectionManager.selectObject(circle, false, true);
+            }
+            
+            // Dispatch scene change event to update object list
+            this.dispatchSceneChangeEvent();
+            
             console.log('Circle created:', circle.name);
         };
 
@@ -2340,7 +2435,8 @@ Transform your 3D models into powerful energy analysis tools.`;
             const pickResult = this.sceneManager.getScene().pick(x, y, (mesh) => {
                 return mesh.name === 'earth';
             });
-            return pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth';
+            return pickResult && pickResult.hit && pickResult.pickedMesh && 
+                   pickResult.pickedMesh.name === 'earth';
         };
 
         // Helper function to get what mesh is under the mouse
@@ -2363,7 +2459,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                 const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
                     return mesh.name === 'earth';
                 });
-                if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth') {
+                if (pickResult && pickResult.hit && pickResult.pickedMesh && 
+                    (pickResult.pickedMesh.name === 'earth' || pickResult.pickedMesh.name === 'invisible_ground')) {
                     const point = pickResult.pickedPoint;
                     this.polygonManager.addPoint(point);
                 }
@@ -2713,11 +2810,61 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Check if any drawing tool is currently active
+     */
+    isDrawingModeActive() {
+        const activeDrawingTool = document.querySelector('#drawingPanel .tool-item.active');
+        return activeDrawingTool !== null;
+    }
+
+    /**
+     * Stop all active drawing operations
+     */
+    stopAllDrawingOperations() {
+        // Stop polygon drawing
+        if (this.polygonManager && this.polygonManager.isDrawing) {
+            this.stopPolygonDrawing();
+        }
+
+        // Stop rectangle drawing
+        if (this.rectangleManager && this.rectangleManager.isDrawing) {
+            this.rectangleManager.stopInteractiveDrawing();
+        }
+
+        // Stop circle drawing
+        if (this.circleManager && this.circleManager.isDrawing) {
+            this.circleManager.stopInteractiveDrawing();
+        }
+
+        // Stop tree placement
+        this.deactivateTreePlacement();
+
+        // Stop any other drawing operations
+        if (this.shape2DManager && this.shape2DManager.isCurrentlyDrawing()) {
+            this.shape2DManager.stopInteractiveDrawing();
+        }
+
+        // Re-enable camera controls
+        this.enableCameraControls();
+    }
+
+    /**
      * Check if select tool is active
      */
     isSelectToolActive() {
         const activeTool = document.querySelector('#transformPanel .tool-item.active');
         return activeTool && activeTool.getAttribute('data-tool') === 'select';
+    }
+
+    /**
+     * Check if any transform tool is active (select, move, rotate, scale)
+     */
+    isAnyTransformToolActive() {
+        const activeTool = document.querySelector('#transformPanel .tool-item.active');
+        if (!activeTool) return false;
+        
+        const toolName = activeTool.getAttribute('data-tool');
+        return ['select', 'move', 'rotate', 'scale'].includes(toolName);
     }
 
     /**
@@ -2729,27 +2876,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.hidePropertiesPopup();
         });
 
-        // Cancel button
-        document.getElementById('cancelProperties').addEventListener('click', () => {
-            this.hidePropertiesPopup();
-        });
-
-        // Save button
-        document.getElementById('saveProperties').addEventListener('click', () => {
-            this.saveShapeProperties();
-        });
-
         // Circle properties popup event listeners
         document.getElementById('closeCircleProperties').addEventListener('click', () => {
             this.hideCirclePropertiesPopup();
-        });
-
-        document.getElementById('cancelCircleProperties').addEventListener('click', () => {
-            this.hideCirclePropertiesPopup();
-        });
-
-        document.getElementById('saveCircleProperties').addEventListener('click', () => {
-            this.saveCircleProperties();
         });
 
         // Polygon properties popup event listeners
@@ -2757,30 +2886,90 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.hidePolygonPropertiesPopup();
         });
 
-        document.getElementById('cancelPolygonProperties').addEventListener('click', () => {
-            this.cancelPolygonProperties();
-        });
-
-        document.getElementById('savePolygonProperties').addEventListener('click', () => {
-            this.savePolygonProperties();
-        });
-
         // Tree properties popup event listeners
         document.getElementById('closeTreeProperties').addEventListener('click', () => {
             this.hideTreePropertiesPopup();
         });
 
-        document.getElementById('cancelTreeProperties').addEventListener('click', () => {
-            this.cancelTreeProperties();
-        });
-
-        document.getElementById('saveTreeProperties').addEventListener('click', () => {
-            this.saveTreeProperties();
-        });
+        // Auto-save event listeners for shape properties
+        this.setupAutoSaveListeners();
 
         // Real-time scale update for trees
         document.getElementById('treeScale').addEventListener('input', (e) => {
             this.updateTreeScaleInRealTime(parseFloat(e.target.value));
+        });
+    }
+
+    /**
+     * Setup auto-save event listeners for all property inputs
+     */
+    setupAutoSaveListeners() {
+        // Shape properties auto-save
+        const shapeInputs = [
+            'shapeType', 'shapeColor', 'shapeLength', 'shapeWidth', 'shapeHeight', 'shapeRadius'
+        ];
+        
+        shapeInputs.forEach(inputId => {
+            const element = document.getElementById(inputId);
+            if (element) {
+                element.addEventListener('input', () => {
+                    this.saveShapeProperties();
+                });
+                element.addEventListener('change', () => {
+                    this.saveShapeProperties();
+                });
+            }
+        });
+
+        // Circle properties auto-save
+        const circleInputs = [
+            'circleType', 'circleColor', 'circleDiameter', 'circleHeight'
+        ];
+        
+        circleInputs.forEach(inputId => {
+            const element = document.getElementById(inputId);
+            if (element) {
+                element.addEventListener('input', () => {
+                    this.saveCircleProperties();
+                });
+                element.addEventListener('change', () => {
+                    this.saveCircleProperties();
+                });
+            }
+        });
+
+        // Polygon properties auto-save
+        const polygonInputs = [
+            'polygonType', 'polygonColor', 'polygonHeight'
+        ];
+        
+        polygonInputs.forEach(inputId => {
+            const element = document.getElementById(inputId);
+            if (element) {
+                element.addEventListener('input', () => {
+                    this.savePolygonProperties();
+                });
+                element.addEventListener('change', () => {
+                    this.savePolygonProperties();
+                });
+            }
+        });
+
+        // Tree properties auto-save (scale is already handled above)
+        const treeInputs = [
+            'treeScale'
+        ];
+        
+        treeInputs.forEach(inputId => {
+            const element = document.getElementById(inputId);
+            if (element) {
+                element.addEventListener('input', () => {
+                    this.saveTreeProperties();
+                });
+                element.addEventListener('change', () => {
+                    this.saveTreeProperties();
+                });
+            }
         });
 
         // Polygon type change listener
@@ -2836,7 +3025,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 const scaleFactor = newHeight / originalHeight;
                 
                 this.currentShape.scaling.y = scaleFactor;
-                this.currentShape.position.y = newHeight;
+                // Preserve current Y position instead of forcing it to newHeight
+                // This allows the polygon to maintain its vertical position when height changes
+                // this.currentShape.position.y = newHeight; // REMOVED: This was causing the issue
                 this.currentShape.userData.currentHeight = newHeight;
                 
                 // Update wireframe if exists
@@ -2849,11 +3040,21 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Shape type change
         document.getElementById('shapeType').addEventListener('change', (e) => {
             const newType = e.target.value;
-            console.log('Type changed to:', newType);
+            console.log('Shape type changed to:', newType);
             
             // Check if type actually changed before updating userData
             const currentType = this.currentShape?.userData?.type;
             const typeChanged = currentType !== newType;
+            console.log('Shape type change check:', { currentType, newType, typeChanged });
+            
+            // Always update color when type changes, even if it's the same type
+            // This ensures color picker reflects the correct type-based color
+            if (this.currentShape) {
+                const newColor = this.getHexColorByType(newType);
+                console.log('Getting color for type:', newType, 'result:', newColor);
+                document.getElementById('shapeColor').value = newColor;
+                console.log('Auto-updated shape color to:', newColor, 'for type:', newType);
+            }
             
             this.updatePropertiesFields(newType);
             
@@ -2871,13 +3072,19 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Update both the shape name and the popup field
                 this.currentShape.name = newName;
                 document.getElementById('shapeName').value = newName;
+                
+                // Automatically update color based on new type
+                const newColor = this.getHexColorByType(newType);
+                console.log('Getting color for type:', newType, 'result:', newColor);
+                document.getElementById('shapeColor').value = newColor;
+                console.log('Auto-updated shape color to:', newColor, 'for type:', newType);
             }
             
             this.updateShapeInRealTime();
         });
 
         // Real-time updates for all input fields
-        document.getElementById('shapeColor').addEventListener('input', () => {
+        document.getElementById('shapeColor').addEventListener('input', (e) => {
             this.updateShapeInRealTime();
         });
 
@@ -2907,6 +3114,16 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Check if type actually changed before updating userData
             const currentType = this.currentShape?.userData?.type;
             const typeChanged = currentType !== newType;
+            console.log('Circle type change check:', { currentType, newType, typeChanged });
+            
+            // Always update color when type changes, even if it's the same type
+            // This ensures color picker reflects the correct type-based color
+            if (this.currentShape) {
+                const newColor = this.getHexColorByType(newType);
+                console.log('Getting circle color for type:', newType, 'result:', newColor);
+                document.getElementById('circleColor').value = newColor;
+                console.log('Auto-updated circle color to:', newColor, 'for type:', newType);
+            }
             
             // Update userData type
             if (this.currentShape) {
@@ -2928,6 +3145,12 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Update both the shape name and the popup field
                 this.currentShape.name = newName;
                 document.getElementById('circleName').value = newName;
+                
+                // Automatically update color based on new type
+                const newColor = this.getHexColorByType(newType);
+                console.log('Getting circle color for type:', newType, 'result:', newColor);
+                document.getElementById('circleColor').value = newColor;
+                console.log('Auto-updated circle color to:', newColor, 'for type:', newType);
             }
             
             // Update color based on type
@@ -2935,7 +3158,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             if (newType === 'building') {
                 newColor = '#ffffff'; // White for buildings
             } else if (newType === 'ground') {
-                newColor = '#663300'; // Brown for ground
+                newColor = '#8B4513'; // Brown for ground
             } else if (newType === 'waterway') {
                 newColor = '#0080ff'; // Blue for waterway
             } else if (newType === 'highway') {
@@ -2948,7 +3171,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.updateCircleInRealTime();
         });
 
-        document.getElementById('circleColor').addEventListener('input', () => {
+        document.getElementById('circleColor').addEventListener('input', (e) => {
             this.updateCircleInRealTime();
         });
 
@@ -2978,19 +3201,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         console.log('Shape userData:', shape.userData);
         console.log('Properties:', properties);
         
-        // Set color based on type
+        // Use the actual color from the shape material
         let displayColor = properties.color;
-        if (properties.type === 'building') {
-            displayColor = '#ffffff'; // White for buildings
-        } else if (properties.type === 'ground') {
-            displayColor = '#663300'; // Brown for ground
-        } else if (properties.type === 'waterway') {
-            displayColor = '#0080ff'; // Blue for waterway
-        } else if (properties.type === 'highway') {
-            displayColor = '#4d4d4d'; // Gray for highway
-        } else if (properties.type === 'green') {
-            displayColor = '#00cc00'; // Green for green areas
-        }
         
         // Fill form fields
         document.getElementById('shapeName').value = properties.name;
@@ -3040,19 +3252,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         console.log('Shape userData:', shape.userData);
         console.log('Properties:', properties);
         
-        // Set color based on type
+        // Use the actual color from the shape material
         let displayColor = properties.color;
-        if (properties.type === 'building') {
-            displayColor = '#ffffff'; // White for buildings
-        } else if (properties.type === 'ground') {
-            displayColor = '#663300'; // Brown for ground
-        } else if (properties.type === 'waterway') {
-            displayColor = '#0080ff'; // Blue for waterway
-        } else if (properties.type === 'highway') {
-            displayColor = '#4d4d4d'; // Gray for highway
-        } else if (properties.type === 'green') {
-            displayColor = '#00cc00'; // Green for green areas
-        }
         
         // Fill form fields
         document.getElementById('circleName').value = properties.name;
@@ -3137,23 +3338,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         console.log('Updating rectangle with:', { type, length: roundedLength, width: roundedWidth, height: roundedHeight });
 
-        // Update material color based on type
-        let newColor;
-        if (type === 'building') {
-            newColor = new BABYLON.Color3(1, 1, 1); // White for buildings
-        } else if (type === 'ground') {
-            newColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
-        } else if (type === 'waterway') {
-            newColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
-        } else if (type === 'highway') {
-            newColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-        } else if (type === 'green') {
-            newColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
-        } else {
-            // Use custom color for other types
-            const rgbColor = this.hexToRgb(color);
-            newColor = new BABYLON.Color3(rgbColor.r / 255, rgbColor.g / 255, rgbColor.b / 255);
-        }
+        // Use the color selected by user (from color picker)
+        const rgbColor = this.hexToRgb(color);
+        const newColor = new BABYLON.Color3(rgbColor.r, rgbColor.g, rgbColor.b);
         
         // Update material color immediately for visual feedback
         if (this.currentShape.material && this.currentShape.material.diffuseColor) {
@@ -3210,8 +3397,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         console.log('Updating rectangle:', shape.name, 'length:', newLength, 'width:', newWidth, 'height:', newHeight);
         
-        // Store current position
+        // Store current transform properties
         const currentPosition = shape.position.clone();
+        const currentRotation = shape.rotation.clone();
+        const currentScaling = shape.scaling.clone();
         
         // Dispose old mesh
         if (shape.geometry) { shape.geometry.dispose(); }
@@ -3226,12 +3415,19 @@ Transform your 3D models into powerful energy analysis tools.`;
             depth: newWidth
         }, this.sceneManager.getScene());
         
-        // Position the new box
+        // Restore all transform properties with smart Y positioning
+        // Calculate the bottom of the original rectangle
+        const originalHeight = shape.userData?.dimensions?.height || shape.userData?.originalHeight || newHeight;
+        const originalBottom = currentPosition.y - (originalHeight / 2);
+        
+        // Position new rectangle with same bottom but new height
         newRectangle.position = new BABYLON.Vector3(
             currentPosition.x,
-            newHeight / 2, // Center vertically
+            originalBottom + (newHeight / 2), // Keep same bottom, adjust for new height
             currentPosition.z
         );
+        newRectangle.rotation = currentRotation;
+        newRectangle.scaling = currentScaling;
         
         // Create new material (color will be set later based on type)
         const material = new BABYLON.StandardMaterial(`${shape.name}Material`, this.sceneManager.getScene());
@@ -3243,18 +3439,13 @@ Transform your 3D models into powerful energy analysis tools.`;
         newRectangle.material = material;
         newRectangle.renderingGroupId = 1; // Same rendering priority as buildings and trees
         
-        // Set material color based on type
-        if (type === 'building') {
-            material.diffuseColor = new BABYLON.Color3(1, 1, 1); // White for buildings
-        } else if (type === 'ground') {
-            material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
-        } else if (type === 'waterway') {
-            material.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
-        } else if (type === 'highway') {
-            material.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-        } else if (type === 'green') {
-            material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        // Use the color selected by user (from color picker)
+        const colorPicker = document.getElementById('shapeColor');
+        if (colorPicker && colorPicker.value) {
+            const rgbColor = this.hexToRgb(colorPicker.value);
+            material.diffuseColor = new BABYLON.Color3(rgbColor.r, rgbColor.g, rgbColor.b);
         }
+        // No fallback colors - user must choose from color picker
         
         // Update userData
         newRectangle.userData = {
@@ -3394,8 +3585,10 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update building geometry
      */
     updateBuildingGeometry(shape, properties) {
-        // Store current position and material
+        // Store current transform properties and material
         const currentPosition = shape.position.clone();
+        const currentRotation = shape.rotation.clone();
+        const currentScaling = shape.scaling.clone();
         const currentMaterial = shape.material;
         // Keep the same name (don't generate new name for updates)
         const currentName = shape.name;
@@ -3423,12 +3616,19 @@ Transform your 3D models into powerful energy analysis tools.`;
             depth: properties.width
         }, this.sceneManager.getScene());
         
-        // Restore position (center the box vertically based on new height)
+        // Restore all transform properties with smart Y positioning
+        // Calculate the bottom of the original building
+        const originalHeight = shape.userData?.dimensions?.height || shape.userData?.originalHeight || properties.height;
+        const originalBottom = currentPosition.y - (originalHeight / 2);
+        
+        // Position new building with same bottom but new height
         newMesh.position = new BABYLON.Vector3(
             currentPosition.x,
-            properties.height / 2, // Center the box vertically based on new height
+            originalBottom + (properties.height / 2), // Keep same bottom, adjust for new height
             currentPosition.z
         );
+        newMesh.rotation = currentRotation;
+        newMesh.scaling = currentScaling;
         
         // Create new material with appropriate color based on type
         const newMaterial = new BABYLON.StandardMaterial(`${currentName}Material`, this.sceneManager.getScene());
@@ -4557,7 +4757,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 Math.round(color.b * 255)
             );
         }
-        return '#8B4513'; // Default brown for ground
+        return '#8B4513'; // Default brown
     }
 
     /**
@@ -4827,6 +5027,55 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Get color for a specific type - Centralized color configuration
+     */
+    getColorByType(type) {
+        switch (type) {
+            case 'building':
+                return new BABYLON.Color3(1, 1, 1); // White for buildings
+            case 'ground':
+                return new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+            case 'waterway':
+                return new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+            case 'highway':
+                return new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
+            case 'green':
+                return new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+            default:
+                return new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
+        }
+    }
+
+    /**
+     * Get standardized default color for all drawing tools
+     */
+    getDefaultDrawingColor() {
+        return new BABYLON.Color3(0.4, 0.3, 0.2); // Consistent brown for all drawing tools
+    }
+
+    /**
+     * Get standardized preview color for all drawing tools
+     */
+    getDefaultPreviewColor() {
+        return new BABYLON.Color3(0.4, 0.3, 0.2); // Same brown for preview
+    }
+
+    /**
+     * Get standardized preview alpha for all drawing tools
+     */
+    getDefaultPreviewAlpha() {
+        return 0.5; // Consistent transparency for all previews
+    }
+
+    /**
+     * Get hex color for a specific type
+     */
+    getHexColorByType(type) {
+        const color = this.getColorByType(type);
+        return this.rgbToHex(Math.round(color.r * 255), Math.round(color.g * 255), Math.round(color.b * 255));
+    }
+
+    /**
      * Save shape properties
      */
     saveShapeProperties() {
@@ -4868,8 +5117,6 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Dispatch event to update object list
         this.dispatchSceneChangeEvent();
-
-        this.hidePropertiesPopup();
     }
 
 
@@ -5034,15 +5281,15 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
-     * Convert hex to RGB
+     * Convert hex to RGB (returns values 0-1 for Babylon.js)
      */
     hexToRgb(hex) {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result ? {
-            r: parseInt(result[1], 16),
-            g: parseInt(result[2], 16),
-            b: parseInt(result[3], 16)
-        } : null;
+            r: parseInt(result[1], 16) / 255,
+            g: parseInt(result[2], 16) / 255,
+            b: parseInt(result[3], 16) / 255
+        } : { r: 0.4, g: 0.3, b: 0.2 }; // Default brown
     }
 
     /**
@@ -5194,23 +5441,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         console.log('Updating circle with:', { type, diameterTop: roundedDiameterTop, diameterBottom: roundedDiameterBottom, height: roundedHeight });
 
-        // Update material color based on type (for immediate feedback)
-        let newColor;
-        if (type === 'building') {
-            newColor = new BABYLON.Color3(1, 1, 1); // White for buildings
-        } else if (type === 'ground') {
-            newColor = new BABYLON.Color3(0.4, 0.2, 0); // Brown for ground
-        } else if (type === 'waterway') {
-            newColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
-        } else if (type === 'highway') {
-            newColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-        } else if (type === 'green') {
-            newColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
-        } else {
-            // Use custom color for other types
-            const rgbColor = this.hexToRgb(color);
-            newColor = new BABYLON.Color3(rgbColor.r / 255, rgbColor.g / 255, rgbColor.b / 255);
-        }
+        // Use the color selected by user (from color picker)
+        const rgbColor = this.hexToRgb(color);
+        const newColor = new BABYLON.Color3(rgbColor.r, rgbColor.g, rgbColor.b);
         
         // Update material color immediately for visual feedback
         if (this.currentShape.material && this.currentShape.material.diffuseColor) {
@@ -5255,9 +5488,6 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Dispatch event to update object list
         this.dispatchSceneChangeEvent();
-
-        // Hide popup
-        this.hideCirclePropertiesPopup();
     }
 
     /**
@@ -5362,9 +5592,6 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Dispatch event to update object list
         this.dispatchSceneChangeEvent();
-
-        // Hide popup
-        this.hidePolygonPropertiesPopup();
     }
 
     /**
@@ -5394,9 +5621,6 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Dispatch event to update object list
         this.dispatchSceneChangeEvent();
-        
-        // Hide popup
-        this.hideTreePropertiesPopup();
     }
 
     /**
@@ -5420,86 +5644,6 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
 
-    /**
-     * Cancel tree properties changes
-     */
-    cancelTreeProperties() {
-        // Hide popup
-        this.hideTreePropertiesPopup();
-    }
-
-    /**
-     * Cancel polygon properties changes
-     */
-    cancelPolygonProperties() {
-        if (!this.currentShape) return;
-
-        // Get original values first
-        const originalName = this.currentShape.userData?.originalName || this.currentShape.name;
-        const originalType = this.currentShape.userData?.originalType || 'ground';
-        const originalColor = this.currentShape.userData?.originalColor || '#8B4513';
-        
-        // Check if any changes were made
-        const currentName = document.getElementById('polygonName').value;
-        const currentType = document.getElementById('polygonType').value;
-        const currentColor = document.getElementById('polygonColor').value;
-        
-        // Hide height field if not building type
-        const heightGroup = document.getElementById('polygonHeightGroup');
-        if (originalType !== 'building') {
-            heightGroup.style.display = 'none';
-        }
-
-        // Check if any changes were made
-        const hasChanges = (
-            currentName !== originalName ||
-            currentType !== originalType ||
-            currentColor !== originalColor
-        );
-
-        if (hasChanges) {
-            // Restore original values directly
-            this.currentShape.name = originalName;
-            
-            // Get original height first
-            const originalHeight = this.currentShape.userData?.originalHeight || 0.05;
-            
-            // Restore userData
-            this.currentShape.userData.type = originalType;
-            this.currentShape.userData.dimensions = this.currentShape.userData.dimensions || {};
-            this.currentShape.userData.dimensions.height = originalHeight;
-            this.currentShape.userData.originalHeight = originalHeight;
-            
-            // Restore material color
-            if (this.currentShape.material) {
-                const color = this.hexToRgb(originalColor);
-                this.currentShape.material.diffuseColor = new BABYLON.Color3(color.r, color.g, color.b);
-                
-                // Update material based on type
-                this.updatePolygonMaterialByType(this.currentShape, originalType);
-            }
-            
-            // Restore height based on original type
-            let targetHeight;
-            if (originalType === 'building') {
-                targetHeight = 1; // Building height (scale 1)
-            } else {
-                targetHeight = 0.1; // Default height for other types
-            }
-            const scaleFactor = targetHeight / originalHeight;
-            this.currentShape.scaling.y = scaleFactor;
-            this.currentShape.position.y = targetHeight;
-            this.currentShape.userData.currentHeight = targetHeight;
-            
-            // Update wireframe if exists
-            if (this.selectionManager) {
-                this.selectionManager.updateWireframeTransforms(this.currentShape);
-            }
-        }
-
-        // Hide popup
-        this.hidePolygonPropertiesPopup();
-    }
 
     /**
      * Update polygon properties
@@ -5511,11 +5655,14 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Update material color and type
         if (polygon.material) {
-            const color = this.hexToRgb(properties.color);
-            polygon.material.diffuseColor = new BABYLON.Color3(color.r, color.g, color.b);
-            
-            // Update material based on type
-            this.updatePolygonMaterialByType(polygon, properties.type);
+            // If color is provided from color picker, use it; otherwise use standardized color by type
+            if (properties.color && properties.color !== '#000000') {
+                const color = this.hexToRgb(properties.color);
+                polygon.material.diffuseColor = new BABYLON.Color3(color.r, color.g, color.b);
+            } else {
+                // Use standardized color by type for consistency
+                this.updatePolygonMaterialColorByType(polygon, properties.type);
+            }
         }
         
         // Update height if provided (for building type)
@@ -5524,7 +5671,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             const scaleFactor = properties.height / originalHeight;
             
             polygon.scaling.y = scaleFactor;
-            polygon.position.y = properties.height;
+            // Preserve current Y position instead of forcing it to properties.height
+            // This allows the polygon to maintain its vertical position when height changes
+            // polygon.position.y = properties.height; // REMOVED: This was causing the issue
             polygon.userData.currentHeight = properties.height;
             
             // Update wireframe if exists
@@ -5565,57 +5714,32 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update polygon color picker based on type
      */
     updatePolygonColorByType(type) {
-        let colorHex;
-        switch (type) {
-            case 'ground':
-                colorHex = '#8B4513'; // Brown
-                break;
-            case 'waterway':
-                colorHex = '#0000FF'; // Blue
-                break;
-            case 'highway':
-                colorHex = '#808080'; // Gray
-                break;
-            case 'green':
-                colorHex = '#00FF00'; // Green
-                break;
-            case 'building':
-                colorHex = '#FFFFFF'; // White
-                break;
-            default:
-                colorHex = '#8B4513'; // Default brown for ground
-        }
+        // Use the central color function for consistency
+        const colorHex = this.getHexColorByType(type);
         
         // Update color picker
         document.getElementById('polygonColor').value = colorHex;
     }
 
     /**
-     * Update polygon material based on type
+     * Update polygon material color based on type - Use standardized colors
+     */
+    updatePolygonMaterialColorByType(polygon, type) {
+        if (!polygon.material) return;
+
+        // Use standardized color system for consistency with other drawing tools
+        const standardizedColor = this.getColorByType(type);
+        polygon.material.diffuseColor = standardizedColor;
+    }
+
+    /**
+     * Update polygon material based on type - Use standardized colors
      */
     updatePolygonMaterialByType(polygon, type) {
         if (!polygon.material) return;
 
-        // Set color based on type
-        switch (type) {
-            case 'ground':
-                polygon.material.diffuseColor = new BABYLON.Color3(0.545, 0.271, 0.075); // Brown
-                break;
-            case 'waterway':
-                polygon.material.diffuseColor = new BABYLON.Color3(0, 0, 1); // Blue
-                break;
-            case 'highway':
-                polygon.material.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Gray
-                break;
-            case 'green':
-                polygon.material.diffuseColor = new BABYLON.Color3(0, 1, 0); // Green
-                break;
-            case 'building':
-                polygon.material.diffuseColor = new BABYLON.Color3(1, 1, 1); // White
-                break;
-            default:
-                polygon.material.diffuseColor = new BABYLON.Color3(0.545, 0.271, 0.075); // Default brown for ground
-        }
+        // Update color using standardized system
+        this.updatePolygonMaterialColorByType(polygon, type);
 
         // Set height automatically based on type
         let targetHeight;
@@ -5630,7 +5754,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         const scaleFactor = targetHeight / originalHeight;
         
         polygon.scaling.y = scaleFactor;
-        polygon.position.y = targetHeight;
+        // Preserve current Y position instead of forcing it to targetHeight
+        // This allows the polygon to maintain its vertical position when type changes
+        // polygon.position.y = targetHeight; // REMOVED: This was causing the issue
         
         // Update userData
         polygon.userData.currentHeight = targetHeight;
@@ -5649,17 +5775,6 @@ Transform your 3D models into powerful energy analysis tools.`;
         }
     }
 
-    /**
-     * Convert hex color to RGB
-     */
-    hexToRgb(hex) {
-        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? {
-            r: parseInt(result[1], 16) / 255,
-            g: parseInt(result[2], 16) / 255,
-            b: parseInt(result[3], 16) / 255
-        } : { r: 0.545, g: 0.271, b: 0.075 }; // Default brown color for ground
-    }
 
     /**
      * Create test circle with radius 5 and height 8
@@ -5676,7 +5791,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         const circle = this.circleManager.createCircle(
             5, // radius
             new BABYLON.Vector3(0, 0, 0), // position at center
-            new BABYLON.Color3(0.4, 0.2, 0), // brown color
+            new BABYLON.Color3(0.4, 0.3, 0.2), // brown
             8, // height
             'ground' // type
         );

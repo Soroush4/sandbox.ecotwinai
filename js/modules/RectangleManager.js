@@ -2,10 +2,11 @@
  * RectangleManager - Manages rectangle drawing functionality
  */
 class RectangleManager {
-    constructor(scene, selectionManager = null, lightingManager = null) {
+    constructor(scene, selectionManager = null, lightingManager = null, uiManager = null) {
         this.scene = scene;
         this.selectionManager = selectionManager;
         this.lightingManager = lightingManager;
+        this.uiManager = uiManager;
         this.rectangles = [];
         this.isDrawing = false;
         this.isCompleting = false;
@@ -15,8 +16,11 @@ class RectangleManager {
         
         // Temporary material for preview rectangle
         this.tempRectMaterial = new BABYLON.StandardMaterial("tempRectMaterial", this.scene);
-        this.tempRectMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground type preview
-        this.tempRectMaterial.alpha = 0.5;
+        // Use standardized preview color
+        const previewColor = this.uiManager ? this.uiManager.getDefaultPreviewColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
+        const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
+        this.tempRectMaterial.diffuseColor = previewColor;
+        this.tempRectMaterial.alpha = previewAlpha;
         this.tempRectMaterial.backFaceCulling = false;
         this.tempRectMaterial.twoSidedLighting = true; // Enable lighting on both sides
         this.tempRectMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
@@ -27,6 +31,13 @@ class RectangleManager {
         // Callbacks
         this.onDrawingStopped = null;
         this.onRectangleCreated = null;
+    }
+
+    /**
+     * Set UIManager reference for standardized colors
+     */
+    setUIManager(uiManager) {
+        this.uiManager = uiManager;
     }
 
     /**
@@ -64,7 +75,7 @@ class RectangleManager {
     /**
      * Create a 3D rectangle (box with minimal height)
      */
-    createRectangle(width, depth, position = new BABYLON.Vector3(0, 0, 0), color = new BABYLON.Color3(0.4, 0.3, 0.2), height = 0.1, type = 'ground') {
+    createRectangle(width, depth, position = new BABYLON.Vector3(0, 0, 0), color = null, height = 0.1, type = 'ground') {
         const uniqueName = this.generateUniqueNameByType(type);
         
         // Create a 3D box instead of a 2D ground
@@ -84,7 +95,16 @@ class RectangleManager {
         rectangle.renderingGroupId = 1; // Higher rendering priority than ground
         
         const material = new BABYLON.StandardMaterial(`${uniqueName}Material`, this.scene);
-        material.diffuseColor = color;
+        // Use standardized color if no color provided or use UIManager's color system
+        let materialColor;
+        if (color) {
+            materialColor = color;
+        } else if (this.uiManager) {
+            materialColor = this.uiManager.getColorByType(type);
+        } else {
+            materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Fallback brown
+        }
+        material.diffuseColor = materialColor;
         material.backFaceCulling = false; // Make it 2-sided
         material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
@@ -281,7 +301,7 @@ class RectangleManager {
             actualWidth,
             actualDepth,
             new BABYLON.Vector3(centerX, 0, centerZ),
-            new BABYLON.Color3(0.4, 0.3, 0.2), // Brown for ground type
+            new BABYLON.Color3(0.4, 0.3, 0.2), // Brown
             0.1, // Minimal height to prevent flickering
             'ground' // Type
         );

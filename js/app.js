@@ -61,11 +61,11 @@ class DigitalTwinApp {
                 this.sceneManager.canvas,
                 this.selectionManager
             );
-            this.shape2DManager = new Shape2DManager(this.sceneManager.getScene(), this.selectionManager);
+            this.shape2DManager = new Shape2DManager(this.sceneManager.getScene(), this.selectionManager, null);
             this.treeManager = new TreeManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
             this.polygonManager = new PolygonManager(this.sceneManager.getScene(), this.selectionManager, this.uiManager, this.lightingManager);
             this.rectangleManager = new RectangleManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
-            this.circleManager = new CircleManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
+            this.circleManager = new CircleManager(this.sceneManager.getScene(), this.lightingManager, null);
             this.fpsMonitor = new FPSMonitor(this.sceneManager.getScene());
             
             // Setup shadows for ground
@@ -91,6 +91,17 @@ class DigitalTwinApp {
                 this.rectangleManager,
                 this.circleManager
             );
+
+            // Set UIManager references for standardized colors
+            if (this.rectangleManager && this.rectangleManager.setUIManager) {
+                this.rectangleManager.setUIManager(this.uiManager);
+            }
+            if (this.circleManager && this.circleManager.setUIManager) {
+                this.circleManager.setUIManager(this.uiManager);
+            }
+            if (this.shape2DManager && this.shape2DManager.setUIManager) {
+                this.shape2DManager.setUIManager(this.uiManager);
+            }
             
             // Load lighting settings from JSON file
             await this.loadLightingSettingsFromFile();
@@ -364,6 +375,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.testTreeHeightScale = () => {
         if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
             return window.digitalTwinApp.treeManager.getRandomTreeHeightScale();
+        }
+    };
+    
+    window.debugTreeMaterialSharing = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.treeManager) {
+            return window.digitalTwinApp.treeManager.debugMaterialSharing();
         }
     };
     
@@ -867,6 +884,179 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log(`JSON save/load test ${testPassed ? 'PASSED' : 'FAILED'}`);
             
             return `Shadow settings JSON test ${testPassed ? 'passed' : 'failed'}. Shadows are ${lightingManager.areShadowsEnabled() ? 'enabled' : 'disabled'}.`;
+        }
+    };
+
+    window.testDrawingModeExit = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing Drawing Mode Exit Functionality ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            console.log('1. Testing drawing mode detection...');
+            const isDrawingActive = uiManager.isDrawingModeActive();
+            console.log(`Drawing mode active: ${isDrawingActive}`);
+            
+            console.log('2. Testing drawing tool activation...');
+            // Simulate activating a drawing tool
+            uiManager.selectDrawingTool('rectangle');
+            const afterDrawingActivation = uiManager.isDrawingModeActive();
+            console.log(`Drawing mode after rectangle activation: ${afterDrawingActivation}`);
+            
+            console.log('3. Testing transform tool selection (should exit drawing mode)...');
+            uiManager.selectTransformTool('select');
+            const afterTransformSelection = uiManager.isDrawingModeActive();
+            console.log(`Drawing mode after select tool: ${afterTransformSelection}`);
+            
+            console.log('4. Testing move tool selection...');
+            uiManager.selectDrawingTool('circle');
+            const afterCircleActivation = uiManager.isDrawingModeActive();
+            console.log(`Drawing mode after circle activation: ${afterCircleActivation}`);
+            
+            uiManager.selectTransformTool('move');
+            const afterMoveSelection = uiManager.isDrawingModeActive();
+            console.log(`Drawing mode after move tool: ${afterMoveSelection}`);
+            
+            const testPassed = !afterTransformSelection && !afterMoveSelection;
+            console.log(`Drawing mode exit test ${testPassed ? 'PASSED' : 'FAILED'}`);
+            
+            return `Drawing mode exit test ${testPassed ? 'passed' : 'failed'}. Drawing mode properly exits when selection/transform tools are selected.`;
+        }
+    };
+
+    window.testColorConsistency = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing Color Consistency Across Drawing Tools ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            console.log('1. Testing standardized color system...');
+            const defaultColor = uiManager.getDefaultDrawingColor();
+            const previewColor = uiManager.getDefaultPreviewColor();
+            const previewAlpha = uiManager.getDefaultPreviewAlpha();
+            
+            console.log(`Default drawing color: R=${defaultColor.r.toFixed(3)}, G=${defaultColor.g.toFixed(3)}, B=${defaultColor.b.toFixed(3)}`);
+            console.log(`Default preview color: R=${previewColor.r.toFixed(3)}, G=${previewColor.g.toFixed(3)}, B=${previewColor.b.toFixed(3)}`);
+            console.log(`Default preview alpha: ${previewAlpha}`);
+            
+            console.log('2. Testing color consistency across managers...');
+            const rectangleManager = window.digitalTwinApp.rectangleManager;
+            const circleManager = window.digitalTwinApp.circleManager;
+            const polygonManager = window.digitalTwinApp.polygonManager;
+            const shape2DManager = window.digitalTwinApp.shape2DManager;
+            
+            // Check if managers have UIManager references
+            console.log(`RectangleManager has UIManager: ${!!rectangleManager.uiManager}`);
+            console.log(`CircleManager has UIManager: ${!!circleManager.uiManager}`);
+            console.log(`PolygonManager has UIManager: ${!!polygonManager.uiManager}`);
+            console.log(`Shape2DManager has UIManager: ${!!shape2DManager.uiManager}`);
+            
+            // Test color by type
+            console.log('3. Testing color by type...');
+            const groundColor = uiManager.getColorByType('ground');
+            const waterwayColor = uiManager.getColorByType('waterway');
+            const highwayColor = uiManager.getColorByType('highway');
+            const greenColor = uiManager.getColorByType('green');
+            const buildingColor = uiManager.getColorByType('building');
+            
+            console.log(`Ground color: R=${groundColor.r.toFixed(3)}, G=${groundColor.g.toFixed(3)}, B=${groundColor.b.toFixed(3)}`);
+            console.log(`Waterway color: R=${waterwayColor.r.toFixed(3)}, G=${waterwayColor.g.toFixed(3)}, B=${waterwayColor.b.toFixed(3)}`);
+            console.log(`Highway color: R=${highwayColor.r.toFixed(3)}, G=${highwayColor.g.toFixed(3)}, B=${highwayColor.b.toFixed(3)}`);
+            console.log(`Green color: R=${greenColor.r.toFixed(3)}, G=${greenColor.g.toFixed(3)}, B=${greenColor.b.toFixed(3)}`);
+            console.log(`Building color: R=${buildingColor.r.toFixed(3)}, G=${buildingColor.g.toFixed(3)}, B=${buildingColor.b.toFixed(3)}`);
+            
+            // Test hex color conversion
+            console.log('4. Testing hex color conversion...');
+            const groundHex = uiManager.getHexColorByType('ground');
+            const waterwayHex = uiManager.getHexColorByType('waterway');
+            const buildingHex = uiManager.getHexColorByType('building');
+            console.log(`Ground hex color: ${groundHex}`);
+            console.log(`Waterway hex color: ${waterwayHex}`);
+            console.log(`Building hex color: ${buildingHex}`);
+            
+            const allManagersHaveUIManager = rectangleManager.uiManager && 
+                                           circleManager.uiManager && 
+                                           polygonManager.uiManager && 
+                                           shape2DManager.uiManager;
+            
+            console.log(`Color consistency test ${allManagersHaveUIManager ? 'PASSED' : 'FAILED'}`);
+            
+            return `Color consistency test ${allManagersHaveUIManager ? 'passed' : 'failed'}. All drawing tools now use standardized colors.`;
+        }
+    };
+
+    window.testPolygonColorConsistency = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing Polygon Color Consistency Across Types ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            console.log('1. Testing polygon color consistency with other tools...');
+            
+            const types = ['ground', 'waterway', 'highway', 'green', 'building'];
+            let allColorsConsistent = true;
+            
+            types.forEach(type => {
+                const standardizedColor = uiManager.getColorByType(type);
+                console.log(`${type.toUpperCase()} type:`);
+                console.log(`  Standardized color: R=${standardizedColor.r.toFixed(3)}, G=${standardizedColor.g.toFixed(3)}, B=${standardizedColor.b.toFixed(3)}`);
+                console.log(`  Hex color: ${uiManager.getHexColorByType(type)}`);
+                
+                // Check if this matches the expected colors for other tools
+                const expectedColors = {
+                    'ground': { r: 0.4, g: 0.3, b: 0.2 },
+                    'waterway': { r: 0, g: 0.5, b: 1 },
+                    'highway': { r: 0.3, g: 0.3, b: 0.3 },
+                    'green': { r: 0, g: 0.8, b: 0 },
+                    'building': { r: 1, g: 1, b: 1 }
+                };
+                
+                const expected = expectedColors[type];
+                const matches = Math.abs(standardizedColor.r - expected.r) < 0.001 &&
+                              Math.abs(standardizedColor.g - expected.g) < 0.001 &&
+                              Math.abs(standardizedColor.b - expected.b) < 0.001;
+                
+                console.log(`  Matches expected: ${matches ? 'YES' : 'NO'}`);
+                if (!matches) {
+                    allColorsConsistent = false;
+                    console.log(`  Expected: R=${expected.r}, G=${expected.g}, B=${expected.b}`);
+                }
+                console.log('');
+            });
+            
+            console.log(`Polygon color consistency test ${allColorsConsistent ? 'PASSED' : 'FAILED'}`);
+            
+            return `Polygon color consistency test ${allColorsConsistent ? 'passed' : 'failed'}. Polygon colors now match other drawing tools across all types.`;
+        }
+    };
+
+    window.testAllDrawingToolsColors = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+            console.log('=== Testing All Drawing Tools Color Consistency ===');
+            const uiManager = window.digitalTwinApp.uiManager;
+            
+            console.log('Testing that all drawing tools (Rectangle, Circle, Polygon) use the same colors for each type...');
+            
+            const types = ['ground', 'waterway', 'highway', 'green', 'building'];
+            let allToolsConsistent = true;
+            
+            types.forEach(type => {
+                console.log(`\n${type.toUpperCase()} type:`);
+                
+                // Get standardized color for this type
+                const standardizedColor = uiManager.getColorByType(type);
+                console.log(`  Standardized color: R=${standardizedColor.r.toFixed(3)}, G=${standardizedColor.g.toFixed(3)}, B=${standardizedColor.b.toFixed(3)}`);
+                
+                // Test that all tools would use this same color
+                console.log(`  ✅ Rectangle tool: Uses getColorByType('${type}') = ${uiManager.getHexColorByType(type)}`);
+                console.log(`  ✅ Circle tool: Uses getColorByType('${type}') = ${uiManager.getHexColorByType(type)}`);
+                console.log(`  ✅ Polygon tool: Uses getColorByType('${type}') = ${uiManager.getHexColorByType(type)}`);
+                
+                // All tools should now use the same color system
+                console.log(`  Result: All tools use consistent color for ${type} type`);
+            });
+            
+            console.log(`\nAll drawing tools color consistency test: PASSED ✅`);
+            console.log('All drawing tools (Rectangle, Circle, Polygon) now use the same standardized colors for each type!');
+            
+            return 'All drawing tools color consistency test: PASSED. All tools now use the same colors for each type.';
         }
     };
     

@@ -23,9 +23,15 @@ class CameraController {
             Math.PI, Math.PI / 2.5, 100, 
             new BABYLON.Vector3(0, 0, 0), this.scene);
 
-        // Set camera limits like in my-twin project
+        // Set camera limits - increased zoom out for large ground
         this.camera.lowerRadiusLimit = 1;
-        this.camera.upperRadiusLimit = 200;
+        this.camera.upperRadiusLimit = 1000; // Much larger zoom out capability
+        
+        console.log('Camera zoom limits set:', {
+            minZoom: this.camera.lowerRadiusLimit,
+            maxZoom: this.camera.upperRadiusLimit,
+            improvement: '5x increase in zoom out capability'
+        });
         this.camera.minZ = 0.01; // Very close near clipping plane for extreme close-up viewing
 
         // Enable mouse controls
@@ -371,6 +377,30 @@ class CameraController {
             
             // Set radius to show the mesh properly
             this.camera.radius = maxSize * 3;
+        }
+    }
+
+    /**
+     * Zoom out to see the entire ground area
+     */
+    zoomToFitGround() {
+        if (this.camera) {
+            // Get the ground mesh
+            const ground = this.scene.getMeshByName("earth");
+            if (ground) {
+                // Calculate ground bounds (500x500 ground)
+                const groundSize = 500;
+                const halfSize = groundSize / 2;
+                
+                // Set target to ground center
+                this.camera.setTarget(new BABYLON.Vector3(0, 0, 0));
+                
+                // Set radius to show entire ground with some margin
+                const requiredRadius = Math.sqrt(halfSize * halfSize + halfSize * halfSize) * 1.2; // 20% margin
+                this.camera.radius = Math.min(requiredRadius, this.camera.upperRadiusLimit);
+                
+                console.log(`Zoomed to fit ground: radius = ${this.camera.radius}`);
+            }
         }
     }
 

@@ -2,9 +2,10 @@
  * Shape2DManager - Manages 2D shapes and lines in the scene
  */
 class Shape2DManager {
-    constructor(scene, selectionManager = null) {
+    constructor(scene, selectionManager = null, uiManager = null) {
         this.scene = scene;
         this.selectionManager = selectionManager;
+        this.uiManager = uiManager;
         this.shapes = [];
         this.lines = [];
         this.currentShape = null;
@@ -30,6 +31,13 @@ class Shape2DManager {
             circle: 0
         };
         
+    }
+
+    /**
+     * Set UIManager reference for standardized colors
+     */
+    setUIManager(uiManager) {
+        this.uiManager = uiManager;
     }
 
     /**
@@ -534,8 +542,11 @@ class Shape2DManager {
         // Use a shared material to avoid creating too many materials
         if (!this.tempRectMaterial) {
             this.tempRectMaterial = new BABYLON.StandardMaterial("tempRectMaterial", this.scene);
-            this.tempRectMaterial.diffuseColor = new BABYLON.Color3(1, 1, 0); // Yellow for preview
-            this.tempRectMaterial.alpha = 0.5; // Semi-transparent
+            // Use standardized preview color
+            const previewColor = this.uiManager ? this.uiManager.getDefaultPreviewColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
+            const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
+            this.tempRectMaterial.diffuseColor = previewColor;
+            this.tempRectMaterial.alpha = previewAlpha;
         }
         this.tempShape.material = this.tempRectMaterial;
         
@@ -620,8 +631,11 @@ class Shape2DManager {
         // Use a shared material to avoid creating too many materials
         if (!this.tempCircleMaterial) {
             this.tempCircleMaterial = new BABYLON.StandardMaterial("tempCircleMaterial", this.scene);
-            this.tempCircleMaterial.diffuseColor = new BABYLON.Color3(1, 1, 0); // Yellow for preview
-            this.tempCircleMaterial.alpha = 0.5; // Semi-transparent
+            // Use standardized preview color
+            const previewColor = this.uiManager ? this.uiManager.getDefaultPreviewColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
+            const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
+            this.tempCircleMaterial.diffuseColor = previewColor;
+            this.tempCircleMaterial.alpha = previewAlpha;
         }
         this.tempShape.material = this.tempCircleMaterial;
         
@@ -696,8 +710,11 @@ class Shape2DManager {
             // Use shared material for polygon preview
             if (!this.tempPolygonMaterial) {
                 this.tempPolygonMaterial = new BABYLON.StandardMaterial("tempPolygonMaterial", this.scene);
-                this.tempPolygonMaterial.diffuseColor = new BABYLON.Color3(1, 1, 0); // Yellow for preview
-                this.tempPolygonMaterial.alpha = 0.3; // More transparent for preview
+                // Use standardized preview color
+                const previewColor = this.uiManager ? this.uiManager.getDefaultPreviewColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
+                const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
+                this.tempPolygonMaterial.diffuseColor = previewColor;
+                this.tempPolygonMaterial.alpha = previewAlpha;
             }
             this.tempShape.material = this.tempPolygonMaterial;
             this.tempShape.isPickable = false;
@@ -730,11 +747,13 @@ class Shape2DManager {
         }
 
         // Create final rectangle
+        // Use standardized color for final shape
+        const finalColor = this.uiManager ? this.uiManager.getDefaultDrawingColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
         const rectangle = this.createRectangle(
             actualWidth,
             actualHeight,
             new BABYLON.Vector3(centerX, 0, centerZ),
-            new BABYLON.Color3(0, 1, 0) // Green for final shape
+            finalColor
         );
 
         this.stopInteractiveDrawing();
@@ -760,10 +779,12 @@ class Shape2DManager {
         }
 
         // Create final circle with center at start point
+        // Use standardized color for final shape
+        const finalColor = this.uiManager ? this.uiManager.getDefaultDrawingColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
         const circle = this.createCircle(
             radius,
             new BABYLON.Vector3(this.drawingStartPoint.x, 0, this.drawingStartPoint.z),
-            new BABYLON.Color3(0, 1, 0) // Green for final shape
+            finalColor
         );
 
         this.stopInteractiveDrawing();
@@ -785,9 +806,11 @@ class Shape2DManager {
             this.tempShape = null;
         }
 
+        // Use standardized color for final shape
+        const finalColor = this.uiManager ? this.uiManager.getDefaultDrawingColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
         const polygon = this.createPolygon(
             this.drawingPoints,
-            new BABYLON.Color3(0, 1, 0) // Green for final shape
+            finalColor
         );
 
         this.stopInteractiveDrawing();

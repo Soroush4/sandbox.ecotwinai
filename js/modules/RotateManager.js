@@ -275,6 +275,14 @@ class RotateManager {
                 } else {
                     // Regular single object - attach gizmo directly
                     this.gizmoManager.attachToMesh(selectedObject);
+                    
+                    // Setup gizmo based on current coordinate mode for single object
+                    if (this.isGlobalMode) {
+                        this.setupGlobalGizmo();
+                    } else {
+                        this.setupLocalGizmo();
+                    }
+                    
                     // Clear multi-object data
                     this.originalRotations = null;
                     this.originalCenter = null;
@@ -365,15 +373,15 @@ class RotateManager {
         
         this.multiObjectCenter.position = center;
         
-        // Set gizmo based on coordinate mode for multiple objects
+        // Attach to center mesh first
+        this.gizmoManager.attachToMesh(this.multiObjectCenter);
+        
+        // Set gizmo based on coordinate mode for multiple objects AFTER mesh is attached
         if (this.isGlobalMode) {
             this.setupGlobalGizmo();
         } else {
             this.setupLocalGizmo();
         }
-        
-        // Attach to center mesh
-        this.gizmoManager.attachToMesh(this.multiObjectCenter);
         
         // Store original rotations for multi-object rotation
         this.originalRotations = new Map();
@@ -396,6 +404,7 @@ class RotateManager {
     setupGlobalGizmo() {
         if (this.gizmoManager.gizmos.rotationGizmo) {
             // Set gizmo to world space (global coordinates)
+            // Always disable rotation matching for global mode to avoid non-uniform scaling issues
             this.gizmoManager.gizmos.rotationGizmo.updateGizmoRotationToMatchAttachedMesh = false;
             
         }
@@ -406,8 +415,27 @@ class RotateManager {
      */
     setupLocalGizmo() {
         if (this.gizmoManager.gizmos.rotationGizmo) {
+            // Check if the attached mesh has non-uniform scaling (like building polygons)
+            const attachedMesh = this.gizmoManager.attachedMesh;
+            let hasNonUniformScaling = false;
+            
+            if (attachedMesh) {
+                // Check if scaling is non-uniform (different values for X, Y, Z)
+                const scaling = attachedMesh.scaling;
+                hasNonUniformScaling = !(Math.abs(scaling.x - scaling.y) < 0.001 && 
+                                       Math.abs(scaling.y - scaling.z) < 0.001 && 
+                                       Math.abs(scaling.x - scaling.z) < 0.001);
+                
+                // Also check if it's a building polygon (which typically has non-uniform scaling)
+                if (attachedMesh.userData && attachedMesh.userData.type === 'building') {
+                    hasNonUniformScaling = true;
+                }
+            }
+            
             // Set gizmo to local space (object coordinates)
-            this.gizmoManager.gizmos.rotationGizmo.updateGizmoRotationToMatchAttachedMesh = true;
+            // For meshes with non-uniform scaling, disable rotation matching to avoid errors
+            // If no mesh is attached, default to false to avoid errors
+            this.gizmoManager.gizmos.rotationGizmo.updateGizmoRotationToMatchAttachedMesh = !hasNonUniformScaling;
             
         }
     }
@@ -527,13 +555,6 @@ class RotateManager {
         this.gizmoManager.rotationGizmoEnabled = true;
         this.gizmoManager.scaleGizmoEnabled = false;
         
-        // Setup gizmo based on current coordinate mode
-        if (this.isGlobalMode) {
-            this.setupGlobalGizmo();
-        } else {
-            this.setupLocalGizmo();
-        }
-        
         // Setup observers after gizmo is enabled
         this.setupGizmoObservers();
         
@@ -543,9 +564,23 @@ class RotateManager {
             if (this.selectedObjects.length > 1) {
                 this.setupMultiObjectGizmo(this.selectedObjects);
             } else {
+                // Attach mesh first, then setup gizmo configuration
                 this.gizmoManager.attachToMesh(this.selectedObjects[0]);
+                
+                // Setup gizmo based on current coordinate mode AFTER mesh is attached
+                if (this.isGlobalMode) {
+                    this.setupGlobalGizmo();
+                } else {
+                    this.setupLocalGizmo();
+                }
             }
         } else {
+            // Setup gizmo based on current coordinate mode even when no selection
+            if (this.isGlobalMode) {
+                this.setupGlobalGizmo();
+            } else {
+                this.setupLocalGizmo();
+            }
         }
         
         this.canvas.style.cursor = 'grab';
