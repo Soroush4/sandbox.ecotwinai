@@ -54,13 +54,16 @@ class RectangleManager {
     generateUniqueNameByType(type) {
         // Count existing objects of this type in the scene
         let maxNumber = 0;
+        const usedNumbers = new Set();
         
         // Check all meshes in the scene for names of this type
+        // Only count enabled meshes that are still in the scene
         this.scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.name.startsWith(`${type}_`)) {
-                const match = mesh.name.match(new RegExp(`${type}_(\\d+)`));
+            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(`${type}_`)) {
+                const match = mesh.name.match(new RegExp(`^${type}_(\\d+)$`));
                 if (match) {
                     const number = parseInt(match[1]);
+                    usedNumbers.add(number);
                     if (number > maxNumber) {
                         maxNumber = number;
                     }
@@ -68,8 +71,14 @@ class RectangleManager {
             }
         });
         
+        // Find the first available number (not just maxNumber + 1)
+        let nextNumber = 1;
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+        
         // Return next available number
-        return `${type}_${maxNumber + 1}`;
+        return `${type}_${nextNumber}`;
     }
 
     /**
@@ -115,9 +124,12 @@ class RectangleManager {
         rectangle.edgesWidth = 1.0;
         rectangle.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
         
+        // Ensure type is valid (default to 'ground' if not provided or invalid)
+        const validType = (type && type !== undefined && type !== null && type !== '') ? type : 'ground';
+        
         // Store rectangle properties in userData
         rectangle.userData = {
-            type: type,
+            type: validType,
             shapeType: 'rectangle',
             dimensions: {
                 width: width,
@@ -126,6 +138,12 @@ class RectangleManager {
             },
             originalHeight: height // Store original height for reference
         };
+        
+        // Final validation: ensure type is set
+        if (!rectangle.userData.type || rectangle.userData.type === undefined || rectangle.userData.type === null) {
+            rectangle.userData.type = 'ground';
+            console.warn(`Rectangle ${uniqueName} had no type after creation, set to 'ground'`);
+        }
         
         // Add to rectangles array
         this.rectangles.push(rectangle);

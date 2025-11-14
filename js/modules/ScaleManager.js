@@ -419,6 +419,15 @@ class ScaleManager {
             // Set gizmo to world space (global coordinates)
             this.gizmoManager.gizmos.scaleGizmo.updateGizmoRotationToMatchAttachedMesh = false;
             
+            // Force gizmo to refresh by temporarily detaching and re-attaching
+            const attachedMesh = this.gizmoManager.attachedMesh;
+            if (attachedMesh) {
+                this.gizmoManager.attachToMesh(null);
+                // Use setTimeout to ensure the detach is processed
+                setTimeout(() => {
+                    this.gizmoManager.attachToMesh(attachedMesh);
+                }, 0);
+            }
         }
     }
 
@@ -430,6 +439,15 @@ class ScaleManager {
             // Set gizmo to local space (object coordinates)
             this.gizmoManager.gizmos.scaleGizmo.updateGizmoRotationToMatchAttachedMesh = true;
             
+            // Force gizmo to refresh by temporarily detaching and re-attaching
+            const attachedMesh = this.gizmoManager.attachedMesh;
+            if (attachedMesh) {
+                this.gizmoManager.attachToMesh(null);
+                // Use setTimeout to ensure the detach is processed
+                setTimeout(() => {
+                    this.gizmoManager.attachToMesh(attachedMesh);
+                }, 0);
+            }
         }
     }
 
@@ -440,19 +458,42 @@ class ScaleManager {
         this.isGlobalMode = isGlobal;
         
         if (this.isActive) {
-            // Reconfigure gizmo based on new mode
-            if (this.isGlobalMode) {
-                this.setupGlobalGizmo();
-            } else {
-                this.setupLocalGizmo();
-            }
-            
-            // If we have multiple objects selected, re-setup the multi-object gizmo
+            // Get current selection
             const selectedObjects = this.selectionManager.getSelectedObjects();
-            if (selectedObjects.length > 1) {
+            
+            if (selectedObjects.length === 0) {
+                // No objects selected, just update gizmo configuration
+                if (this.isGlobalMode) {
+                    this.setupGlobalGizmo();
+                } else {
+                    this.setupLocalGizmo();
+                }
+            } else if (selectedObjects.length === 1) {
+                // Single object - reconfigure gizmo and re-setup
+                if (this.isGlobalMode) {
+                    this.setupGlobalGizmo();
+                } else {
+                    this.setupLocalGizmo();
+                }
+                // Re-setup single object gizmo to apply new coordinate mode
+                const selectedObject = selectedObjects[0];
+                // Check if it needs special positioning (like rectangles with extrusions)
+                if (selectedObject.userData && selectedObject.userData.shapeType === 'rectangle' && selectedObject.extrusion) {
+                    this.setupSingleObjectGizmo(selectedObject);
+                } else {
+                    // Regular single object - attach gizmo directly
+                    this.gizmoManager.attachToMesh(selectedObject);
+                }
+            } else {
+                // Multiple objects - reconfigure gizmo and re-setup
+                if (this.isGlobalMode) {
+                    this.setupGlobalGizmo();
+                } else {
+                    this.setupLocalGizmo();
+                }
+                // Re-setup multi-object gizmo to apply new coordinate mode
                 this.setupMultiObjectGizmo(selectedObjects);
             }
-            
         }
     }
 
@@ -561,20 +602,19 @@ class ScaleManager {
     activate() {
         this.isActive = true;
         
+        // Force scale mode to local (scale only works in local mode)
+        this.isGlobalMode = false;
+        
         // Enable scale gizmo
         this.gizmoManager.positionGizmoEnabled = false;
         this.gizmoManager.rotationGizmoEnabled = false;
         this.gizmoManager.scaleGizmoEnabled = true;
         
-        // Setup gizmo based on current coordinate mode
-        if (this.isGlobalMode) {
-            this.setupGlobalGizmo();
-        } else {
-            this.setupLocalGizmo();
-        }
-        
         // Setup observers after gizmo is enabled
         this.setupGizmoObservers();
+        
+        // Always use local mode for scale
+        this.setupLocalGizmo();
         
         // Attach to current selection if any
         this.selectedObjects = this.selectionManager.getSelectedObjects();
@@ -582,9 +622,17 @@ class ScaleManager {
             if (this.selectedObjects.length > 1) {
                 this.setupMultiObjectGizmo(this.selectedObjects);
             } else {
-                this.gizmoManager.attachToMesh(this.selectedObjects[0]);
+                // Attach mesh first, then setup gizmo configuration
+                const selectedObject = this.selectedObjects[0];
+                
+                // Check if it needs special positioning (like rectangles with extrusions)
+                if (selectedObject.userData && selectedObject.userData.shapeType === 'rectangle' && selectedObject.extrusion) {
+                    this.setupSingleObjectGizmo(selectedObject);
+                } else {
+                    // Regular single object - attach gizmo directly
+                    this.gizmoManager.attachToMesh(selectedObject);
+                }
             }
-        } else {
         }
         
         this.canvas.style.cursor = 'grab';

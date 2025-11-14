@@ -66,6 +66,11 @@ class DigitalTwinApp {
             this.polygonManager = new PolygonManager(this.sceneManager.getScene(), this.selectionManager, this.uiManager, this.lightingManager);
             this.rectangleManager = new RectangleManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
             this.circleManager = new CircleManager(this.sceneManager.getScene(), this.lightingManager, null);
+            
+            // Update BuildingGenerator with managers
+            this.buildingGenerator.rectangleManager = this.rectangleManager;
+            this.buildingGenerator.polygonManager = this.polygonManager;
+            this.buildingGenerator.circleManager = this.circleManager;
             this.fpsMonitor = new FPSMonitor(this.sceneManager.getScene());
             
             // Setup shadows for ground
@@ -73,6 +78,17 @@ class DigitalTwinApp {
             
             // Setup shadows for all objects in the scene
             this.lightingManager.setupShadowsForAllObjects();
+            
+            // Auto-adjust shadow frustum after a short delay to ensure scene is populated
+            // Also enable auto-update to ensure shadows work everywhere in the scene
+            setTimeout(() => {
+                this.lightingManager.autoAdjustShadowFrustum();
+                // Force a shadow map update to ensure all objects are included
+                if (this.lightingManager.shadowGenerator) {
+                    // Trigger shadow map update
+                    this.lightingManager.shadowGenerator.forceCompilation = true;
+                }
+            }, 1000);
             
             // Initialize UI manager
             this.uiManager = new UIManager(
@@ -92,6 +108,14 @@ class DigitalTwinApp {
                 this.circleManager
             );
 
+            // Set ObjectListManager reference in SelectionManager
+            if (this.selectionManager && this.uiManager && this.uiManager.getObjectListManager) {
+                const objectListManager = this.uiManager.getObjectListManager();
+                if (objectListManager && this.selectionManager.setObjectListManager) {
+                    this.selectionManager.setObjectListManager(objectListManager);
+                }
+            }
+
             // Set UIManager references for standardized colors
             if (this.rectangleManager && this.rectangleManager.setUIManager) {
                 this.rectangleManager.setUIManager(this.uiManager);
@@ -109,11 +133,42 @@ class DigitalTwinApp {
             // Make FPS monitor globally accessible
             window.fpsMonitor = this.fpsMonitor;
             
-            // Auto-generate buildings on page load
+            // Set rectangleManager, polygonManager, uiManager, and treeManager references for building generator
+            if (this.buildingGenerator) {
+                if (this.rectangleManager) {
+                    this.buildingGenerator.rectangleManager = this.rectangleManager;
+                }
+                if (this.polygonManager) {
+                    this.buildingGenerator.polygonManager = this.polygonManager;
+                }
+                if (this.uiManager) {
+                    this.buildingGenerator.uiManager = this.uiManager;
+                }
+                if (this.treeManager) {
+                    this.buildingGenerator.treeManager = this.treeManager;
+                }
+            }
+            
+            // Wait for tree models to load before generating buildings (so trees can use all 4 types)
+            // TreeManager.init() is async and loads models, so we need to wait for it
+            if (this.treeManager && this.treeManager.init) {
+                await this.treeManager.init();
+            }
+            
+            // Auto-generate buildings on page load (after tree models are loaded)
             this.autoGenerateBuildings();
             
             // Hide loading
             this.showLoading(false);
+            
+            // Zoom to fit ground after scene is fully loaded
+            // Use a delay to ensure all objects are rendered and scene is stable
+            setTimeout(() => {
+                if (this.uiManager && this.uiManager.zoomToFitGround) {
+                    this.uiManager.zoomToFitGround();
+                    console.log('Auto-zoomed to fit ground after scene load');
+                }
+            }, 1000);
             
             this.isInitialized = true;
             
@@ -154,8 +209,16 @@ class DigitalTwinApp {
      */
     async loadLightingSettingsFromFile() {
         try {
-            // Try to load the lighting settings JSON file
-            const response = await fetch('lighting-settings-2025-09-28.json');
+            // Try to load the latest lighting settings JSON file
+            // First try the newest file, then fallback to older ones
+            let response = await fetch('lighting-settings-2025-11-14.json');
+            if (!response.ok) {
+                response = await fetch('lighting-settings-2025-11-13.json');
+            }
+            if (!response.ok) {
+                response = await fetch('lighting-settings-2025-09-28.json');
+            }
+            
             if (response.ok) {
                 const settings = await response.json();
                 console.log('Loading lighting settings from file:', settings);
@@ -180,14 +243,24 @@ class DigitalTwinApp {
     autoGenerateBuildings() {
         try {
             
-            // Generate buildings with default settings
-            const buildings = this.buildingGenerator.generateBuildings(10, 4, 20);
+            // Generate buildings with default settings (minHeight: 5, maxHeight: 35)
+            const buildings = this.buildingGenerator.generateBuildings(70, 5, 35);
             
             // Add buildings to scene and setup shadows
             buildings.forEach(building => {
                 this.sceneManager.addBuilding(building);
                 this.lightingManager.updateShadowsForNewObject(building.mesh);
             });
+            
+            // Clean up any unwanted polygons (water_1 without type) that may have been created
+            // Call it multiple times to ensure all unwanted polygons are removed
+            if (this.buildingGenerator.cleanupUnwantedPolygons) {
+                this.buildingGenerator.cleanupUnwantedPolygons();
+                // Call again after a short delay to catch any that might have been created during shadow setup
+                setTimeout(() => {
+                    this.buildingGenerator.cleanupUnwantedPolygons();
+                }, 500);
+            }
             
             // Re-setup shadows for all objects after adding buildings
             this.lightingManager.setupShadowsForAllObjects();
@@ -1114,6 +1187,57 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.log(`Settings load test ${allMatch ? 'PASSED' : 'FAILED'}`);
                 return `Lighting settings load test ${allMatch ? 'passed' : 'failed'}. All values ${allMatch ? 'match' : 'do not match'} the JSON file.`;
             }
+        }
+    };
+    
+    // Debug function for shadow frustum - call from browser console
+    window.debugShadowFrustum = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            window.digitalTwinApp.lightingManager.debugShadowFrustum();
+        } else {
+            console.error('LightingManager not available');
+        }
+    };
+    
+    // Auto-adjust shadow frustum - call from browser console
+    window.autoAdjustShadowFrustum = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            window.digitalTwinApp.lightingManager.autoAdjustShadowFrustum();
+            console.log('Shadow frustum auto-adjusted. Check results with debugShadowFrustum()');
+        } else {
+            console.error('LightingManager not available');
+        }
+    };
+    
+    // Toggle light helper visibility - call from browser console
+    window.toggleLightHelper = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            const isVisible = window.digitalTwinApp.lightingManager.toggleLightHelper();
+            console.log(`Light helper is now ${isVisible ? 'visible' : 'hidden'}`);
+            return isVisible;
+        } else {
+            console.error('LightingManager not available');
+            return false;
+        }
+    };
+    
+    // Show light helper - call from browser console
+    window.showLightHelper = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            window.digitalTwinApp.lightingManager.showLightHelper();
+            console.log('Light helper is now visible');
+        } else {
+            console.error('LightingManager not available');
+        }
+    };
+    
+    // Hide light helper - call from browser console
+    window.hideLightHelper = () => {
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            window.digitalTwinApp.lightingManager.hideLightHelper();
+            console.log('Light helper is now hidden');
+        } else {
+            console.error('LightingManager not available');
         }
     };
     

@@ -11,6 +11,8 @@ class LightingManager {
         this.objectShadowsEnabled = true; // New: control object-to-object shadows
         this.hardShadowsEnabled = true; // New: control hard vs soft shadows (default: true for performance)
         this.performanceCheckInterval = null;
+        this.lightHelper = null; // Helper to visualize light position
+        this.lightHelperVisible = false; // Default: hidden
         
         this.setupLighting();
     }
@@ -22,26 +24,37 @@ class LightingManager {
         // Create hemispheric light for ambient lighting (Montreal sky)
         this.hemisphericLight = new BABYLON.HemisphericLight("hemisphericLight", 
             new BABYLON.Vector3(0, 1, 0), this.scene);
-        this.hemisphericLight.intensity = 0.8; // Increased from 0.4 to 0.8
+        this.hemisphericLight.intensity = 0.6; // Default from lighting-settings-2025-11-14.json
         this.hemisphericLight.diffuse = new BABYLON.Color3(0.9, 0.95, 1.0); // Cool blue sky
         this.hemisphericLight.specular = new BABYLON.Color3(0.1, 0.1, 0.1);
 
         // Create directional light (sun) for Montreal (45.5°N latitude)
         // Sun position for Montreal: southeast direction, afternoon sun - optimized for hard shadows
+        // Default direction from lighting-settings-2025-11-14.json
         this.directionalLight = new BABYLON.DirectionalLight("directionalLight", 
-            new BABYLON.Vector3(0.5, -0.8, 0.3), this.scene);
-        this.directionalLight.intensity = 1.6; // Optimized value from user settings
+            new BABYLON.Vector3(0.508603759091104, -0.809755046388385, 0.29260721297832526), this.scene);
+        this.directionalLight.intensity = 1.4; // Default from lighting-settings-2025-11-14.json
         this.directionalLight.diffuse = new BABYLON.Color3(1, 0.98, 0.85); // Warm sunlight
         this.directionalLight.specular = new BABYLON.Color3(1, 0.98, 0.85);
 
-        // Position the directional light (sun position for Montreal - southeast)
-        this.directionalLight.position = new BABYLON.Vector3(-30, 50, 20);
+        // Position the directional light - Default from lighting-settings-2025-11-14.json
+        this.directionalLight.position = new BABYLON.Vector3(-100, 200, -100);
         
         // Optimize directional light for better shadows and reduced noise
-        this.directionalLight.shadowMinZ = 0.1;
-        this.directionalLight.shadowMaxZ = 200;
-        this.directionalLight.shadowOrthoScale = 80; // Increased for better coverage
-        this.directionalLight.shadowFrustumSize = 120; // Increased for better coverage
+        // Use default values from lighting-settings-2025-11-14.json
+        this.directionalLight.shadowMinZ = 0.008;
+        this.directionalLight.shadowMaxZ = 1590.990257669732; // Extended range for large scenes
+        // Start with larger frustum to cover 500x500 scene (diagonal ~707m, so need at least 1000m)
+        this.directionalLight.shadowOrthoScale = 1000; // Default from lighting-settings-2025-11-14.json
+        this.directionalLight.shadowFrustumSize = 1000; // Default from lighting-settings-2025-11-14.json
+        
+        // Enable auto-update of shadow frustum based on scene content
+        // This ensures shadow frustum automatically adjusts to cover all objects
+        this.directionalLight.autoUpdateExtends = true;
+        
+        // Setup a scene observer to update shadow frustum when objects move
+        // This ensures shadows work correctly even when objects are moved to different parts of the scene
+        this.setupShadowFrustumUpdateObserver();
 
         // Setup shadows
         this.setupShadows();
@@ -52,6 +65,9 @@ class LightingManager {
         
         // Apply optimized shadow settings from user preferences
         this.applyOptimizedShadowSettings();
+        
+        // Create light helper to visualize light position
+        this.createLightHelper();
     }
 
     /**
@@ -303,7 +319,7 @@ class LightingManager {
      * Get current shadow darkness
      */
     getShadowDarkness() {
-        return this.shadowGenerator ? this.shadowGenerator.getDarkness() : 0.4;
+        return this.shadowGenerator ? this.shadowGenerator.getDarkness() : 0.25;
     }
 
     /**
@@ -319,7 +335,7 @@ class LightingManager {
      * Get current shadow bias
      */
     getShadowBias() {
-        return this.shadowGenerator ? this.shadowGenerator.bias : 0.00043;
+        return this.shadowGenerator ? this.shadowGenerator.bias : 0.001;
     }
 
     /**
@@ -335,7 +351,7 @@ class LightingManager {
      * Get current shadow normal bias
      */
     getShadowNormalBias() {
-        return this.shadowGenerator ? this.shadowGenerator.normalBias : 0.01;
+        return this.shadowGenerator ? this.shadowGenerator.normalBias : 0.2;
     }
 
     /**
@@ -351,7 +367,7 @@ class LightingManager {
      * Get current shadow depth scale
      */
     getShadowDepthScale() {
-        return this.shadowGenerator ? this.shadowGenerator.depthScale : 85;
+        return this.shadowGenerator ? this.shadowGenerator.depthScale : 200;
     }
 
     /**
@@ -367,7 +383,7 @@ class LightingManager {
      * Get current shadow ortho scale
      */
     getShadowOrthoScale() {
-        return this.directionalLight ? this.directionalLight.shadowOrthoScale : 260;
+        return this.directionalLight ? this.directionalLight.shadowOrthoScale : 500;
     }
 
     /**
@@ -383,7 +399,7 @@ class LightingManager {
      * Get current shadow frustum size
      */
     getShadowFrustumSize() {
-        return this.directionalLight ? this.directionalLight.shadowFrustumSize : 350;
+        return this.directionalLight ? this.directionalLight.shadowFrustumSize : 600;
     }
 
     /**
@@ -397,13 +413,15 @@ class LightingManager {
 
     /**
      * Optimize shadow settings to reduce noise
+     * Uses default values from lighting-settings-2025-11-13.json
      */
     optimizeShadowSettings() {
         if (!this.shadowGenerator) return;
         
-        // Reduce shadow acne and noise with improved bias settings
-        this.shadowGenerator.bias = this.hardShadowsEnabled ? 0.00043 : 0.00001;
-        this.shadowGenerator.normalBias = this.hardShadowsEnabled ? 0.01 : 0.01;
+        // Use default values from lighting-settings-2025-11-13.json
+        this.shadowGenerator.bias = 0.001;
+        this.shadowGenerator.normalBias = 0.2;
+        this.shadowGenerator.depthScale = 200;
         
         // Enable PCF for smoother shadow edges
         this.shadowGenerator.usePercentageCloserFiltering = true;
@@ -414,9 +432,8 @@ class LightingManager {
         // Adjust shadow map filtering
         this.shadowGenerator.filteringQuality = BABYLON.Constants.TEXTURE_FILTERING_QUALITY_HIGH;
         
-        // Additional settings for edge case handling
-        this.shadowGenerator.depthScale = 85; // Optimized from user settings
-        this.shadowGenerator.useKernelBlur = false; // Disable for hard shadows
+        // Disable kernel blur for hard shadows
+        this.shadowGenerator.useKernelBlur = false;
         
     }
 
@@ -669,17 +686,17 @@ class LightingManager {
     applyOptimizedShadowSettings() {
         if (!this.directionalLight || !this.shadowGenerator) return;
         
-        // Apply optimized shadow settings
-        this.shadowGenerator.setDarkness(0.4);
-        this.shadowGenerator.bias = 0.00043;
-        this.shadowGenerator.normalBias = 0.01;
-        this.shadowGenerator.depthScale = 85;
+        // Apply optimized shadow settings from lighting-settings-2025-11-14.json
+        this.shadowGenerator.setDarkness(0.1);
+        this.shadowGenerator.bias = 0.001;
+        this.shadowGenerator.normalBias = 0.11;
+        this.shadowGenerator.depthScale = 115;
         
-        // Apply optimized shadow frustum settings
-        this.directionalLight.shadowOrthoScale = 260;
-        this.directionalLight.shadowFrustumSize = 350;
-        this.directionalLight.shadowMinZ = 0.01;
-        this.directionalLight.shadowMaxZ = 500;
+        // Apply optimized shadow frustum settings from lighting-settings-2025-11-14.json
+        this.directionalLight.shadowOrthoScale = 1000;
+        this.directionalLight.shadowFrustumSize = 1000;
+        this.directionalLight.shadowMinZ = 0.008;
+        this.directionalLight.shadowMaxZ = 1590.990257669732; // Extended range for large scenes
         
         // Ensure quality settings
         this.shadowGenerator.usePercentageCloserFiltering = true;
@@ -809,6 +826,15 @@ class LightingManager {
                 }
             }
             
+            // If autoUpdateExtends is enabled, the shadow frustum will automatically adjust
+            // Otherwise, we can manually trigger an update
+            if (this.directionalLight && this.directionalLight.autoUpdateExtends) {
+                // Shadow frustum will auto-update, but we can also force a manual update
+                // by calling autoAdjustShadowFrustum after a short delay
+                setTimeout(() => {
+                    this.autoAdjustShadowFrustum();
+                }, 100);
+            }
         }
     }
 
@@ -874,11 +900,476 @@ class LightingManager {
     }
 
     /**
+     * Debug shadow frustum coverage - helps identify shadow issues
+     * Call this function from browser console to see shadow frustum information
+     */
+    debugShadowFrustum() {
+        if (!this.directionalLight || !this.shadowGenerator) {
+            console.warn('Shadow system not initialized');
+            return;
+        }
+        
+        console.log('=== Shadow Frustum Debug Information ===');
+        console.log(`Shadow Ortho Scale: ${this.directionalLight.shadowOrthoScale}`);
+        console.log(`Shadow Frustum Size: ${this.directionalLight.shadowFrustumSize}`);
+        console.log(`Shadow Min Z: ${this.directionalLight.shadowMinZ}`);
+        console.log(`Shadow Max Z: ${this.directionalLight.shadowMaxZ}`);
+        console.log(`Shadow Map Size: ${this.shadowGenerator.getShadowMap().getSize().width}x${this.shadowGenerator.getShadowMap().getSize().height}`);
+        console.log(`Shadow Bias: ${this.shadowGenerator.bias}`);
+        console.log(`Shadow Normal Bias: ${this.shadowGenerator.normalBias}`);
+        console.log(`Shadow Depth Scale: ${this.shadowGenerator.depthScale}`);
+        
+        // Calculate coverage area
+        const coverageX = this.directionalLight.shadowFrustumSize;
+        const coverageZ = this.directionalLight.shadowFrustumSize;
+        console.log(`\nShadow Coverage Area: ${coverageX}m x ${coverageZ}m`);
+        console.log(`Coverage Radius: ${Math.sqrt(coverageX * coverageX + coverageZ * coverageZ) / 2}m from center`);
+        
+        // Check scene bounds
+        if (this.scene) {
+            const meshes = this.scene.meshes.filter(m => m.name && !m.name.includes('_wireframe') && !m.name.includes('_helper'));
+            if (meshes.length > 0) {
+                let minX = Infinity, maxX = -Infinity;
+                let minZ = Infinity, maxZ = -Infinity;
+                
+                meshes.forEach(mesh => {
+                    const boundingBox = mesh.getBoundingInfo();
+                    const min = boundingBox.boundingBox.minimumWorld;
+                    const max = boundingBox.boundingBox.maximumWorld;
+                    
+                    minX = Math.min(minX, min.x);
+                    maxX = Math.max(maxX, max.x);
+                    minZ = Math.min(minZ, min.z);
+                    maxZ = Math.max(maxZ, max.z);
+                });
+                
+                const sceneWidth = maxX - minX;
+                const sceneDepth = maxZ - minZ;
+                const sceneRadius = Math.sqrt(sceneWidth * sceneWidth + sceneDepth * sceneDepth) / 2;
+                
+                console.log(`\nScene Bounds:`);
+                console.log(`  X: ${minX.toFixed(2)} to ${maxX.toFixed(2)} (width: ${sceneWidth.toFixed(2)}m)`);
+                console.log(`  Z: ${minZ.toFixed(2)} to ${maxZ.toFixed(2)} (depth: ${sceneDepth.toFixed(2)}m)`);
+                console.log(`  Scene Radius: ${sceneRadius.toFixed(2)}m from center`);
+                
+                const coverageRadius = Math.sqrt(coverageX * coverageX + coverageZ * coverageZ) / 2;
+                if (coverageRadius < sceneRadius) {
+                    console.warn(`\n⚠️ WARNING: Shadow coverage (${coverageRadius.toFixed(2)}m) is smaller than scene radius (${sceneRadius.toFixed(2)}m)!`);
+                    console.warn(`   Objects beyond ${coverageRadius.toFixed(2)}m from center may have incorrect shadows.`);
+                    console.warn(`   Recommended: Increase shadowOrthoScale and shadowFrustumSize to at least ${(sceneRadius * 1.2).toFixed(0)}`);
+                } else {
+                    console.log(`\n✓ Shadow coverage (${coverageRadius.toFixed(2)}m) is sufficient for scene (${sceneRadius.toFixed(2)}m)`);
+                }
+            }
+        }
+        
+        console.log('\n=== End Shadow Debug ===');
+    }
+
+    /**
+     * Auto-adjust shadow frustum based on scene bounds
+     * This ensures shadow frustum is centered on the actual scene content
+     */
+    autoAdjustShadowFrustum() {
+        if (!this.directionalLight || !this.scene) return;
+        
+        // Find scene bounds - include ALL meshes including TransformNodes (trees)
+        const meshes = this.scene.meshes.filter(m => 
+            m.name && 
+            !m.name.includes('_wireframe') && 
+            !m.name.includes('_helper') && 
+            m.name !== 'earth' && 
+            m.name !== 'grid' &&
+            m.isEnabled()
+        );
+        
+        // Also include TransformNodes (like tree parents)
+        const transformNodes = this.scene.transformNodes.filter(node => 
+            node.name && 
+            (node.name.startsWith('tree_') || node.name.startsWith('simple_tree_')) &&
+            node.isEnabled()
+        );
+        
+        if (meshes.length === 0 && transformNodes.length === 0) {
+            console.warn('No meshes or transform nodes found for shadow frustum adjustment');
+            return;
+        }
+        
+        let minX = Infinity, maxX = -Infinity;
+        let minZ = Infinity, maxZ = -Infinity;
+        
+        // Process meshes
+        meshes.forEach(mesh => {
+            try {
+                const boundingBox = mesh.getBoundingInfo();
+                if (boundingBox && boundingBox.boundingBox) {
+                    const min = boundingBox.boundingBox.minimumWorld;
+                    const max = boundingBox.boundingBox.maximumWorld;
+                    
+                    minX = Math.min(minX, min.x);
+                    maxX = Math.max(maxX, max.x);
+                    minZ = Math.min(minZ, min.z);
+                    maxZ = Math.max(maxZ, max.z);
+                }
+            } catch (e) {
+                // Skip meshes with invalid bounding boxes
+            }
+        });
+        
+        // Process TransformNodes (trees)
+        transformNodes.forEach(node => {
+            try {
+                const childMeshes = node.getChildMeshes();
+                if (childMeshes.length > 0) {
+                    childMeshes.forEach(mesh => {
+                        const boundingBox = mesh.getBoundingInfo();
+                        if (boundingBox && boundingBox.boundingBox) {
+                            const min = boundingBox.boundingBox.minimumWorld;
+                            const max = boundingBox.boundingBox.maximumWorld;
+                            
+                            minX = Math.min(minX, min.x);
+                            maxX = Math.max(maxX, max.x);
+                            minZ = Math.min(minZ, min.z);
+                            maxZ = Math.max(maxZ, max.z);
+                        }
+                    });
+                } else {
+                    // If no child meshes, use node position
+                    const pos = node.getAbsolutePosition();
+                    if (pos) {
+                        minX = Math.min(minX, pos.x - 5); // Assume 5m radius for trees
+                        maxX = Math.max(maxX, pos.x + 5);
+                        minZ = Math.min(minZ, pos.z - 5);
+                        maxZ = Math.max(maxZ, pos.z + 5);
+                    }
+                }
+            } catch (e) {
+                // Skip invalid transform nodes
+            }
+        });
+        
+        // Check if we have valid bounds
+        if (minX === Infinity || maxX === -Infinity || minZ === Infinity || maxZ === -Infinity) {
+            console.warn('Invalid scene bounds for shadow frustum adjustment');
+            return;
+        }
+        
+        const sceneWidth = maxX - minX;
+        const sceneDepth = maxZ - minZ;
+        const sceneCenterX = (minX + maxX) / 2;
+        const sceneCenterZ = (minZ + maxZ) / 2;
+        const sceneRadius = Math.sqrt(sceneWidth * sceneWidth + sceneDepth * sceneDepth) / 2;
+        
+        // For a 500x500 scene, we need to ensure full coverage including corners
+        // Calculate diagonal distance to ensure all corners are covered
+        const diagonalDistance = Math.sqrt(sceneWidth * sceneWidth + sceneDepth * sceneDepth);
+        
+        // Set frustum size to cover scene with 40% margin (increased for safety)
+        // Use diagonal distance to ensure corners are covered, especially for 500x500 scene
+        // For 500x500: diagonal = sqrt(500^2 + 500^2) = ~707m, so need at least 1000m
+        const frustumSize = Math.max(1000, Math.max(diagonalDistance * 1.4, sceneRadius * 2.8));
+        
+        // Update shadow frustum parameters
+        this.directionalLight.shadowOrthoScale = frustumSize;
+        this.directionalLight.shadowFrustumSize = frustumSize;
+        this.directionalLight.shadowMaxZ = Math.max(1500, sceneRadius * 5);
+        
+        // CRITICAL: Enable auto-update of shadow frustum
+        // This ensures shadow frustum automatically adjusts to cover all objects
+        this.directionalLight.autoUpdateExtends = true;
+        
+        // IMPORTANT: For directional lights, the shadow frustum needs to be properly centered
+        // autoUpdateExtends should handle this, but we can also manually ensure proper centering
+        // by forcing the shadow map to recalculate its projection matrix
+        
+        // Force a shadow map refresh to apply the new frustum settings
+        if (this.shadowGenerator) {
+            // Force shadow map to recalculate with new frustum
+            this.shadowGenerator.forceCompilation = true;
+            
+            // Get shadow map and force it to update its projection
+            try {
+                const shadowMap = this.shadowGenerator.getShadowMap();
+                if (shadowMap) {
+                    // Force shadow map to recalculate projection matrix
+                    shadowMap.render();
+                    
+                    // Also try to force update the light's shadow projection
+                    // This ensures the frustum is properly centered on the scene
+                    if (this.directionalLight.getShadowGenerator) {
+                        const lightShadowGen = this.directionalLight.getShadowGenerator();
+                        if (lightShadowGen && lightShadowGen.forceCompilation !== undefined) {
+                            lightShadowGen.forceCompilation = true;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Shadow map render might fail if scene is not ready, that's okay
+                console.warn('Could not force shadow map render:', e);
+            }
+        }
+        
+        // Additional step: Ensure the directional light's shadow projection is updated
+        // This is critical for proper shadow frustum centering
+        if (this.directionalLight) {
+            // Force the light to recalculate its shadow projection matrix
+            // This ensures the frustum is centered on the actual scene content
+            this.directionalLight.autoUpdateExtends = true;
+            
+            // Trigger a scene render to force shadow map update
+            if (this.scene) {
+                // Schedule shadow map update for next frame
+                this.scene.onBeforeRenderObservable.addOnce(() => {
+                    if (this.shadowGenerator) {
+                        try {
+                            this.shadowGenerator.getShadowMap().render();
+                        } catch (e) {
+                            // Ignore errors
+                        }
+                    }
+                });
+            }
+        }
+        
+        console.log(`Auto-adjusted shadow frustum: ${frustumSize.toFixed(2)}m (scene radius: ${sceneRadius.toFixed(2)}m, center: X=${sceneCenterX.toFixed(2)}, Z=${sceneCenterZ.toFixed(2)})`);
+        console.log(`Scene bounds: X[${minX.toFixed(2)}, ${maxX.toFixed(2)}] Z[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}]`);
+        console.log(`Scene size: ${sceneWidth.toFixed(2)}m x ${sceneDepth.toFixed(2)}m`);
+        console.log(`Diagonal distance: ${diagonalDistance.toFixed(2)}m`);
+        console.log(`Shadow coverage: ${frustumSize.toFixed(2)}m x ${frustumSize.toFixed(2)}m`);
+        
+        // Warn if coverage might be insufficient
+        if (frustumSize < diagonalDistance * 1.2) {
+            console.warn(`⚠️ Shadow frustum might be too small! Frustum: ${frustumSize.toFixed(2)}m, Diagonal: ${diagonalDistance.toFixed(2)}m`);
+            console.warn(`   Recommended: Increase frustum size to at least ${(diagonalDistance * 1.4).toFixed(0)}m`);
+        } else {
+            console.log(`✓ Shadow frustum is sufficient to cover the entire scene`);
+        }
+    }
+
+    /**
+     * Setup observer to update shadow frustum when objects move
+     * This ensures shadows work correctly across the entire scene
+     */
+    setupShadowFrustumUpdateObserver() {
+        if (!this.scene || !this.directionalLight) return;
+        
+        // Use a debounce mechanism to avoid updating too frequently
+        let updateTimeout = null;
+        const updateShadowFrustum = () => {
+            if (updateTimeout) {
+                clearTimeout(updateTimeout);
+            }
+            updateTimeout = setTimeout(() => {
+                this.autoAdjustShadowFrustum();
+            }, 500); // Update after 500ms of no changes
+        };
+        
+        // Observe scene changes and update shadow frustum
+        this.scene.onBeforeRenderObservable.add(() => {
+            // Check if any objects have moved significantly
+            // This is a lightweight check that runs every frame
+            // The actual frustum update is debounced
+            if (this.directionalLight.autoUpdateExtends) {
+                // autoUpdateExtends should handle this automatically
+                // But we can also manually trigger updates if needed
+            }
+        });
+        
+        // Also update when new meshes are added
+        this.scene.onNewMeshAddedObservable.add((mesh) => {
+            if (this.isSolidObject(mesh)) {
+                updateShadowFrustum();
+            }
+        });
+    }
+
+    /**
+     * Create a visual helper to show light position and direction
+     */
+    createLightHelper() {
+        if (!this.directionalLight) return;
+        
+        // Remove existing helper if any
+        if (this.lightHelper) {
+            this.lightHelper.dispose();
+        }
+        
+        // Create a sphere to represent the light position
+        const lightSphere = BABYLON.MeshBuilder.CreateSphere("lightPositionHelper", {
+            diameter: 3,
+            segments: 16
+        }, this.scene);
+        
+        // Create a bright yellow material for the light
+        const lightMaterial = new BABYLON.StandardMaterial("lightHelperMaterial", this.scene);
+        lightMaterial.emissiveColor = new BABYLON.Color3(1, 0.9, 0.3); // Bright yellow
+        lightMaterial.diffuseColor = new BABYLON.Color3(1, 0.9, 0.3);
+        lightMaterial.specularColor = new BABYLON.Color3(1, 1, 1);
+        lightMaterial.emissiveIntensity = 1.0;
+        // Don't disable lighting - let it be affected by scene lighting like other objects
+        // This ensures consistent rendering priority with other models
+        lightSphere.material = lightMaterial;
+        
+        // Position the sphere at the light position
+        lightSphere.position = this.directionalLight.position.clone();
+        
+        // Set same rendering priority as other models (renderingGroupId = 1)
+        lightSphere.renderingGroupId = 1;
+        
+        // Create an arrow to show light direction
+        // Calculate a point in the direction of the light (100m away)
+        const lightDirection = this.directionalLight.direction.normalize();
+        const arrowLength = 50; // 50 meters
+        const arrowEnd = lightSphere.position.add(lightDirection.scale(arrowLength));
+        
+        // Create arrow using a cylinder and cone
+        const arrowBody = BABYLON.MeshBuilder.CreateCylinder("lightDirectionBody", {
+            height: arrowLength * 0.8,
+            diameter: 0.5
+        }, this.scene);
+        
+        const arrowHead = BABYLON.MeshBuilder.CreateCylinder("lightDirectionHead", {
+            height: arrowLength * 0.2,
+            diameterTop: 0,
+            diameterBottom: 2
+        }, this.scene);
+        
+        // Position arrow body
+        const midPoint = BABYLON.Vector3.Lerp(lightSphere.position, arrowEnd, 0.4);
+        arrowBody.position = midPoint;
+        
+        // Position arrow head at the end
+        arrowHead.position = arrowEnd;
+        
+        // Rotate arrow to point in light direction
+        const up = new BABYLON.Vector3(0, 1, 0);
+        const rotationAxis = BABYLON.Vector3.Cross(up, lightDirection);
+        const rotationAngle = Math.acos(BABYLON.Vector3.Dot(up, lightDirection));
+        
+        if (rotationAxis.length() > 0.001) {
+            arrowBody.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotationAxis, rotationAngle);
+            arrowHead.rotationQuaternion = BABYLON.Quaternion.RotationAxis(rotationAxis, rotationAngle);
+        }
+        
+        // Apply same material to arrow
+        arrowBody.material = lightMaterial;
+        arrowHead.material = lightMaterial;
+        
+        // Set same rendering priority as other models (renderingGroupId = 1)
+        arrowBody.renderingGroupId = 1;
+        arrowHead.renderingGroupId = 1;
+        
+        // Create a parent mesh to group all helper parts
+        this.lightHelper = new BABYLON.TransformNode("lightHelper", this.scene);
+        lightSphere.parent = this.lightHelper;
+        arrowBody.parent = this.lightHelper;
+        arrowHead.parent = this.lightHelper;
+        
+        // Store references for later updates
+        this.lightHelper.sphere = lightSphere;
+        this.lightHelper.arrowBody = arrowBody;
+        this.lightHelper.arrowHead = arrowHead;
+        
+        // Set initial visibility
+        this.lightHelper.setEnabled(this.lightHelperVisible);
+        
+        // Mark as helper so it's excluded from shadow calculations
+        // Ensure userData exists before setting properties
+        if (!lightSphere.userData) lightSphere.userData = {};
+        if (!arrowBody.userData) arrowBody.userData = {};
+        if (!arrowHead.userData) arrowHead.userData = {};
+        
+        lightSphere.userData.isHelper = true;
+        arrowBody.userData.isHelper = true;
+        arrowHead.userData.isHelper = true;
+        
+        // Don't cast shadows
+        if (this.shadowGenerator) {
+            this.shadowGenerator.removeShadowCaster(lightSphere);
+            this.shadowGenerator.removeShadowCaster(arrowBody);
+            this.shadowGenerator.removeShadowCaster(arrowHead);
+        }
+        
+        console.log('Light helper created at position:', this.directionalLight.position);
+    }
+    
+    /**
+     * Update light helper position and direction
+     */
+    updateLightHelper() {
+        if (!this.lightHelper || !this.directionalLight) return;
+        
+        // Update sphere position
+        if (this.lightHelper.sphere) {
+            this.lightHelper.sphere.position = this.directionalLight.position.clone();
+        }
+        
+        // Update arrow direction
+        if (this.lightHelper.arrowBody && this.lightHelper.arrowHead) {
+            const lightDirection = this.directionalLight.direction.normalize();
+            const arrowLength = 50;
+            const arrowEnd = this.directionalLight.position.add(lightDirection.scale(arrowLength));
+            
+            const midPoint = BABYLON.Vector3.Lerp(this.directionalLight.position, arrowEnd, 0.4);
+            this.lightHelper.arrowBody.position = midPoint;
+            this.lightHelper.arrowHead.position = arrowEnd;
+            
+            // Rotate arrow to point in light direction
+            const up = new BABYLON.Vector3(0, 1, 0);
+            const rotationAxis = BABYLON.Vector3.Cross(up, lightDirection);
+            const rotationAngle = Math.acos(BABYLON.Vector3.Dot(up, lightDirection));
+            
+            if (rotationAxis.length() > 0.001) {
+                const quaternion = BABYLON.Quaternion.RotationAxis(rotationAxis, rotationAngle);
+                this.lightHelper.arrowBody.rotationQuaternion = quaternion.clone();
+                this.lightHelper.arrowHead.rotationQuaternion = quaternion.clone();
+            }
+        }
+    }
+    
+    /**
+     * Toggle light helper visibility
+     */
+    toggleLightHelper() {
+        this.lightHelperVisible = !this.lightHelperVisible;
+        if (this.lightHelper) {
+            this.lightHelper.setEnabled(this.lightHelperVisible);
+        }
+        return this.lightHelperVisible;
+    }
+    
+    /**
+     * Show light helper
+     */
+    showLightHelper() {
+        this.lightHelperVisible = true;
+        if (this.lightHelper) {
+            this.lightHelper.setEnabled(true);
+        }
+    }
+    
+    /**
+     * Hide light helper
+     */
+    hideLightHelper() {
+        this.lightHelperVisible = false;
+        if (this.lightHelper) {
+            this.lightHelper.setEnabled(false);
+        }
+    }
+
+    /**
      * Dispose of lighting
      */
     dispose() {
         // Stop performance monitoring (if enabled)
         this.stopPerformanceMonitoring();
+        
+        // Dispose light helper
+        if (this.lightHelper) {
+            this.lightHelper.dispose();
+            this.lightHelper = null;
+        }
         
         if (this.shadowGenerator) {
             this.shadowGenerator.dispose();

@@ -24,6 +24,9 @@ class SelectionManager {
         this.doubleClickThreshold = 300; // milliseconds
         this.doubleClickDistance = 5; // pixels
         
+        // ObjectListManager reference (set later)
+        this.objectListManager = null;
+        
         this.setupHighlightMaterial();
         this.setupEventListeners();
         
@@ -37,6 +40,14 @@ class SelectionManager {
         window.autoSelectTransformNode = () => this.autoSelectTransformNode();
         window.testRotation = (degrees) => this.testRotation(degrees);
         window.recreateWireframe = () => this.recreateWireframe();
+    }
+    
+    /**
+     * Set the ObjectListManager reference
+     * @param {ObjectListManager} objectListManager - The ObjectListManager instance
+     */
+    setObjectListManager(objectListManager) {
+        this.objectListManager = objectListManager;
     }
 
     /**
@@ -251,9 +262,23 @@ class SelectionManager {
                 }
             }
             
-            // Handle double-click: zoom to extent
+            // Handle double-click: zoom to extent and scroll to object in list
             if (isDoubleClick) {
-                this.zoomToMeshExtent(selectedObject);
+                // First select the object (this will auto-select TransformNode parent for trees)
+                this.selectObject(selectedObject, false, false);
+                
+                // Get the actually selected object (might be TransformNode parent for trees)
+                const actuallySelectedObjects = this.getSelectedObjects();
+                const objectToScroll = actuallySelectedObjects.length > 0 ? actuallySelectedObjects[0] : selectedObject;
+                
+                // Zoom to mesh extent
+                this.zoomToMeshExtent(objectToScroll);
+                
+                // Scroll to object in list
+                if (this.objectListManager && this.objectListManager.scrollToObjectInList) {
+                    this.objectListManager.scrollToObjectInList(objectToScroll);
+                }
+                
                 return; // Don't process as regular selection
             }
             

@@ -244,7 +244,15 @@
                         <span class="shortcut">Shift+D</span>
                     </div>
                     <div class="menu-separator"></div>
-                    <div class="menu-option" data-action="delete-selected">Delete Selected</div>
+                    <div class="menu-option" data-action="duplicate-selected">
+                        <span class="menu-text">Duplicate</span>
+                        <span class="shortcut">Ctrl+Alt+D</span>
+                    </div>
+                    <div class="menu-separator"></div>
+                    <div class="menu-option" data-action="delete-selected">
+                        <span class="menu-text">Delete Selected</span>
+                        <span class="shortcut">Delete</span>
+                    </div>
                 </div>
             </div>
             <div class="menu-item">
@@ -319,16 +327,16 @@
         <!-- Transform Tools Panel -->
         <div id="transformPanel" class="transform-panel">
             <div class="transform-tools">
-                <div class="tool-item active" data-tool="select" title="Select">
+                <div class="tool-item active" data-tool="select" title="Select (Q)">
                     <img class="tool-icon" src="icons/select.svg" alt="Select" width="20" height="20">
                 </div>
-                <div class="tool-item" data-tool="move" title="Move">
+                <div class="tool-item" data-tool="move" title="Move (W)">
                     <img class="tool-icon" src="icons/move.svg" alt="Move" width="20" height="20">
                 </div>
-                <div class="tool-item" data-tool="rotate" title="Rotate">
+                <div class="tool-item" data-tool="rotate" title="Rotate (E)">
                     <img class="tool-icon" src="icons/rotate.svg" alt="Rotate" width="20" height="20">
                 </div>
-                <div class="tool-item" data-tool="scale" title="Scale">
+                <div class="tool-item" data-tool="scale" title="Scale (R)">
                     <img class="tool-icon" src="icons/scale.svg" alt="Scale" width="20" height="20">
                 </div>
                 <div class="tool-item" data-tool="coordinate-toggle" title="Toggle Local/Global Coordinates" id="coordinateToggle">
@@ -453,13 +461,63 @@
                 </div>
                 <div class="control-group">
                     <label for="shadowOrthoScalePref">Shadow Ortho Scale</label>
-                    <input type="range" id="shadowOrthoScalePref" min="50" max="500" step="10" value="260">
-                    <span id="shadowOrthoScaleValuePref">260</span>
+                    <input type="range" id="shadowOrthoScalePref" min="50" max="2000" step="50" value="800">
+                    <span id="shadowOrthoScaleValuePref">800</span>
                 </div>
                 <div class="control-group">
                     <label for="shadowFrustumSizePref">Shadow Frustum Size</label>
-                    <input type="range" id="shadowFrustumSizePref" min="100" max="600" step="10" value="350">
-                    <span id="shadowFrustumSizeValuePref">350</span>
+                    <input type="range" id="shadowFrustumSizePref" min="100" max="2000" step="50" value="900">
+                    <span id="shadowFrustumSizeValuePref">900</span>
+                </div>
+                <div class="control-group">
+                    <label for="hemisphericIntensityPref">Hemispheric Light Intensity</label>
+                    <input type="range" id="hemisphericIntensityPref" min="0.1" max="2.0" step="0.1" value="0.8">
+                    <span id="hemisphericIntensityValuePref">0.8</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowMinZPref">Shadow Min Z</label>
+                    <input type="range" id="shadowMinZPref" min="0.001" max="0.1" step="0.001" value="0.01">
+                    <span id="shadowMinZValuePref">0.01</span>
+                </div>
+                <div class="control-group">
+                    <label for="shadowMaxZPref">Shadow Max Z</label>
+                    <input type="range" id="shadowMaxZPref" min="500" max="3000" step="50" value="1500">
+                    <span id="shadowMaxZValuePref">1500</span>
+                </div>
+            </div>
+            
+            <!-- Light Position & Direction -->
+            <div class="preferences-section">
+                <h4>Light Position & Direction</h4>
+                <div class="control-group">
+                    <label for="lightPositionXPref">Light Position X</label>
+                    <input type="range" id="lightPositionXPref" min="-100" max="100" step="5" value="-30">
+                    <span id="lightPositionXValuePref">-30</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightPositionYPref">Light Position Y</label>
+                    <input type="range" id="lightPositionYPref" min="0" max="200" step="5" value="50">
+                    <span id="lightPositionYValuePref">50</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightPositionZPref">Light Position Z</label>
+                    <input type="range" id="lightPositionZPref" min="-100" max="100" step="5" value="20">
+                    <span id="lightPositionZValuePref">20</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightDirectionXPref">Light Direction X</label>
+                    <input type="range" id="lightDirectionXPref" min="-1" max="1" step="0.1" value="0.5">
+                    <span id="lightDirectionXValuePref">0.5</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightDirectionYPref">Light Direction Y</label>
+                    <input type="range" id="lightDirectionYPref" min="-1" max="1" step="0.1" value="-0.8">
+                    <span id="lightDirectionYValuePref">-0.8</span>
+                </div>
+                <div class="control-group">
+                    <label for="lightDirectionZPref">Light Direction Z</label>
+                    <input type="range" id="lightDirectionZPref" min="-1" max="1" step="0.1" value="0.3">
+                    <span id="lightDirectionZValuePref">0.3</span>
                 </div>
             </div>
 
@@ -603,13 +661,13 @@
     <!-- Properties Popup -->
     <div id="propertiesPopup" class="properties-popup">
         <div class="properties-header">
-            <h3>Shape Properties</h3>
+            <h3>Rectangle Properties</h3>
             <button class="close-btn" id="closeProperties">&times;</button>
         </div>
         <div class="properties-content">
             <div class="property-group">
                 <label>Name:</label>
-                <input type="text" id="shapeName" readonly>
+                <input type="text" id="shapeName">
             </div>
             <div class="property-group">
                 <label>Type:</label>
@@ -656,7 +714,7 @@
         <div class="properties-content">
             <div class="property-group">
                 <label>Name:</label>
-                <input type="text" id="circleName" readonly>
+                <input type="text" id="circleName">
             </div>
             <div class="property-group">
                 <label>Type:</label>
@@ -695,7 +753,7 @@
         <div class="properties-content">
             <div class="property-group">
                 <label>Name:</label>
-                <input type="text" id="polygonName" readonly>
+                <input type="text" id="polygonName">
             </div>
             <div class="property-group">
                 <label>Type:</label>
@@ -734,7 +792,7 @@
         <div class="properties-content">
             <div class="property-group">
                 <label>Name:</label>
-                <input type="text" id="treeName" readonly>
+                <input type="text" id="treeName">
             </div>
             <div class="property-group">
                 <label>Category:</label>
@@ -747,6 +805,24 @@
         </div>
         <div class="properties-footer">
             <!-- Auto-save enabled - no buttons needed -->
+        </div>
+    </div>
+
+    <!-- Transform Input Fields Panel (Bottom of Screen) -->
+    <div id="transformInputPanel" class="transform-input-panel" style="display: none;">
+        <div class="transform-input-container">
+            <div class="transform-input-group">
+                <label for="transformX">X:</label>
+                <input type="number" id="transformX" step="0.01" class="transform-input">
+            </div>
+            <div class="transform-input-group">
+                <label for="transformY">Y:</label>
+                <input type="number" id="transformY" step="0.01" class="transform-input">
+            </div>
+            <div class="transform-input-group">
+                <label for="transformZ">Z:</label>
+                <input type="number" id="transformZ" step="0.01" class="transform-input">
+            </div>
         </div>
     </div>
 

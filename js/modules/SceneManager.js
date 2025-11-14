@@ -113,9 +113,21 @@ class SceneManager {
      * Start the render loop
      */
     startRenderLoop() {
+        let cameraWarningShown = false;
         this.engine.runRenderLoop(() => {
             if (this.scene) {
-                this.scene.render();
+                // Only render if camera exists
+                if (this.scene.activeCamera) {
+                    this.scene.render();
+                    cameraWarningShown = false; // Reset warning flag once camera is set
+                } else {
+                    // If no camera, wait for it to be set
+                    // Show warning only once to avoid console spam
+                    if (!cameraWarningShown) {
+                        console.warn('Waiting for camera to be initialized...');
+                        cameraWarningShown = true;
+                    }
+                }
             }
         });
     }
@@ -125,11 +137,24 @@ class SceneManager {
      */
     addBuilding(building) {
         if (building && building.mesh) {
+            // Ensure mesh is in scene (CreateBox already adds it, but ensure it's there)
+            if (!this.scene.meshes.includes(building.mesh)) {
+                this.scene.addMesh(building.mesh);
+            }
+            
+            // Ensure mesh is visible and enabled
+            building.mesh.setEnabled(true);
+            building.mesh.isVisible = true;
+            
             this.buildings.push(building);
-            this.scene.addMesh(building.mesh);
+            
+            // Debug log
+            console.log(`Building added to scene: ${building.mesh.name} at (${building.mesh.position.x.toFixed(2)}, ${building.mesh.position.y.toFixed(2)}, ${building.mesh.position.z.toFixed(2)})`);
             
             // Dispatch scene change event
             this.dispatchSceneChangeEvent();
+        } else {
+            console.warn('addBuilding: Invalid building object', building);
         }
     }
 

@@ -45,6 +45,54 @@ class UIManager {
      * Setup event listeners
      */
     setupEventListeners() {
+        // Simple Delete key handler - FIRST, before anything else
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Delete') {
+                // Only check if we're typing in an input field
+                const activeElement = document.activeElement;
+                if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+                    return; // Don't delete when typing
+                }
+                
+                event.preventDefault();
+                event.stopPropagation();
+                console.log('Delete pressed - deleting selected');
+                this.deleteSelected();
+            }
+        }, true); // Capture phase to catch early
+
+        // Tool selection shortcuts: Q=Select, W=Move, E=Rotate, R=Scale
+        document.addEventListener('keydown', (event) => {
+            // Only handle if not typing in an input field
+            const activeElement = document.activeElement;
+            if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+                return; // Don't activate tools when typing
+            }
+
+            // Check for modifier keys - only activate if no modifiers are pressed
+            if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) {
+                return; // Don't interfere with other shortcuts
+            }
+
+            let toolName = null;
+            if (event.code === 'KeyQ') {
+                toolName = 'select';
+            } else if (event.code === 'KeyW') {
+                toolName = 'move';
+            } else if (event.code === 'KeyE') {
+                toolName = 'rotate';
+            } else if (event.code === 'KeyR') {
+                toolName = 'scale';
+            }
+
+            if (toolName) {
+                event.preventDefault();
+                event.stopPropagation();
+                console.log(`Tool shortcut pressed: ${toolName}`);
+                this.selectTransformTool(toolName);
+            }
+        }, true); // Capture phase to catch early
+        
         this.setupMenuListeners();
         this.setupTransformToolsListeners();
         this.setupDrawingToolsListeners();
@@ -72,6 +120,9 @@ class UIManager {
         
         // Selection events
         this.setupSelectionEvents();
+        
+        // Transform input fields
+        this.setupTransformInputFields();
     }
 
     /**
@@ -138,6 +189,9 @@ class UIManager {
             this.hideSelectionInfo();
             this.hidePropertiesPopup();
         }
+        
+        // Update transform input fields when selection changes
+        this.updateTransformInputFieldsValues();
     }
 
     /**
@@ -230,6 +284,14 @@ class UIManager {
 
         // Handle tool selection
         this.handleTransformToolSelection(toolName);
+        
+        // Show/hide transform input fields based on tool selection
+        this.updateTransformInputFieldsVisibility();
+        
+        // Update values when tool changes (only for editing tools)
+        if (this.isTransformEditingToolActive()) {
+            this.updateTransformInputFieldsValues();
+        }
     }
 
     /**
@@ -408,6 +470,9 @@ class UIManager {
 
         // Handle tool selection
         this.handleDrawingToolSelection(toolName);
+        
+        // Hide transform input fields when drawing tool is selected
+        this.updateTransformInputFieldsVisibility();
     }
 
     /**
@@ -446,6 +511,9 @@ class UIManager {
 
         // Handle select tool selection
         this.handleTransformToolSelection('select');
+        
+        // Hide transform input fields when select tool is activated
+        this.updateTransformInputFieldsVisibility();
     }
 
     /**
@@ -793,6 +861,8 @@ class UIManager {
             // If opening the submenu, deactivate all other tools
             if (!isVisible) {
                 this.deselectAllOtherTools();
+                // Hide transform input fields when tree tool is activated
+                this.updateTransformInputFieldsVisibility();
             }
         }
     }
@@ -836,6 +906,9 @@ class UIManager {
         // Deselect all other tools when tree tool is selected
         this.deselectAllOtherTools();
 
+        // Hide transform input fields when tree tool is selected
+        this.updateTransformInputFieldsVisibility();
+
         // Disable camera controls during tree placement
         this.disableCameraControls();
 
@@ -863,6 +936,9 @@ class UIManager {
         // Remove active class from all transform tools (except coordinate toggle)
         const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
         allTransformTools.forEach(tool => tool.classList.remove('active'));
+
+        // Hide transform input fields when tools are deselected
+        this.updateTransformInputFieldsVisibility();
 
         // Deactivate all transform modes
         this.deactivateCurrentMode();
@@ -1010,6 +1086,9 @@ class UIManager {
             // Selection manager is already listening for clicks
         }
         
+        // Enable coordinate toggle for selection mode
+        this.enableCoordinateToggle();
+        
         // Enable camera controls for selection mode
         this.enableCameraControls();
     }
@@ -1029,6 +1108,9 @@ class UIManager {
             this.moveManager.activate();
         }
         
+        // Enable coordinate toggle for move mode
+        this.enableCoordinateToggle();
+        
         // Enable camera controls for move mode
         this.enableCameraControls();
         
@@ -1046,6 +1128,9 @@ class UIManager {
         } else {
         }
         
+        // Enable coordinate toggle for rotate mode
+        this.enableCoordinateToggle();
+        
         // Enable camera controls for rotate mode
         this.enableCameraControls();
     }
@@ -1055,10 +1140,15 @@ class UIManager {
      */
     enableScaleMode() {
         if (this.scaleManager) {
+            // Force scale mode to local (scale only works in local mode)
+            this.scaleManager.isGlobalMode = false;
             this.scaleManager.activate();
             this.showScaleInstructions();
         } else {
         }
+        
+        // Disable coordinate toggle for scale mode (scale only works in local)
+        this.disableCoordinateToggle();
         
         // Enable camera controls for scale mode
         this.enableCameraControls();
@@ -1131,6 +1221,9 @@ class UIManager {
             case 'clear-selection':
                 this.clearSelection();
                 break;
+            case 'duplicate-selected':
+                this.duplicateSelected();
+                break;
             case 'delete-selected':
                 this.deleteSelected();
                 break;
@@ -1153,6 +1246,252 @@ class UIManager {
     // Note: The following methods were removed as they only contained placeholder alerts:
     // saveScene, loadScene, exportSTL, exportOBJ, undo, redo, selectAll, 
     // clearSelection, deleteSelected, openSceneSettings, openRenderSettings, openCameraSettings
+
+    /**
+     * Export all 3D models to STL format (ASCII)
+     */
+    exportSTL() {
+        if (!this.sceneManager) {
+            console.error('SceneManager not available');
+            return;
+        }
+
+        const scene = this.sceneManager.getScene();
+        if (!scene) {
+            console.error('Scene not available');
+            return;
+        }
+
+        console.log('Starting STL export...');
+
+        // Collect all meshes to export
+        const meshesToExport = [];
+
+        // 1. Get all meshes with valid types (building, highway, ground, green, waterway)
+        const validTypes = ['building', 'highway', 'ground', 'green', 'waterway'];
+        const typedMeshes = scene.meshes.filter(mesh => {
+            if (!mesh || !mesh.isEnabled() || !mesh.isVisible) return false;
+            if (!mesh.userData || !mesh.userData.type) return false;
+            return validTypes.includes(mesh.userData.type);
+        });
+
+        console.log(`Found ${typedMeshes.length} typed meshes`);
+
+        // Add typed meshes to export list
+        typedMeshes.forEach(mesh => {
+            meshesToExport.push({
+                mesh: mesh,
+                name: mesh.name || 'unnamed',
+                type: mesh.userData.type
+            });
+        });
+
+        // 2. Get trees from TreeManager
+        if (this.treeManager && this.treeManager.trees) {
+            const trees = this.treeManager.trees;
+            console.log(`Found ${trees.length} trees`);
+
+            trees.forEach((tree, index) => {
+                if (tree.parent && tree.meshes && tree.meshes.length > 0) {
+                    // Combine all meshes of a tree into one export object
+                    meshesToExport.push({
+                        mesh: tree.parent, // Use parent TransformNode for transform info
+                        childMeshes: tree.meshes, // All child meshes
+                        name: `tree_${index + 1}`, // Name: tree_1, tree_2, ...
+                        type: 'tree'
+                    });
+                }
+            });
+        }
+
+        if (meshesToExport.length === 0) {
+            alert('No objects to export. Please create some buildings, roads, or other objects first.');
+            return;
+        }
+
+        console.log(`Total objects to export: ${meshesToExport.length}`);
+
+        // Generate STL content
+        const stlContent = this.generateSTLContent(meshesToExport);
+
+        // Download the file
+        this.downloadSTLFile(stlContent, 'scene_export.stl');
+    }
+
+    /**
+     * Generate STL ASCII content from meshes
+     */
+    generateSTLContent(meshesToExport) {
+        let stlContent = '';
+
+        meshesToExport.forEach((obj, index) => {
+            const objectName = obj.name || `object_${index + 1}`;
+            stlContent += `solid ${objectName}\n`;
+
+            if (obj.type === 'tree') {
+                // Handle trees: combine all child meshes with parent transform
+                if (obj.childMeshes && obj.childMeshes.length > 0) {
+                    obj.childMeshes.forEach(childMesh => {
+                        const triangles = this.meshToTriangles(childMesh, obj.mesh);
+                        triangles.forEach(triangle => {
+                            stlContent += this.triangleToSTL(triangle);
+                        });
+                    });
+                }
+            } else {
+                // Handle regular meshes
+                const triangles = this.meshToTriangles(obj.mesh);
+                triangles.forEach(triangle => {
+                    stlContent += this.triangleToSTL(triangle);
+                });
+            }
+
+            stlContent += `endsolid ${objectName}\n`;
+        });
+
+        return stlContent;
+    }
+
+    /**
+     * Convert a mesh to triangles with world positions
+     */
+    meshToTriangles(mesh, parentTransform = null) {
+        if (!mesh || !mesh.isEnabled()) return [];
+
+        try {
+            // Get vertex data from mesh
+            const vertexData = BABYLON.VertexData.ExtractFromMesh(mesh);
+            if (!vertexData.positions || vertexData.positions.length === 0) {
+                return [];
+            }
+
+            const positions = vertexData.positions;
+            const indices = vertexData.indices || [];
+
+            // If no indices, create them (assuming triangles)
+            let triangleIndices = indices;
+            if (triangleIndices.length === 0) {
+                triangleIndices = [];
+                for (let i = 0; i < positions.length; i += 3) {
+                    triangleIndices.push(i, i + 1, i + 2);
+                }
+            }
+
+            const triangles = [];
+
+            // Process each triangle
+            for (let i = 0; i < triangleIndices.length; i += 3) {
+                const i0 = triangleIndices[i] * 3;
+                const i1 = triangleIndices[i + 1] * 3;
+                const i2 = triangleIndices[i + 2] * 3;
+
+                // Get vertex positions
+                const v0 = new BABYLON.Vector3(positions[i0], positions[i0 + 1], positions[i0 + 2]);
+                const v1 = new BABYLON.Vector3(positions[i1], positions[i1 + 1], positions[i1 + 2]);
+                const v2 = new BABYLON.Vector3(positions[i2], positions[i2 + 1], positions[i2 + 2]);
+
+                // Apply mesh transform
+                const worldMatrix = mesh.getWorldMatrix();
+                const worldV0 = BABYLON.Vector3.TransformCoordinates(v0, worldMatrix);
+                const worldV1 = BABYLON.Vector3.TransformCoordinates(v1, worldMatrix);
+                const worldV2 = BABYLON.Vector3.TransformCoordinates(v2, worldMatrix);
+
+                // If parent transform exists (for trees), apply it
+                if (parentTransform) {
+                    const parentMatrix = parentTransform.getWorldMatrix();
+                    const finalV0 = BABYLON.Vector3.TransformCoordinates(worldV0, parentMatrix);
+                    const finalV1 = BABYLON.Vector3.TransformCoordinates(worldV1, parentMatrix);
+                    const finalV2 = BABYLON.Vector3.TransformCoordinates(worldV2, parentMatrix);
+
+                    // Calculate normal
+                    const normal = this.calculateTriangleNormal(finalV0, finalV1, finalV2);
+
+                    triangles.push({
+                        normal: normal,
+                        vertices: [finalV0, finalV1, finalV2]
+                    });
+                } else {
+                    // Calculate normal
+                    const normal = this.calculateTriangleNormal(worldV0, worldV1, worldV2);
+
+                    triangles.push({
+                        normal: normal,
+                        vertices: [worldV0, worldV1, worldV2]
+                    });
+                }
+            }
+
+            return triangles;
+        } catch (error) {
+            console.error(`Error converting mesh ${mesh.name} to triangles:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * Calculate triangle normal
+     */
+    calculateTriangleNormal(v0, v1, v2) {
+        const edge1 = v1.subtract(v0);
+        const edge2 = v2.subtract(v0);
+        const normal = BABYLON.Vector3.Cross(edge1, edge2);
+        normal.normalize();
+        return normal;
+    }
+
+    /**
+     * Convert a triangle to STL format
+     */
+    triangleToSTL(triangle) {
+        const normal = triangle.normal;
+        const v0 = triangle.vertices[0];
+        const v1 = triangle.vertices[1];
+        const v2 = triangle.vertices[2];
+
+        // Format: scientific notation with 6 decimal places (as in sample file)
+        // Example: 0.000000e+00, 4.667083e+06
+        const formatFloat = (val) => {
+            // Use toExponential with 6 decimal places
+            let str = val.toExponential(6);
+            // Ensure positive exponent has + sign and is 2 digits
+            str = str.replace(/e\+?(\d+)/, (match, exp) => {
+                const expNum = parseInt(exp);
+                const sign = expNum >= 0 ? '+' : '-';
+                return 'e' + sign + Math.abs(expNum).toString().padStart(2, '0');
+            });
+            // Ensure negative exponent has - sign and is 2 digits
+            str = str.replace(/e-(\d+)/, (match, exp) => {
+                return 'e-' + exp.padStart(2, '0');
+            });
+            return str;
+        };
+
+        let stl = `  facet normal ${formatFloat(normal.x)} ${formatFloat(normal.y)} ${formatFloat(normal.z)}\n`;
+        stl += `    outer loop\n`;
+        stl += `      vertex ${formatFloat(v0.x)} ${formatFloat(v0.y)} ${formatFloat(v0.z)}\n`;
+        stl += `      vertex ${formatFloat(v1.x)} ${formatFloat(v1.y)} ${formatFloat(v1.z)}\n`;
+        stl += `      vertex ${formatFloat(v2.x)} ${formatFloat(v2.y)} ${formatFloat(v2.z)}\n`;
+        stl += `    endloop\n`;
+        stl += `  endfacet\n`;
+
+        return stl;
+    }
+
+    /**
+     * Download STL file
+     */
+    downloadSTLFile(content, filename) {
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        console.log(`STL file exported: ${filename}`);
+    }
 
     openPreferences() {
         this.showPreferencesWindow();
@@ -1199,6 +1538,310 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Duplicate selected objects - NEW ALGORITHM: Create from scratch instead of cloning
+     */
+    duplicateSelected() {
+        if (!this.selectionManager) {
+            console.log('SelectionManager not available');
+            return;
+        }
+
+        const selectedObjects = this.selectionManager.getSelectedObjects();
+        if (selectedObjects.length === 0) {
+            console.log('No objects selected to duplicate');
+            return;
+        }
+
+        console.log(`Duplicating ${selectedObjects.length} selected objects using new algorithm`);
+
+        const duplicatedObjects = [];
+        const offsetDistance = 2; // Offset distance in meters
+        const scene = this.sceneManager.getScene();
+
+        selectedObjects.forEach((obj, index) => {
+            try {
+                // Skip if object is an extrusion (we'll duplicate the parent shape instead)
+                if (obj.name && obj.name.includes('_extrusion')) {
+                    console.log(`Skipping extrusion ${obj.name}, will be handled by parent shape`);
+                    return;
+                }
+
+                // Get object properties
+                const shapeType = this.getShapeType(obj);
+                const userData = obj.userData ? JSON.parse(JSON.stringify(obj.userData)) : {};
+                const position = obj.position.clone();
+                const rotation = obj.rotation.clone();
+                const scaling = obj.scaling.clone();
+                const originalExtrusion = obj.extrusion;
+                
+                // Offset position for duplicate
+                position.x += offsetDistance;
+                position.z += offsetDistance;
+
+                let clonedMesh = null;
+                const timestamp = Date.now();
+                const uniqueId = `${timestamp}_${index}`;
+
+                // Create new mesh from scratch based on shape type
+                if (shapeType === 'rectangle' || shapeType === 'building') {
+                    // Get dimensions from userData or calculate from bounding box
+                    let width, depth, height;
+                    if (userData.dimensions) {
+                        width = parseFloat(userData.dimensions.width) || 1;
+                        depth = parseFloat(userData.dimensions.depth) || 1;
+                        height = parseFloat(userData.dimensions.height) || 0.1;
+                    } else {
+                        const boundingInfo = obj.getBoundingInfo();
+                        width = boundingInfo.boundingBox.extendSize.x * 2;
+                        depth = boundingInfo.boundingBox.extendSize.z * 2;
+                        height = boundingInfo.boundingBox.extendSize.y * 2;
+                    }
+
+                    // Create new box from scratch
+                    clonedMesh = BABYLON.MeshBuilder.CreateBox(`${obj.name}_copy_${uniqueId}`, {
+                        width: width,
+                        height: height,
+                        depth: depth
+                    }, scene);
+
+                    // Set position (center Y at height/2)
+                    clonedMesh.position = new BABYLON.Vector3(
+                        position.x,
+                        position.y + height / 2,
+                        position.z
+                    );
+
+                } else if (shapeType === 'circle') {
+                    // Get dimensions from userData
+                    let diameterTop, diameterBottom, height;
+                    if (userData.dimensions) {
+                        diameterTop = parseFloat(userData.dimensions.diameterTop) || 1;
+                        diameterBottom = parseFloat(userData.dimensions.diameterBottom) || 1;
+                        height = parseFloat(userData.dimensions.height) || 0.1;
+                    } else {
+                        const boundingInfo = obj.getBoundingInfo();
+                        diameterTop = boundingInfo.boundingBox.extendSize.x * 2;
+                        diameterBottom = diameterTop;
+                        height = boundingInfo.boundingBox.extendSize.y * 2;
+                    }
+
+                    // Create new cylinder from scratch
+                    clonedMesh = BABYLON.MeshBuilder.CreateCylinder(`${obj.name}_copy_${uniqueId}`, {
+                        height: height,
+                        diameterTop: diameterTop,
+                        diameterBottom: diameterBottom,
+                        tessellation: 32
+                    }, scene);
+
+                    // Set position (center Y at height/2)
+                    clonedMesh.position = new BABYLON.Vector3(
+                        position.x,
+                        position.y + height / 2,
+                        position.z
+                    );
+
+                } else if (shapeType === 'polygon') {
+                    // For polygons, we need to extract the polygon points
+                    // This is more complex - we'll use VertexData approach
+                    try {
+                        const vertexData = BABYLON.VertexData.ExtractFromMesh(obj);
+                        clonedMesh = new BABYLON.Mesh(`${obj.name}_copy_${uniqueId}`, scene);
+                        vertexData.applyToMesh(clonedMesh);
+                        clonedMesh.position = position.clone();
+                    } catch (error) {
+                        console.error(`Error duplicating polygon ${obj.name}:`, error);
+                        return;
+                    }
+
+                } else if (this.isTree(obj)) {
+                    // For trees, use VertexData to create independent geometry
+                    try {
+                        const vertexData = BABYLON.VertexData.ExtractFromMesh(obj);
+                        clonedMesh = new BABYLON.Mesh(`${obj.name}_copy_${uniqueId}`, scene);
+                        vertexData.applyToMesh(clonedMesh);
+                        clonedMesh.position = position.clone();
+                        clonedMesh.rotation = rotation;
+                        clonedMesh.scaling = scaling;
+                        
+                        // Clone material for tree
+                        if (obj.material) {
+                            const clonedTreeMaterial = new BABYLON.StandardMaterial(`${obj.material.name}_copy_${uniqueId}`, scene);
+                            if (obj.material instanceof BABYLON.StandardMaterial) {
+                                clonedTreeMaterial.diffuseColor = obj.material.diffuseColor ? obj.material.diffuseColor.clone() : new BABYLON.Color3(0.4, 0.3, 0.2);
+                                clonedTreeMaterial.specularColor = obj.material.specularColor ? obj.material.specularColor.clone() : new BABYLON.Color3(0.1, 0.1, 0.1);
+                                clonedTreeMaterial.alpha = obj.material.alpha !== undefined ? obj.material.alpha : 1.0;
+                            }
+                            clonedMesh.material = clonedTreeMaterial;
+                        }
+                        
+                        // Handle tree structure
+                        if (this.treeManager) {
+                            const tree = this.treeManager.trees.find(t => t.parent === obj || t.meshes.includes(obj));
+                            if (tree) {
+                                this.treeManager.trees.push({
+                                    parent: clonedMesh,
+                                    meshes: [clonedMesh],
+                                    type: tree.type || 'default'
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Error duplicating tree ${obj.name}:`, error);
+                        return;
+                    }
+                } else {
+                    // Fallback: use VertexData for unknown shapes
+                    try {
+                        const vertexData = BABYLON.VertexData.ExtractFromMesh(obj);
+                        clonedMesh = new BABYLON.Mesh(`${obj.name}_copy_${uniqueId}`, scene);
+                        vertexData.applyToMesh(clonedMesh);
+                        clonedMesh.position = position.clone();
+                    } catch (error) {
+                        console.error(`Error duplicating unknown shape ${obj.name}:`, error);
+                        return;
+                    }
+                }
+
+                if (!clonedMesh) {
+                    console.warn(`Failed to create duplicate for ${obj.name}`);
+                    return;
+                }
+
+                // Copy transform properties
+                clonedMesh.rotation = rotation;
+                clonedMesh.scaling = scaling;
+
+                // Create new material (completely independent)
+                if (obj.material) {
+                    const clonedMaterial = new BABYLON.StandardMaterial(`${obj.material.name}_copy_${uniqueId}`, scene);
+                    
+                    if (obj.material instanceof BABYLON.StandardMaterial) {
+                        clonedMaterial.diffuseColor = obj.material.diffuseColor ? obj.material.diffuseColor.clone() : new BABYLON.Color3(0.4, 0.3, 0.2);
+                        clonedMaterial.specularColor = obj.material.specularColor ? obj.material.specularColor.clone() : new BABYLON.Color3(0.1, 0.1, 0.1);
+                        clonedMaterial.emissiveColor = obj.material.emissiveColor ? obj.material.emissiveColor.clone() : new BABYLON.Color3(0, 0, 0);
+                        clonedMaterial.ambientColor = obj.material.ambientColor ? obj.material.ambientColor.clone() : new BABYLON.Color3(0, 0, 0);
+                        clonedMaterial.alpha = obj.material.alpha !== undefined ? obj.material.alpha : 1.0;
+                        clonedMaterial.backFaceCulling = obj.material.backFaceCulling !== undefined ? obj.material.backFaceCulling : false;
+                        clonedMaterial.twoSidedLighting = obj.material.twoSidedLighting !== undefined ? obj.material.twoSidedLighting : true;
+                    }
+                    
+                    clonedMesh.material = clonedMaterial;
+                }
+
+                // Copy userData
+                clonedMesh.userData = userData;
+                if (clonedMesh.userData.name) {
+                    clonedMesh.userData.name = clonedMesh.name;
+                }
+
+                // Set rendering properties
+                clonedMesh.renderingGroupId = obj.renderingGroupId || 1;
+                clonedMesh.setEnabled(true);
+                clonedMesh.isVisible = true;
+
+                // Handle extrusions if the original has one
+                if (originalExtrusion && (shapeType === 'rectangle' || shapeType === 'building' || shapeType === 'polygon')) {
+                    try {
+                        // Extract extrusion vertex data
+                        const extrusionVertexData = BABYLON.VertexData.ExtractFromMesh(originalExtrusion);
+                        
+                        // Create new extrusion mesh
+                        const clonedExtrusion = new BABYLON.Mesh(`${originalExtrusion.name}_copy_${uniqueId}`, scene);
+                        extrusionVertexData.applyToMesh(clonedExtrusion);
+                        
+                        // Create new material for extrusion
+                        if (originalExtrusion.material) {
+                            const clonedExtrusionMaterial = new BABYLON.StandardMaterial(`${originalExtrusion.material.name}_copy_${uniqueId}`, scene);
+                            if (originalExtrusion.material instanceof BABYLON.StandardMaterial) {
+                                clonedExtrusionMaterial.diffuseColor = originalExtrusion.material.diffuseColor ? originalExtrusion.material.diffuseColor.clone() : new BABYLON.Color3(1, 1, 1);
+                                clonedExtrusionMaterial.specularColor = originalExtrusion.material.specularColor ? originalExtrusion.material.specularColor.clone() : new BABYLON.Color3(0.1, 0.1, 0.1);
+                                clonedExtrusionMaterial.emissiveColor = originalExtrusion.material.emissiveColor ? originalExtrusion.material.emissiveColor.clone() : new BABYLON.Color3(0, 0, 0);
+                                clonedExtrusionMaterial.alpha = originalExtrusion.material.alpha !== undefined ? originalExtrusion.material.alpha : 1.0;
+                                clonedExtrusionMaterial.backFaceCulling = originalExtrusion.material.backFaceCulling !== undefined ? originalExtrusion.material.backFaceCulling : false;
+                                clonedExtrusionMaterial.twoSidedLighting = originalExtrusion.material.twoSidedLighting !== undefined ? originalExtrusion.material.twoSidedLighting : true;
+                            }
+                            clonedExtrusion.material = clonedExtrusionMaterial;
+                        }
+                        
+                        // Copy extrusion userData
+                        if (originalExtrusion.userData) {
+                            clonedExtrusion.userData = JSON.parse(JSON.stringify(originalExtrusion.userData));
+                        }
+                        
+                        // Set extrusion position relative to cloned mesh
+                        const originalExtrusionRelativePos = originalExtrusion.parent === obj ? originalExtrusion.position.clone() : originalExtrusion.position.clone();
+                        clonedExtrusion.position = originalExtrusionRelativePos;
+                        
+                        // Parent to cloned mesh
+                        clonedExtrusion.setParent(clonedMesh);
+                        
+                        // Link bidirectional
+                        clonedMesh.extrusion = clonedExtrusion;
+                        clonedExtrusion.basePolygon = clonedMesh;
+                        
+                        // Enable and make visible
+                        clonedExtrusion.setEnabled(true);
+                        clonedExtrusion.isVisible = true;
+                        clonedExtrusion.renderingGroupId = originalExtrusion.renderingGroupId || 1;
+                        
+                        // Add to selection manager
+                        if (this.selectionManager) {
+                            this.selectionManager.addSelectableObject(clonedExtrusion);
+                        }
+                    } catch (error) {
+                        console.error(`Error duplicating extrusion for ${obj.name}:`, error);
+                    }
+                }
+
+                // Add to selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.addSelectableObject(clonedMesh);
+                }
+
+                // Update rectangleManager if applicable
+                if (this.rectangleManager && (shapeType === 'rectangle' || shapeType === 'building')) {
+                    this.rectangleManager.rectangles.push(clonedMesh);
+                }
+
+                // Enable shadows
+                if (this.lightingManager) {
+                    this.lightingManager.updateShadowsForNewObject(clonedMesh);
+                    if (clonedMesh.extrusion) {
+                        this.lightingManager.updateShadowsForNewObject(clonedMesh.extrusion);
+                    }
+                }
+
+                duplicatedObjects.push(clonedMesh);
+                console.log(`Duplicated object: ${obj.name} -> ${clonedMesh.name} (created from scratch)`);
+            } catch (error) {
+                console.error(`Error duplicating object ${obj.name}:`, error);
+            }
+        });
+
+        if (duplicatedObjects.length > 0) {
+            // Clear current selection
+            this.selectionManager.clearSelection();
+            
+            // Select duplicated objects
+            duplicatedObjects.forEach(obj => {
+                this.selectionManager.selectObject(obj, false, true);
+            });
+
+            // Dispatch scene change event
+            this.dispatchSceneChangeEvent();
+
+            // Update object list
+            if (this.objectListManager) {
+                this.objectListManager.updateObjectList();
+            }
+
+            console.log(`Duplicated ${duplicatedObjects.length} objects successfully using new algorithm`);
+        } else {
+            console.warn('No objects were duplicated');
+        }
+    }
+
+    /**
      * Delete selected objects
      */
     deleteSelected() {
@@ -1236,17 +1879,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         reader.onload = (e) => {
             try {
-                // For now, show a placeholder message
-                // In a real implementation, you would parse the STL file and create a mesh
-                alert(`STL file "${file.name}" selected. STL import functionality will be implemented in a future version.`);
-                
-                // TODO: Implement actual STL parsing and mesh creation
-                // This would involve:
-                // 1. Parsing the STL file format (binary or ASCII)
-                // 2. Creating a Babylon.js mesh from the STL data
-                // 3. Adding the mesh to the scene
-                // 4. Positioning it appropriately
-                
+                const content = e.target.result;
+                this.parseSTLFile(content);
             } catch (error) {
                 console.error('Error loading STL file:', error);
                 alert('Error loading STL file. Please try again.');
@@ -1257,7 +1891,295 @@ Transform your 3D models into powerful energy analysis tools.`;
             alert('Error reading file. Please try again.');
         };
         
-        reader.readAsArrayBuffer(file);
+        // Read as text (ASCII STL format)
+        reader.readAsText(file);
+    }
+
+    /**
+     * Parse STL ASCII file content and create meshes
+     */
+    parseSTLFile(content) {
+        if (!this.sceneManager) {
+            console.error('SceneManager not available');
+            return;
+        }
+
+        const scene = this.sceneManager.getScene();
+        if (!scene) {
+            console.error('Scene not available');
+            return;
+        }
+
+        console.log('Parsing STL file...');
+
+        // Split content into lines
+        const lines = content.split('\n');
+        const objects = [];
+        let currentObject = null;
+        let currentTriangle = null;
+        let inFacet = false;
+        let inLoop = false;
+        let vertexCount = 0;
+
+        // Parse STL file line by line
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+
+            // Check for solid start
+            if (line.startsWith('solid ')) {
+                const objectName = line.substring(6).trim();
+                currentObject = {
+                    name: objectName,
+                    type: this.detectTypeFromName(objectName),
+                    triangles: []
+                };
+                console.log(`Found solid: ${objectName}, type: ${currentObject.type}`);
+            }
+            // Check for solid end
+            else if (line.startsWith('endsolid ')) {
+                if (currentObject && currentObject.triangles.length > 0) {
+                    objects.push(currentObject);
+                }
+                currentObject = null;
+            }
+            // Check for facet start
+            else if (line.startsWith('facet normal ')) {
+                if (!currentObject) continue;
+                
+                const normalMatch = line.match(/facet normal\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)/);
+                if (normalMatch) {
+                    currentTriangle = {
+                        normal: {
+                            x: parseFloat(normalMatch[1]),
+                            y: parseFloat(normalMatch[2]),
+                            z: parseFloat(normalMatch[3])
+                        },
+                        vertices: []
+                    };
+                    inFacet = true;
+                    vertexCount = 0;
+                }
+            }
+            // Check for facet end
+            else if (line === 'endfacet') {
+                if (currentTriangle && currentTriangle.vertices.length === 3) {
+                    currentObject.triangles.push(currentTriangle);
+                }
+                currentTriangle = null;
+                inFacet = false;
+                inLoop = false;
+            }
+            // Check for outer loop start
+            else if (line === 'outer loop') {
+                inLoop = true;
+            }
+            // Check for loop end
+            else if (line === 'endloop') {
+                inLoop = false;
+            }
+            // Check for vertex
+            else if (line.startsWith('vertex ') && inFacet && inLoop) {
+                const vertexMatch = line.match(/vertex\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)/);
+                if (vertexMatch && currentTriangle) {
+                    currentTriangle.vertices.push({
+                        x: parseFloat(vertexMatch[1]),
+                        y: parseFloat(vertexMatch[2]),
+                        z: parseFloat(vertexMatch[3])
+                    });
+                    vertexCount++;
+                }
+            }
+        }
+
+        console.log(`Parsed ${objects.length} objects from STL file`);
+
+        // Create meshes from parsed objects
+        let createdCount = 0;
+        objects.forEach((obj, index) => {
+            try {
+                const mesh = this.createMeshFromSTLObject(obj, scene);
+                if (mesh) {
+                    createdCount++;
+                }
+            } catch (error) {
+                console.error(`Error creating mesh for ${obj.name}:`, error);
+            }
+        });
+
+        console.log(`Created ${createdCount} meshes from STL file`);
+
+        // Dispatch scene change event to update object list
+        this.dispatchSceneChangeEvent();
+
+        // Show success message
+        alert(`Successfully imported ${createdCount} objects from STL file.`);
+    }
+
+    /**
+     * Detect object type from name
+     */
+    detectTypeFromName(name) {
+        const lowerName = name.toLowerCase();
+        
+        if (lowerName.startsWith('tree_')) {
+            return 'tree';
+        } else if (lowerName.startsWith('building_') || lowerName.startsWith('building')) {
+            return 'building';
+        } else if (lowerName.startsWith('highway_') || lowerName.startsWith('highway')) {
+            return 'highway';
+        } else if (lowerName.startsWith('ground_') || lowerName.startsWith('ground')) {
+            return 'ground';
+        } else if (lowerName.startsWith('green_') || lowerName.startsWith('green')) {
+            return 'green';
+        } else if (lowerName.startsWith('waterway_') || lowerName.startsWith('waterway') || lowerName.startsWith('water_')) {
+            return 'waterway';
+        }
+        
+        // Default to ground if type cannot be determined
+        return 'ground';
+    }
+
+    /**
+     * Create a mesh from STL object data
+     */
+    createMeshFromSTLObject(obj, scene) {
+        if (!obj || !obj.triangles || obj.triangles.length === 0) {
+            return null;
+        }
+
+        // Collect all vertices and create indices
+        const positions = [];
+        const indices = [];
+        const normals = [];
+        const vertexMap = new Map(); // Map to avoid duplicate vertices
+
+        // Process each triangle
+        obj.triangles.forEach((triangle, triIndex) => {
+            const triangleIndices = [];
+
+            // Process each vertex in the triangle
+            triangle.vertices.forEach((vertex) => {
+                const key = `${vertex.x.toFixed(6)},${vertex.y.toFixed(6)},${vertex.z.toFixed(6)}`;
+                
+                if (vertexMap.has(key)) {
+                    // Vertex already exists, reuse index
+                    triangleIndices.push(vertexMap.get(key));
+                } else {
+                    // New vertex, add to positions
+                    const vertexIndex = positions.length / 3;
+                    positions.push(vertex.x, vertex.y, vertex.z);
+                    normals.push(triangle.normal.x, triangle.normal.y, triangle.normal.z);
+                    vertexMap.set(key, vertexIndex);
+                    triangleIndices.push(vertexIndex);
+                }
+            });
+
+            // Add triangle indices
+            if (triangleIndices.length === 3) {
+                indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
+            }
+        });
+
+        if (positions.length === 0) {
+            return null;
+        }
+
+        // Create mesh
+        const mesh = new BABYLON.Mesh(obj.name, scene);
+
+        // Create vertex data
+        const vertexData = new BABYLON.VertexData();
+        vertexData.positions = positions;
+        vertexData.indices = indices;
+        
+        // Recalculate normals to ensure correct direction
+        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        vertexData.normals = normals;
+
+        // Apply vertex data to mesh
+        vertexData.applyToMesh(mesh);
+
+        // Set mesh properties based on type
+        mesh.renderingGroupId = 1;
+
+        // Create material based on type
+        const material = new BABYLON.StandardMaterial(`${obj.name}Material`, scene);
+        if (this.getColorByType) {
+            const color = this.getColorByType(obj.type);
+            material.diffuseColor = color;
+        } else {
+            // Fallback color
+            material.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+        }
+        material.backFaceCulling = false;
+        material.twoSidedLighting = true;
+        material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        material.roughness = 0.7;
+        mesh.material = material;
+
+        // Enable edges rendering
+        mesh.enableEdgesRendering();
+        mesh.edgesWidth = 1.0;
+        mesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
+
+        // Set userData based on type
+        mesh.userData = {
+            type: obj.type,
+            shapeType: obj.type === 'tree' ? 'tree' : (obj.type === 'building' ? 'building' : 'polygon'),
+            dimensions: {
+                // Calculate bounding box for dimensions
+                width: this.calculateBoundingBox(mesh).width,
+                depth: this.calculateBoundingBox(mesh).depth,
+                height: this.calculateBoundingBox(mesh).height
+            },
+            originalHeight: this.calculateBoundingBox(mesh).height
+        };
+
+        // Enable shadows
+        mesh.receiveShadows = true;
+        mesh.castShadows = true;
+
+        // Add to selection manager
+        if (this.selectionManager) {
+            this.selectionManager.addSelectableObject(mesh);
+        }
+
+        // Add to scene manager if it's a building
+        if (obj.type === 'building' && this.sceneManager) {
+            this.sceneManager.addBuilding(mesh);
+        }
+
+        // For trees, we would need to handle them differently (as TransformNode with child meshes)
+        // For now, trees are imported as regular meshes
+        if (obj.type === 'tree' && this.treeManager) {
+            // Note: Trees imported from STL won't have the same structure as drawn trees
+            // They will be simple meshes, not TransformNodes with child meshes
+            console.log(`Imported tree: ${obj.name} (as simple mesh)`);
+        }
+
+        // Update shadows
+        if (this.lightingManager) {
+            this.lightingManager.updateShadowsForNewObject(mesh);
+        }
+
+        console.log(`Created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length})`);
+
+        return mesh;
+    }
+
+    /**
+     * Calculate bounding box for a mesh
+     */
+    calculateBoundingBox(mesh) {
+        const boundingInfo = mesh.getBoundingInfo();
+        const min = boundingInfo.boundingBox.minimum;
+        const max = boundingInfo.boundingBox.maximum;
+        
+        return {
+            width: max.x - min.x,
+            depth: max.z - min.z,
+            height: max.y - min.y
+        };
     }
 
     /**
@@ -1406,6 +2328,91 @@ Transform your 3D models into powerful energy analysis tools.`;
             });
         }
 
+        // Hemispheric light intensity slider
+        const hemisphericIntensitySlider = document.getElementById('hemisphericIntensityPref');
+        if (hemisphericIntensitySlider) {
+            hemisphericIntensitySlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setHemisphericIntensity(value);
+                this.updateHemisphericIntensityDisplay(value);
+            });
+        }
+
+        // Shadow min Z slider
+        const shadowMinZSlider = document.getElementById('shadowMinZPref');
+        if (shadowMinZSlider) {
+            shadowMinZSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowMinZ(value);
+                this.updateShadowMinZDisplay(value);
+            });
+        }
+
+        // Shadow max Z slider
+        const shadowMaxZSlider = document.getElementById('shadowMaxZPref');
+        if (shadowMaxZSlider) {
+            shadowMaxZSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setShadowMaxZ(value);
+                this.updateShadowMaxZDisplay(value);
+            });
+        }
+
+        // Light position sliders
+        const lightPositionXSlider = document.getElementById('lightPositionXPref');
+        if (lightPositionXSlider) {
+            lightPositionXSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setLightPositionX(value);
+                this.updateLightPositionXDisplay(value);
+            });
+        }
+
+        const lightPositionYSlider = document.getElementById('lightPositionYPref');
+        if (lightPositionYSlider) {
+            lightPositionYSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setLightPositionY(value);
+                this.updateLightPositionYDisplay(value);
+            });
+        }
+
+        const lightPositionZSlider = document.getElementById('lightPositionZPref');
+        if (lightPositionZSlider) {
+            lightPositionZSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setLightPositionZ(value);
+                this.updateLightPositionZDisplay(value);
+            });
+        }
+
+        // Light direction sliders
+        const lightDirectionXSlider = document.getElementById('lightDirectionXPref');
+        if (lightDirectionXSlider) {
+            lightDirectionXSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setLightDirectionX(value);
+                this.updateLightDirectionXDisplay(value);
+            });
+        }
+
+        const lightDirectionYSlider = document.getElementById('lightDirectionYPref');
+        if (lightDirectionYSlider) {
+            lightDirectionYSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setLightDirectionY(value);
+                this.updateLightDirectionYDisplay(value);
+            });
+        }
+
+        const lightDirectionZSlider = document.getElementById('lightDirectionZPref');
+        if (lightDirectionZSlider) {
+            lightDirectionZSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.setLightDirectionZ(value);
+                this.updateLightDirectionZDisplay(value);
+            });
+        }
 
         // Reset camera
         const resetCameraBtn = document.getElementById('resetCameraPref');
@@ -1563,6 +2570,77 @@ Transform your 3D models into powerful energy analysis tools.`;
             shadowFrustumSizeValue.textContent = currentFrustumSize.toFixed(0);
         }
 
+        // Sync hemispheric light intensity
+        const hemisphericIntensitySlider = document.getElementById('hemisphericIntensityPref');
+        const hemisphericIntensityValue = document.getElementById('hemisphericIntensityValuePref');
+        if (hemisphericIntensitySlider && hemisphericIntensityValue) {
+            const currentIntensity = this.lightingManager.hemisphericLight ? this.lightingManager.hemisphericLight.intensity : 0.8;
+            hemisphericIntensitySlider.value = currentIntensity;
+            hemisphericIntensityValue.textContent = currentIntensity.toFixed(1);
+        }
+
+        // Sync shadow min Z
+        const shadowMinZSlider = document.getElementById('shadowMinZPref');
+        const shadowMinZValue = document.getElementById('shadowMinZValuePref');
+        if (shadowMinZSlider && shadowMinZValue) {
+            const currentMinZ = this.lightingManager.directionalLight ? this.lightingManager.directionalLight.shadowMinZ : 0.01;
+            shadowMinZSlider.value = currentMinZ;
+            shadowMinZValue.textContent = currentMinZ.toFixed(3);
+        }
+
+        // Sync shadow max Z
+        const shadowMaxZSlider = document.getElementById('shadowMaxZPref');
+        const shadowMaxZValue = document.getElementById('shadowMaxZValuePref');
+        if (shadowMaxZSlider && shadowMaxZValue) {
+            const currentMaxZ = this.lightingManager.directionalLight ? this.lightingManager.directionalLight.shadowMaxZ : 1500;
+            shadowMaxZSlider.value = currentMaxZ;
+            shadowMaxZValue.textContent = currentMaxZ.toFixed(0);
+        }
+
+        // Sync light position
+        const lightPositionXSlider = document.getElementById('lightPositionXPref');
+        const lightPositionXValue = document.getElementById('lightPositionXValuePref');
+        if (lightPositionXSlider && lightPositionXValue && this.lightingManager.directionalLight) {
+            lightPositionXSlider.value = this.lightingManager.directionalLight.position.x;
+            lightPositionXValue.textContent = this.lightingManager.directionalLight.position.x.toFixed(0);
+        }
+
+        const lightPositionYSlider = document.getElementById('lightPositionYPref');
+        const lightPositionYValue = document.getElementById('lightPositionYValuePref');
+        if (lightPositionYSlider && lightPositionYValue && this.lightingManager.directionalLight) {
+            lightPositionYSlider.value = this.lightingManager.directionalLight.position.y;
+            lightPositionYValue.textContent = this.lightingManager.directionalLight.position.y.toFixed(0);
+        }
+
+        const lightPositionZSlider = document.getElementById('lightPositionZPref');
+        const lightPositionZValue = document.getElementById('lightPositionZValuePref');
+        if (lightPositionZSlider && lightPositionZValue && this.lightingManager.directionalLight) {
+            lightPositionZSlider.value = this.lightingManager.directionalLight.position.z;
+            lightPositionZValue.textContent = this.lightingManager.directionalLight.position.z.toFixed(0);
+        }
+
+        // Sync light direction
+        const lightDirectionXSlider = document.getElementById('lightDirectionXPref');
+        const lightDirectionXValue = document.getElementById('lightDirectionXValuePref');
+        if (lightDirectionXSlider && lightDirectionXValue && this.lightingManager.directionalLight) {
+            lightDirectionXSlider.value = this.lightingManager.directionalLight.direction.x;
+            lightDirectionXValue.textContent = this.lightingManager.directionalLight.direction.x.toFixed(1);
+        }
+
+        const lightDirectionYSlider = document.getElementById('lightDirectionYPref');
+        const lightDirectionYValue = document.getElementById('lightDirectionYValuePref');
+        if (lightDirectionYSlider && lightDirectionYValue && this.lightingManager.directionalLight) {
+            lightDirectionYSlider.value = this.lightingManager.directionalLight.direction.y;
+            lightDirectionYValue.textContent = this.lightingManager.directionalLight.direction.y.toFixed(1);
+        }
+
+        const lightDirectionZSlider = document.getElementById('lightDirectionZPref');
+        const lightDirectionZValue = document.getElementById('lightDirectionZValuePref');
+        if (lightDirectionZSlider && lightDirectionZValue && this.lightingManager.directionalLight) {
+            lightDirectionZSlider.value = this.lightingManager.directionalLight.direction.z;
+            lightDirectionZValue.textContent = this.lightingManager.directionalLight.direction.z.toFixed(1);
+        }
+
         // Sync statistics toggle state
         const statisticsTogglePref = document.getElementById('statisticsTogglePref');
         if (statisticsTogglePref && window.fpsMonitor) {
@@ -1665,6 +2743,19 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         });
 
+        // Clean up any unwanted polygons (water_1 without type) that may have been created
+        // Call it multiple times to ensure all unwanted polygons are removed
+        if (this.buildingGenerator.cleanupUnwantedPolygons) {
+            this.buildingGenerator.cleanupUnwantedPolygons();
+            // Call again after a short delay to catch any that might have been created during shadow setup
+            setTimeout(() => {
+                this.buildingGenerator.cleanupUnwantedPolygons();
+            }, 500);
+        }
+        
+        // Also cleanup from scene directly as a backup
+        this.cleanupWaterMeshesWithoutType();
+
         // Show loading state
         this.showLoading(false);
         
@@ -1718,8 +2809,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         this.cameraController.resetCamera();
 
         // Reset UI values
-        document.getElementById('buildingCount').value = 10;
-        document.getElementById('buildingCountValue').textContent = '10';
+        document.getElementById('buildingCount').value = 70;
+        document.getElementById('buildingCountValue').textContent = '70';
         document.getElementById('minHeight').value = 4;
         document.getElementById('minHeightValue').textContent = '4';
         document.getElementById('maxHeight').value = 20;
@@ -1918,16 +3009,29 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Create empty scene with only ground
      */
     createEmptyScene() {
-        // Clear all buildings
+        // Clear selection first
+        if (this.selectionManager) {
+            this.selectionManager.clearSelection();
+        }
+        
+        // Clear all trees
+        if (this.treeManager && this.treeManager.clearAllTrees) {
+            this.treeManager.clearAllTrees();
+        }
+        
+        // Clear all buildings (this also clears roads and polygons)
         this.sceneManager.clearBuildings();
         this.buildingGenerator.clearBuildings();
+        
+        // Clear all rectangles, circles, and polygons
+        this.clear2DShapes();
 
         // Reset camera
         this.cameraController.resetCamera();
 
         // Reset UI values
-        document.getElementById('buildingCount').value = 10;
-        document.getElementById('buildingCountValue').textContent = '10';
+        document.getElementById('buildingCount').value = 70;
+        document.getElementById('buildingCountValue').textContent = '70';
         document.getElementById('minHeight').value = 4;
         document.getElementById('minHeightValue').textContent = '4';
         document.getElementById('maxHeight').value = 20;
@@ -1937,22 +3041,38 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (!this.sceneManager.getGround()) {
             this.sceneManager.createGround();
         }
+        
+        // Dispatch scene change event to update object list
+        this.dispatchSceneChangeEvent();
     }
 
     /**
      * Create default scene with ground and 10 random buildings
      */
     createDefaultScene() {
-        // Clear all buildings first
+        // Clear selection first
+        if (this.selectionManager) {
+            this.selectionManager.clearSelection();
+        }
+        
+        // Clear all trees
+        if (this.treeManager && this.treeManager.clearAllTrees) {
+            this.treeManager.clearAllTrees();
+        }
+        
+        // Clear all buildings (this also clears roads and polygons)
         this.sceneManager.clearBuildings();
         this.buildingGenerator.clearBuildings();
+        
+        // Clear all rectangles, circles, and polygons
+        this.clear2DShapes();
 
         // Reset camera
         this.cameraController.resetCamera();
 
         // Reset UI values
-        document.getElementById('buildingCount').value = 10;
-        document.getElementById('buildingCountValue').textContent = '10';
+        document.getElementById('buildingCount').value = 70;
+        document.getElementById('buildingCountValue').textContent = '70';
         document.getElementById('minHeight').value = 4;
         document.getElementById('minHeightValue').textContent = '4';
         document.getElementById('maxHeight').value = 20;
@@ -1963,8 +3083,28 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.sceneManager.createGround();
         }
 
-        // Generate 10 random buildings
-        this.buildingGenerator.generateBuildings(10);
+        // Generate 70 random buildings
+        this.buildingGenerator.generateBuildings(70);
+        
+        // Dispatch scene change event to update object list
+        this.dispatchSceneChangeEvent();
+        
+        // Auto-adjust shadow frustum after scene generation
+        // This ensures shadows work correctly in all parts of the scene
+        if (this.lightingManager && this.lightingManager.autoAdjustShadowFrustum) {
+            setTimeout(() => {
+                this.lightingManager.autoAdjustShadowFrustum();
+            }, 800);
+        }
+        
+        // Zoom to fit ground after scene is fully loaded
+        // Use a delay to ensure all objects are rendered and scene is stable
+        setTimeout(() => {
+            if (this.zoomToFitGround) {
+                this.zoomToFitGround();
+                console.log('Auto-zoomed to fit ground after default scene creation');
+            }
+        }, 1000);
     }
 
     /**
@@ -2131,6 +3271,245 @@ Transform your 3D models into powerful energy analysis tools.`;
         }
     }
 
+    /**
+     * Set hemispheric light intensity
+     */
+    setHemisphericIntensity(intensity) {
+        if (this.lightingManager && this.lightingManager.hemisphericLight) {
+            this.lightingManager.hemisphericLight.intensity = intensity;
+            // Update light helper if it exists
+            if (this.lightingManager.updateLightHelper) {
+                this.lightingManager.updateLightHelper();
+            }
+        }
+    }
+
+    updateHemisphericIntensityDisplay(intensity) {
+        const valueDisplay = document.getElementById('hemisphericIntensityValuePref');
+        if (valueDisplay) {
+            valueDisplay.textContent = intensity.toFixed(1);
+        }
+    }
+
+    /**
+     * Set shadow min Z
+     */
+    setShadowMinZ(minZ) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            this.lightingManager.directionalLight.shadowMinZ = minZ;
+            // Force shadow map update
+            if (this.lightingManager.shadowGenerator) {
+                this.lightingManager.shadowGenerator.forceCompilation = true;
+            }
+        }
+    }
+
+    updateShadowMinZDisplay(minZ) {
+        const valueDisplay = document.getElementById('shadowMinZValuePref');
+        if (valueDisplay) {
+            valueDisplay.textContent = minZ.toFixed(3);
+        }
+    }
+
+    /**
+     * Set shadow max Z
+     */
+    setShadowMaxZ(maxZ) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            this.lightingManager.directionalLight.shadowMaxZ = maxZ;
+            // Force shadow map update
+            if (this.lightingManager.shadowGenerator) {
+                this.lightingManager.shadowGenerator.forceCompilation = true;
+            }
+            // Auto-adjust shadow frustum after changing max Z
+            if (this.lightingManager.autoAdjustShadowFrustum) {
+                setTimeout(() => {
+                    this.lightingManager.autoAdjustShadowFrustum();
+                }, 100);
+            }
+        }
+    }
+
+    updateShadowMaxZDisplay(maxZ) {
+        const valueDisplay = document.getElementById('shadowMaxZValuePref');
+        if (valueDisplay) {
+            valueDisplay.textContent = maxZ.toFixed(0);
+        }
+    }
+
+    /**
+     * Set light position X
+     */
+    setLightPositionX(x) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            this.lightingManager.directionalLight.position.x = x;
+            // Update light helper if it exists
+            if (this.lightingManager.updateLightHelper) {
+                this.lightingManager.updateLightHelper();
+            }
+        }
+    }
+
+    updateLightPositionXDisplay(x) {
+        const valueDisplay = document.getElementById('lightPositionXValuePref');
+        if (valueDisplay) {
+            valueDisplay.textContent = x.toFixed(0);
+        }
+    }
+
+    /**
+     * Set light position Y
+     */
+    setLightPositionY(y) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            this.lightingManager.directionalLight.position.y = y;
+            // Update light helper if it exists
+            if (this.lightingManager.updateLightHelper) {
+                this.lightingManager.updateLightHelper();
+            }
+        }
+    }
+
+    updateLightPositionYDisplay(y) {
+        const valueDisplay = document.getElementById('lightPositionYValuePref');
+        if (valueDisplay) {
+            valueDisplay.textContent = y.toFixed(0);
+        }
+    }
+
+    /**
+     * Set light position Z
+     */
+    setLightPositionZ(z) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            this.lightingManager.directionalLight.position.z = z;
+            // Update light helper if it exists
+            if (this.lightingManager.updateLightHelper) {
+                this.lightingManager.updateLightHelper();
+            }
+        }
+    }
+
+    updateLightPositionZDisplay(z) {
+        const valueDisplay = document.getElementById('lightPositionZValuePref');
+        if (valueDisplay) {
+            valueDisplay.textContent = z.toFixed(0);
+        }
+    }
+
+    /**
+     * Set light direction X
+     */
+    setLightDirectionX(x) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            // Get current Y and Z values before normalizing
+            const currentY = this.lightingManager.directionalLight.direction.y;
+            const currentZ = this.lightingManager.directionalLight.direction.z;
+            // Set new direction
+            this.lightingManager.directionalLight.direction = new BABYLON.Vector3(x, currentY, currentZ);
+            // Normalize direction vector
+            this.lightingManager.directionalLight.direction.normalize();
+            // Update sliders to reflect normalized values
+            this.updateLightDirectionXDisplay(this.lightingManager.directionalLight.direction.x);
+            this.updateLightDirectionYDisplay(this.lightingManager.directionalLight.direction.y);
+            this.updateLightDirectionZDisplay(this.lightingManager.directionalLight.direction.z);
+            // Update light helper if it exists
+            if (this.lightingManager.updateLightHelper) {
+                this.lightingManager.updateLightHelper();
+            }
+            // Force shadow map update
+            if (this.lightingManager.shadowGenerator) {
+                this.lightingManager.shadowGenerator.forceCompilation = true;
+            }
+        }
+    }
+
+    updateLightDirectionXDisplay(x) {
+        const valueDisplay = document.getElementById('lightDirectionXValuePref');
+        const slider = document.getElementById('lightDirectionXPref');
+        if (valueDisplay) {
+            valueDisplay.textContent = x.toFixed(1);
+        }
+        if (slider) {
+            slider.value = x;
+        }
+    }
+
+    /**
+     * Set light direction Y
+     */
+    setLightDirectionY(y) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            // Get current X and Z values before normalizing
+            const currentX = this.lightingManager.directionalLight.direction.x;
+            const currentZ = this.lightingManager.directionalLight.direction.z;
+            // Set new direction
+            this.lightingManager.directionalLight.direction = new BABYLON.Vector3(currentX, y, currentZ);
+            // Normalize direction vector
+            this.lightingManager.directionalLight.direction.normalize();
+            // Update sliders to reflect normalized values
+            this.updateLightDirectionXDisplay(this.lightingManager.directionalLight.direction.x);
+            this.updateLightDirectionYDisplay(this.lightingManager.directionalLight.direction.y);
+            this.updateLightDirectionZDisplay(this.lightingManager.directionalLight.direction.z);
+            // Update light helper if it exists
+            if (this.lightingManager.updateLightHelper) {
+                this.lightingManager.updateLightHelper();
+            }
+            // Force shadow map update
+            if (this.lightingManager.shadowGenerator) {
+                this.lightingManager.shadowGenerator.forceCompilation = true;
+            }
+        }
+    }
+
+    updateLightDirectionYDisplay(y) {
+        const valueDisplay = document.getElementById('lightDirectionYValuePref');
+        const slider = document.getElementById('lightDirectionYPref');
+        if (valueDisplay) {
+            valueDisplay.textContent = y.toFixed(1);
+        }
+        if (slider) {
+            slider.value = y;
+        }
+    }
+
+    /**
+     * Set light direction Z
+     */
+    setLightDirectionZ(z) {
+        if (this.lightingManager && this.lightingManager.directionalLight) {
+            // Get current X and Y values before normalizing
+            const currentX = this.lightingManager.directionalLight.direction.x;
+            const currentY = this.lightingManager.directionalLight.direction.y;
+            // Set new direction
+            this.lightingManager.directionalLight.direction = new BABYLON.Vector3(currentX, currentY, z);
+            // Normalize direction vector
+            this.lightingManager.directionalLight.direction.normalize();
+            // Update sliders to reflect normalized values
+            this.updateLightDirectionXDisplay(this.lightingManager.directionalLight.direction.x);
+            this.updateLightDirectionYDisplay(this.lightingManager.directionalLight.direction.y);
+            this.updateLightDirectionZDisplay(this.lightingManager.directionalLight.direction.z);
+            // Update light helper if it exists
+            if (this.lightingManager.updateLightHelper) {
+                this.lightingManager.updateLightHelper();
+            }
+            // Force shadow map update
+            if (this.lightingManager.shadowGenerator) {
+                this.lightingManager.shadowGenerator.forceCompilation = true;
+            }
+        }
+    }
+
+    updateLightDirectionZDisplay(z) {
+        const valueDisplay = document.getElementById('lightDirectionZValuePref');
+        const slider = document.getElementById('lightDirectionZPref');
+        if (valueDisplay) {
+            valueDisplay.textContent = z.toFixed(1);
+        }
+        if (slider) {
+            slider.value = z;
+        }
+    }
 
     /**
      * Reset camera
@@ -2221,6 +3600,13 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Toggle coordinate mode (Local/Global)
      */
     toggleCoordinateMode() {
+        // Don't allow coordinate toggle when scale tool is active (scale only works in local)
+        const activeTool = this.getActiveTransformTool();
+        if (activeTool === 'scale') {
+            console.log('Coordinate toggle is disabled for scale tool (scale only works in local mode)');
+            return;
+        }
+        
         // Toggle coordinate mode
         this.isGlobalMode = !this.isGlobalMode;
         
@@ -2251,6 +3637,30 @@ Transform your 3D models into powerful energy analysis tools.`;
                 toggleIcon.src = 'icons/local.svg';
                 toggleButton.title = 'Switch to Global Coordinates';
             }
+        }
+    }
+
+    /**
+     * Disable coordinate toggle button
+     */
+    disableCoordinateToggle() {
+        const toggleButton = document.getElementById('coordinateToggle');
+        if (toggleButton) {
+            toggleButton.style.opacity = '0.5';
+            toggleButton.style.pointerEvents = 'none';
+            toggleButton.style.cursor = 'not-allowed';
+        }
+    }
+
+    /**
+     * Enable coordinate toggle button
+     */
+    enableCoordinateToggle() {
+        const toggleButton = document.getElementById('coordinateToggle');
+        if (toggleButton) {
+            toggleButton.style.opacity = '1';
+            toggleButton.style.pointerEvents = 'auto';
+            toggleButton.style.cursor = 'pointer';
         }
     }
 
@@ -2640,11 +4050,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         });
 
 
-        // Keyboard events
+        // Keyboard events - Using event.code instead of event.key for language-independent shortcuts
         document.addEventListener('keydown', (event) => {
             // Handle polygon drawing specific keys first
             if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
-                if (event.key === 'Backspace') {
+                if (event.code === 'Backspace') {
                     // Remove last point during polygon drawing
                     const removed = this.polygonManager.removeLastPoint();
                     if (removed) {
@@ -2652,7 +4062,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                         event.preventDefault(); // Prevent default browser behavior
                     }
                     return;
-                } else if (event.key === 'Escape') {
+                } else if (event.code === 'Escape') {
                     this.cancelPolygonDrawing();
                     
                     // Deactivate drawing tool
@@ -2662,7 +4072,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                     }
                     
                     return;
-                } else if (event.key === 'Enter') {
+                } else if (event.code === 'Enter') {
                     this.completePolygonDrawing();
                     
                     // Deactivate drawing tool
@@ -2675,28 +4085,17 @@ Transform your 3D models into powerful energy analysis tools.`;
                 }
             }
 
-            // Handle Shift+F for statistics toggle
-            if (event.shiftKey && event.key.toLowerCase() === 'f') {
+
+            // Handle Shift+F for statistics toggle (using event.code for language independence)
+            if (event.shiftKey && event.code === 'KeyF') {
                 event.preventDefault();
                 this.toggleStatistics();
                 return;
             }
 
-            // Handle Delete key for selected objects (only when not drawing polygon and properties popup is not open)
-            if (event.key === 'Delete' || event.key === 'Backspace') {
-                // Check if properties popup is open
-                const propertiesPopup = document.getElementById('propertiesPopup');
-                if (propertiesPopup && propertiesPopup.classList.contains('show')) {
-                    // Don't delete objects when properties popup is open
-                    return;
-                }
-                this.deleteSelectedObjects();
-                return;
-            }
-
             // Handle Escape key for other drawing modes
             if (this.shape2DManager && this.shape2DManager.isCurrentlyDrawing()) {
-                if (event.key === 'Escape') {
+                if (event.code === 'Escape') {
                     this.shape2DManager.stopInteractiveDrawing();
                     
                     // Re-enable camera controls
@@ -2711,33 +4110,89 @@ Transform your 3D models into powerful energy analysis tools.`;
                     console.log('Drawing cancelled');
                 }
             } else if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
-                if (event.key === 'Escape') {
+                if (event.code === 'Escape') {
                     this.deactivateTreePlacement();
                     console.log('Tree placement cancelled');
                 }
             }
 
-            // Handle Shift+A for Select All
-            if (event.shiftKey && event.key === 'A') {
+            // Handle Shift+A for Select All (using event.code for language independence)
+            if (event.shiftKey && event.code === 'KeyA') {
                 event.preventDefault(); // Prevent default browser behavior
                 this.selectAll();
                 return;
             }
 
-            // Handle Shift+D for Clear Selection
-            if (event.shiftKey && event.key === 'D') {
+            // Handle Shift+D for Clear Selection (using event.code for language independence)
+            if (event.shiftKey && event.code === 'KeyD') {
                 event.preventDefault(); // Prevent default browser behavior
                 this.clearSelection();
                 return;
             }
 
-            // Handle Ctrl+L for Object List Toggle
-            if (event.ctrlKey && event.key.toLowerCase() === 'l') {
+            // Handle Ctrl+L for Object List Toggle (using event.code for language independence)
+            if (event.ctrlKey && event.code === 'KeyL') {
                 event.preventDefault(); // Prevent default browser behavior
                 this.toggleObjectList();
                 return;
             }
+
+            // Handle Ctrl+Alt+D for Duplicate (using event.code for language independence)
+            if (event.ctrlKey && event.altKey && event.code === 'KeyD') {
+                event.preventDefault(); // Prevent default browser behavior
+                event.stopPropagation(); // Stop event propagation
+                console.log('Ctrl+Alt+D pressed - duplicating selected objects');
+                this.duplicateSelected();
+                return;
+            }
         });
+        
+        // Also add global keyboard listener for duplicate (in case document listener doesn't catch it)
+        window.addEventListener('keydown', (event) => {
+            // Handle Ctrl+Alt+D for Duplicate (using event.code for language independence)
+            if (event.ctrlKey && event.altKey && event.code === 'KeyD') {
+                // Only handle if no input field is focused
+                const activeElement = document.activeElement;
+                const isInputFocused = activeElement && (
+                    activeElement.tagName === 'INPUT' || 
+                    activeElement.tagName === 'TEXTAREA' ||
+                    activeElement.isContentEditable
+                );
+                
+                if (!isInputFocused) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    console.log('Ctrl+Alt+D pressed (window listener) - duplicating selected objects');
+                    this.duplicateSelected();
+                }
+            }
+        }, true); // Use capture phase
+
+        // Right click to exit drawing mode and switch to select tool
+        // Use capture phase to handle before SelectionManager's contextmenu handler
+        canvas.addEventListener('contextmenu', (event) => {
+            // Check if we're in drawing mode (rectangle, circle, polygon) or tree placement
+            const isDrawingActive = this.isDrawingModeActive();
+            const isTreeActive = this.treeManager && this.treeManager.isCurrentlyPlacing();
+            
+            if (isDrawingActive || isTreeActive) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation(); // Stop all other handlers on this element
+                
+                // Stop all drawing operations
+                this.stopAllDrawingOperations();
+                
+                // Deactivate all drawing tools
+                const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
+                allDrawingTools.forEach(tool => tool.classList.remove('active'));
+                
+                // Activate select tool
+                this.selectTransformTool('select');
+                
+                console.log('Exited drawing mode via right click, switched to select tool');
+            }
+        }, true); // Use capture phase
     }
 
     /**
@@ -2868,6 +4323,17 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Check if a transform editing tool is active (move, rotate, scale - excluding select)
+     */
+    isTransformEditingToolActive() {
+        const activeTool = document.querySelector('#transformPanel .tool-item.active');
+        if (!activeTool) return false;
+        
+        const toolName = activeTool.getAttribute('data-tool');
+        return ['move', 'rotate', 'scale'].includes(toolName);
+    }
+
+    /**
      * Setup properties popup
      */
     setupPropertiesPopup() {
@@ -2901,9 +4367,178 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Check if a name is unique in the scene
+     * @param {string} newName - The new name to check
+     * @param {BABYLON.Mesh} currentObject - The current object being renamed (to exclude from check)
+     * @returns {boolean} - True if name is unique, false if duplicate
+     */
+    isNameUnique(newName, currentObject) {
+        if (!newName || newName.trim() === '') {
+            return false; // Empty name is not valid
+        }
+        
+        const scene = this.sceneManager.getScene();
+        if (!scene) return false;
+        
+        // Check all meshes in the scene
+        const existingMesh = scene.getMeshByName(newName);
+        
+        // If a mesh with this name exists and it's not the current object, name is duplicate
+        if (existingMesh && existingMesh !== currentObject) {
+            return false;
+        }
+        
+        // Also check transform nodes (for trees)
+        const existingTransformNode = scene.getTransformNodeByName(newName);
+        if (existingTransformNode && existingTransformNode !== currentObject) {
+            return false;
+        }
+        
+        return true; // Name is unique
+    }
+
+    /**
      * Setup auto-save event listeners for all property inputs
      */
     setupAutoSaveListeners() {
+        // Shape name validation
+        const shapeNameInput = document.getElementById('shapeName');
+        if (shapeNameInput) {
+            let originalShapeName = '';
+            
+            shapeNameInput.addEventListener('focus', () => {
+                originalShapeName = shapeNameInput.value;
+            });
+            
+            shapeNameInput.addEventListener('blur', () => {
+                const newName = shapeNameInput.value.trim();
+                if (newName === '') {
+                    shapeNameInput.value = originalShapeName;
+                    alert('Name cannot be empty');
+                    return;
+                }
+                
+                if (!this.isNameUnique(newName, this.currentShape)) {
+                    shapeNameInput.value = originalShapeName;
+                    alert('Duplicate name. Please choose a different name.');
+                    return;
+                }
+                
+                // Name is unique, update the object name
+                if (this.currentShape) {
+                    this.currentShape.name = newName;
+                    // Also update extrusion name if exists
+                    if (this.currentShape.extrusion) {
+                        this.currentShape.extrusion.name = `${newName}_extrusion`;
+                    }
+                    this.dispatchSceneChangeEvent();
+                }
+            });
+        }
+
+        // Circle name validation
+        const circleNameInput = document.getElementById('circleName');
+        if (circleNameInput) {
+            let originalCircleName = '';
+            
+            circleNameInput.addEventListener('focus', () => {
+                originalCircleName = circleNameInput.value;
+            });
+            
+            circleNameInput.addEventListener('blur', () => {
+                const newName = circleNameInput.value.trim();
+                if (newName === '') {
+                    circleNameInput.value = originalCircleName;
+                    alert('Name cannot be empty');
+                    return;
+                }
+                
+                if (!this.isNameUnique(newName, this.currentShape)) {
+                    circleNameInput.value = originalCircleName;
+                    alert('Duplicate name. Please choose a different name.');
+                    return;
+                }
+                
+                // Name is unique, update the object name
+                if (this.currentShape) {
+                    this.currentShape.name = newName;
+                    // Also update extrusion name if exists
+                    if (this.currentShape.extrusion) {
+                        this.currentShape.extrusion.name = `${newName}_extrusion`;
+                    }
+                    this.dispatchSceneChangeEvent();
+                }
+            });
+        }
+
+        // Polygon name validation
+        const polygonNameInput = document.getElementById('polygonName');
+        if (polygonNameInput) {
+            let originalPolygonName = '';
+            
+            polygonNameInput.addEventListener('focus', () => {
+                originalPolygonName = polygonNameInput.value;
+            });
+            
+            polygonNameInput.addEventListener('blur', () => {
+                const newName = polygonNameInput.value.trim();
+                if (newName === '') {
+                    polygonNameInput.value = originalPolygonName;
+                    alert('Name cannot be empty');
+                    return;
+                }
+                
+                if (!this.isNameUnique(newName, this.currentPolygon)) {
+                    polygonNameInput.value = originalPolygonName;
+                    alert('Duplicate name. Please choose a different name.');
+                    return;
+                }
+                
+                // Name is unique, update the object name
+                if (this.currentPolygon) {
+                    this.currentPolygon.name = newName;
+                    // Also update extrusion name if exists
+                    if (this.currentPolygon.extrusion) {
+                        this.currentPolygon.extrusion.name = `${newName}_extrusion`;
+                    }
+                    this.dispatchSceneChangeEvent();
+                }
+            });
+        }
+
+        // Tree name validation
+        const treeNameInput = document.getElementById('treeName');
+        if (treeNameInput) {
+            let originalTreeName = '';
+            
+            treeNameInput.addEventListener('focus', () => {
+                originalTreeName = treeNameInput.value;
+            });
+            
+            treeNameInput.addEventListener('blur', () => {
+                const newName = treeNameInput.value.trim();
+                if (newName === '') {
+                    treeNameInput.value = originalTreeName;
+                    alert('Name cannot be empty');
+                    return;
+                }
+                
+                // For trees, check the parent transform node
+                const currentTree = this.currentTree ? (this.currentTree.parent || this.currentTree) : null;
+                if (!this.isNameUnique(newName, currentTree)) {
+                    treeNameInput.value = originalTreeName;
+                    alert('Duplicate name. Please choose a different name.');
+                    return;
+                }
+                
+                // Name is unique, update the tree name
+                if (currentTree) {
+                    currentTree.name = newName;
+                    this.dispatchSceneChangeEvent();
+                }
+            });
+        }
+
         // Shape properties auto-save
         const shapeInputs = [
             'shapeType', 'shapeColor', 'shapeLength', 'shapeWidth', 'shapeHeight', 'shapeRadius'
@@ -3023,17 +4658,11 @@ Transform your 3D models into powerful energy analysis tools.`;
             if (this.currentShape && this.currentShape.userData?.type === 'building') {
                 const originalHeight = this.currentShape.userData?.originalHeight || 0.05;
                 const scaleFactor = newHeight / originalHeight;
+                const baseY = this.getPolygonBaseWorldY(this.currentShape);
                 
                 this.currentShape.scaling.y = scaleFactor;
-                // Preserve current Y position instead of forcing it to newHeight
-                // This allows the polygon to maintain its vertical position when height changes
-                // this.currentShape.position.y = newHeight; // REMOVED: This was causing the issue
+                this.realignPolygonBase(this.currentShape, baseY);
                 this.currentShape.userData.currentHeight = newHeight;
-                
-                // Update wireframe if exists
-                if (this.selectionManager) {
-                    this.selectionManager.updateWireframeTransforms(this.currentShape);
-                }
             }
         });
 
@@ -3281,6 +4910,7 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     showTreePropertiesPopup(tree) {
         this.currentShape = tree;
+        this.currentTree = tree; // Store tree reference for name validation
         
         console.log('Showing tree properties for:', tree.name);
         
@@ -3330,11 +4960,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0.1, 0.1);
         const radius = parseFloat(document.getElementById('shapeRadius').value) || 0;
         
-        // Round to 1 decimal place
-        const roundedLength = Math.round(length * 10) / 10;
-        const roundedWidth = Math.round(width * 10) / 10;
-        const roundedHeight = Math.round(height * 10) / 10;
-        const roundedRadius = Math.round(radius * 10) / 10;
+        // Round to 2 decimal places
+        const roundedLength = Math.round(length * 100) / 100;
+        const roundedWidth = Math.round(width * 100) / 100;
+        const roundedHeight = Math.round(height * 100) / 100;
+        const roundedRadius = Math.round(radius * 100) / 100;
         
         console.log('Updating rectangle with:', { type, length: roundedLength, width: roundedWidth, height: roundedHeight });
 
@@ -3402,22 +5032,60 @@ Transform your 3D models into powerful energy analysis tools.`;
         const currentRotation = shape.rotation.clone();
         const currentScaling = shape.scaling.clone();
         
+        // Store references before disposing
+        const oldMaterial = shape.material;
+        const materialName = oldMaterial ? oldMaterial.name : null;
+        const oldExtrusion = shape.extrusion;
+        const oldName = shape.name;
+        const oldUserData = shape.userData ? JSON.parse(JSON.stringify(shape.userData)) : null;
+        
+        // Unlink extrusion before disposing to prevent issues
+        if (oldExtrusion) {
+            oldExtrusion.setParent(null);
+            if (oldExtrusion.basePolygon === shape) {
+                oldExtrusion.basePolygon = null;
+            }
+        }
+        
+        // Remove from selection manager before disposing
+        if (this.selectionManager) {
+            this.selectionManager.removeSelectableObject(shape);
+            if (oldExtrusion) {
+                this.selectionManager.removeSelectableObject(oldExtrusion);
+            }
+        }
+        
+        // Check if material is shared with other meshes before disposing
+        let shouldDisposeMaterial = true;
+        if (oldMaterial && oldMaterial !== this.sceneManager.getScene().defaultMaterial) {
+            const scene = this.sceneManager.getScene();
+            // Check if this material is used by other meshes
+            const meshesUsingMaterial = scene.meshes.filter(m => m.material === oldMaterial && m !== shape);
+            if (meshesUsingMaterial.length > 0) {
+                console.log(`Material ${materialName} is shared with ${meshesUsingMaterial.length} other meshes, not disposing`);
+                shouldDisposeMaterial = false;
+            }
+        }
+        
         // Dispose old mesh
         if (shape.geometry) { shape.geometry.dispose(); }
-        if (shape.material && shape.material !== this.sceneManager.getScene().defaultMaterial) { shape.material.dispose(); }
+        if (shouldDisposeMaterial && oldMaterial && oldMaterial !== this.sceneManager.getScene().defaultMaterial) {
+            oldMaterial.dispose();
+        }
         shape.setEnabled(false);
         shape.dispose();
         
         // Create new box with updated dimensions
-        const newRectangle = BABYLON.MeshBuilder.CreateBox(shape.name, {
+        // Use the stored oldName to ensure we use the correct name (shape is disposed, so we can't use shape.name)
+        const newRectangle = BABYLON.MeshBuilder.CreateBox(oldName, {
             width: newLength,
             height: newHeight,
             depth: newWidth
         }, this.sceneManager.getScene());
         
         // Restore all transform properties with smart Y positioning
-        // Calculate the bottom of the original rectangle
-        const originalHeight = shape.userData?.dimensions?.height || shape.userData?.originalHeight || newHeight;
+        // Calculate the bottom of the original rectangle (use stored userData since shape is disposed)
+        const originalHeight = oldUserData?.dimensions?.height || oldUserData?.originalHeight || newHeight;
         const originalBottom = currentPosition.y - (originalHeight / 2);
         
         // Position new rectangle with same bottom but new height
@@ -3430,7 +5098,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         newRectangle.scaling = currentScaling;
         
         // Create new material (color will be set later based on type)
-        const material = new BABYLON.StandardMaterial(`${shape.name}Material`, this.sceneManager.getScene());
+        // Use oldName since shape is already disposed
+        const material = new BABYLON.StandardMaterial(`${oldName}Material`, this.sceneManager.getScene());
         material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
         material.backFaceCulling = false;
         material.twoSidedLighting = true;
@@ -3459,6 +5128,20 @@ Transform your 3D models into powerful energy analysis tools.`;
             originalHeight: newHeight
         };
         
+        // Re-link extrusion to new mesh if it existed
+        if (oldExtrusion) {
+            // Re-parent extrusion to new mesh
+            oldExtrusion.setParent(newRectangle);
+            // Re-link bidirectional references
+            newRectangle.extrusion = oldExtrusion;
+            oldExtrusion.basePolygon = newRectangle;
+            
+            // Add extrusion back to selection manager
+            if (this.selectionManager) {
+                this.selectionManager.addSelectableObject(oldExtrusion);
+            }
+        }
+        
         // Add to selection manager
         if (this.selectionManager) {
             this.selectionManager.addSelectableObject(newRectangle);
@@ -3467,6 +5150,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Enable shadows
         if (this.lightingManager) {
             this.lightingManager.updateShadowsForNewObject(newRectangle);
+            if (oldExtrusion) {
+                this.lightingManager.updateShadowsForNewObject(oldExtrusion);
+            }
         }
         
         // Update rectangleManager rectangles array
@@ -3734,6 +5420,8 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Create polygon mesh using PolygonManager's method
         const mesh = this.createCustomPolygonMesh(relativePoints);
+        
+        // Set properties immediately after creation
         mesh.name = name;
         mesh.material = material;
         mesh.renderingGroupId = 1;
@@ -3741,6 +5429,38 @@ Transform your 3D models into powerful energy analysis tools.`;
         mesh.castShadows = true;
         mesh.position = center;
         mesh.userData = userData;
+        
+        // Ensure material is properly applied
+        if (material) {
+            mesh.material = material;
+        }
+        
+        // Ensure userData is properly set
+        if (userData) {
+            mesh.userData = userData;
+        }
+        
+        // Final validation: ensure type is set correctly
+        if (!mesh.userData || !mesh.userData.type || mesh.userData.type === undefined || mesh.userData.type === null || mesh.userData.type === '') {
+            if (userData && userData.type) {
+                mesh.userData = userData;
+            } else {
+                // If no type provided, set default based on name
+                if (!mesh.userData) {
+                    mesh.userData = {};
+                }
+                // Try to extract type from name (e.g., polygon_water_1 -> water)
+                const nameMatch = name.match(/polygon_(water|waterway|ground|green)_/);
+                if (nameMatch) {
+                    mesh.userData.type = nameMatch[1];
+                } else {
+                    mesh.userData.type = 'ground'; // Default fallback
+                }
+                console.warn(`Polygon ${name} had no type in userData, extracted from name or set to 'ground'`);
+            }
+        }
+        
+        console.log(`Created polygon mesh: ${name}, type: ${mesh.userData?.type || 'unknown'}, material color: R=${material?.diffuseColor?.r?.toFixed(2) || 'N/A'}, G=${material?.diffuseColor?.g?.toFixed(2) || 'N/A'}, B=${material?.diffuseColor?.b?.toFixed(2) || 'N/A'}`);
 
         // Add to selection manager
         if (this.selectionManager) {
@@ -3823,7 +5543,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         this.triangulatePolygon(relativePoints, indices);
 
         const scene = this.sceneManager.getScene();
-        const mesh = new BABYLON.Mesh("polygon", scene);
+        // Use a temporary unique name to avoid conflicts
+        const tempName = `temp_polygon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const mesh = new BABYLON.Mesh(tempName, scene);
         mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
         mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
         mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
@@ -4779,26 +6501,26 @@ Transform your 3D models into powerful energy analysis tools.`;
             const storedDimensions = shape.userData.dimensions;
             
             if (this.getShapeType(shape) === 'rectangle') {
-                dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(1);
-                dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(1);
-                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
+                dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(2);
+                dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(2);
+                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
             } else if (this.getShapeType(shape) === 'building') {
                 // For buildings, check if it's from a circle or rectangle
                 if (storedDimensions.diameterTop !== undefined) {
                     // This is a building from a circle - show diameter and height
-                    dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(1);
-                    dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(1);
-                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
+                    dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(2);
+                    dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(2);
+                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
                 } else {
                     // This is a building from a rectangle - show length, width, and height
-                    dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(1);
-                    dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(1);
-                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
+                    dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(2);
+                    dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(2);
+                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
                 }
             } else if (this.getShapeType(shape) === 'circle') {
-                dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(1);
-                dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(1);
-                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(1);
+                dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(2);
+                dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(2);
+                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
             } else if (this.getShapeType(shape) === 'polygon') {
                 dimensions.area = parseFloat(storedDimensions.area || 0).toFixed(2);
                 dimensions.perimeter = parseFloat(storedDimensions.perimeter || 0).toFixed(2);
@@ -4861,6 +6583,29 @@ Transform your 3D models into powerful energy analysis tools.`;
         let timeoutId = null;
         let isTyping = false;
 
+        const applyStepChange = () => {
+            const currentValue = parseFloat(input.value) || 0;
+            const step = parseFloat(input.step) || 0.1;
+            const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
+            const max = input.max !== '' ? parseFloat(input.max) : Infinity;
+
+            const newValue = isIncreasing ? currentValue + step : currentValue - step;
+            const constrainedValue = Math.max(min, Math.min(max, newValue));
+            const roundedValue = Math.round(constrainedValue * 100) / 100;
+
+            if (roundedValue === currentValue) {
+                return;
+            }
+
+            input.value = roundedValue;
+            isTyping = false;
+
+            const inputEvent = new Event('input', { bubbles: true });
+            const changeEvent = new Event('change', { bubbles: true });
+            input.dispatchEvent(inputEvent);
+            input.dispatchEvent(changeEvent);
+        };
+
         // Handle mouse down on spin buttons
         input.addEventListener('mousedown', (e) => {
             // Check if click is on spin button
@@ -4875,26 +6620,15 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Determine if clicking up or down arrow
                 isIncreasing = clickY < rect.height / 2;
                 isMouseDown = true;
-                
+
+                applyStepChange();
+
                 // Start continuous change after a short delay
                 timeoutId = setTimeout(() => {
                     if (isMouseDown && !isTyping) {
                         intervalId = setInterval(() => {
                             if (isMouseDown && !isTyping) {
-                                const currentValue = parseFloat(input.value) || 0;
-                                const step = parseFloat(input.step) || 0.1;
-                                const newValue = isIncreasing ? currentValue + step : currentValue - step;
-                                
-                                // Apply min/max constraints
-                                const min = parseFloat(input.min) || 0;
-                                const max = parseFloat(input.max) || Infinity;
-                                const constrainedValue = Math.max(min, Math.min(max, newValue));
-                                
-                                // Round to 1 decimal place
-                                const roundedValue = Math.round(constrainedValue * 10) / 10;
-                                
-                                input.value = roundedValue;
-                                updateCallback();
+                                applyStepChange();
                             }
                         }, 50); // Change every 50ms
                     }
@@ -4934,7 +6668,7 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Handle focus events to detect typing
         input.addEventListener('focus', () => {
-            isTyping = true;
+            isTyping = false;
         });
 
         input.addEventListener('blur', () => {
@@ -4946,13 +6680,17 @@ Transform your 3D models into powerful energy analysis tools.`;
             isTyping = true;
         });
 
+        input.addEventListener('keyup', () => {
+            isTyping = false;
+        });
+
         // Handle input events - immediate update for real-time changes
         input.addEventListener('input', () => {
-            isTyping = true;
+            isTyping = false;
             
-            // Round to 1 decimal place
+            // Round to 2 decimal places
             const currentValue = parseFloat(input.value) || 0;
-            const roundedValue = Math.round(currentValue * 10) / 10;
+            const roundedValue = Math.round(currentValue * 100) / 100;
             input.value = roundedValue;
             
             updateCallback(); // Immediate update
@@ -4965,14 +6703,17 @@ Transform your 3D models into powerful energy analysis tools.`;
     generateUniqueNameByType(type) {
         // Count existing objects of this type in the scene
         let maxNumber = 0;
+        const usedNumbers = new Set();
         const scene = this.sceneManager.getScene();
         
         // Check all meshes in the scene for names of this type
+        // Only count enabled meshes that are still in the scene
         scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.name.startsWith(`${type}_`)) {
-                const match = mesh.name.match(new RegExp(`${type}_(\\d+)`));
+            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(`${type}_`)) {
+                const match = mesh.name.match(new RegExp(`^${type}_(\\d+)$`));
                 if (match) {
                     const number = parseInt(match[1]);
+                    usedNumbers.add(number);
                     if (number > maxNumber) {
                         maxNumber = number;
                     }
@@ -4980,8 +6721,15 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         });
         
+        // Find the first available number (not just maxNumber + 1)
+        // This prevents duplicate names when objects are deleted
+        let nextNumber = 1;
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+        
         // Return next available number
-        return `${type}_${maxNumber + 1}`;
+        return `${type}_${nextNumber}`;
     }
 
     /**
@@ -5027,6 +6775,71 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
+     * Clean up all water_* meshes without proper type
+     * This is a backup cleanup method that works directly on the scene
+     */
+    cleanupWaterMeshesWithoutType() {
+        if (!this.sceneManager) return;
+        
+        const scene = this.sceneManager.getScene();
+        if (!scene) return;
+        
+        // Find all meshes with name starting with 'water_' that don't have a valid type
+        const unwantedMeshes = scene.meshes.filter(mesh => {
+            if (!mesh.name || !mesh.name.startsWith('water_')) return false;
+            
+            // Check if mesh has no type in userData or type is invalid
+            const hasNoType = !mesh.userData || !mesh.userData.type || mesh.userData.type === undefined || mesh.userData.type === null || mesh.userData.type === '';
+            
+            // Also check if it's a rectangle (not a polygon) with water name
+            const isRectangleNotPolygon = mesh.userData && mesh.userData.shapeType === 'rectangle';
+            
+            // Remove if: has no type OR is a rectangle (not polygon)
+            return hasNoType || isRectangleNotPolygon;
+        });
+        
+        if (unwantedMeshes.length > 0) {
+            console.log(`[UIManager] Found ${unwantedMeshes.length} unwanted water_* meshes, removing...`);
+            
+            unwantedMeshes.forEach(mesh => {
+                console.log(`[UIManager] Removing: ${mesh.name} (type: ${mesh.userData?.type || 'none'})`);
+                
+                // Remove from selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(mesh);
+                }
+                
+                // Remove from scene
+                try {
+                    scene.removeMesh(mesh);
+                } catch (e) {
+                    console.warn(`Error removing mesh ${mesh.name}:`, e);
+                }
+                
+                // Dispose material
+                try {
+                    if (mesh.material && mesh.material.dispose) {
+                        mesh.material.dispose();
+                    }
+                } catch (e) {
+                    console.warn(`Error disposing material:`, e);
+                }
+                
+                // Dispose mesh
+                try {
+                    if (mesh.dispose) {
+                        mesh.dispose();
+                    }
+                } catch (e) {
+                    console.warn(`Error disposing mesh:`, e);
+                }
+            });
+            
+            console.log(`[UIManager] Removed ${unwantedMeshes.length} unwanted water_* meshes`);
+        }
+    }
+
+    /**
      * Get color for a specific type - Centralized color configuration
      */
     getColorByType(type) {
@@ -5035,8 +6848,10 @@ Transform your 3D models into powerful energy analysis tools.`;
                 return new BABYLON.Color3(1, 1, 1); // White for buildings
             case 'ground':
                 return new BABYLON.Color3(0.4, 0.3, 0.2); // Brown for ground
+            case 'water':
+                return new BABYLON.Color3(0, 0.4, 0.8); // Blue for water
             case 'waterway':
-                return new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
+                return new BABYLON.Color3(0, 0.5, 1); // Light blue for waterway
             case 'highway':
                 return new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
             case 'green':
@@ -5079,29 +6894,34 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Save shape properties
      */
     saveShapeProperties() {
-        // Get the shape name from the properties popup
-        const shapeNameElement = document.getElementById('shapeName');
-        if (!shapeNameElement) {
-            console.warn('Cannot save properties: shape name element not found');
-            return;
-        }
-
-        const shapeName = shapeNameElement.value;
-        if (!shapeName) {
-            console.warn('Cannot save properties: shape name is empty');
-            return;
-        }
-
-        // Find the shape in the scene
-        const scene = this.sceneManager.getScene();
-        const shape = scene.getMeshByName(shapeName);
+        // Use currentShape if available, otherwise try to find by name
+        let shape = this.currentShape;
+        
         if (!shape) {
-            console.warn('Cannot save properties: shape not found in scene:', shapeName);
-            return;
-        }
+            // Fallback: try to find by name from input field
+            const shapeNameElement = document.getElementById('shapeName');
+            if (!shapeNameElement) {
+                console.warn('Cannot save properties: shape name element not found');
+                return;
+            }
 
-        // Set currentShape for updateShapeInRealTime
-        this.currentShape = shape;
+            const shapeName = shapeNameElement.value;
+            if (!shapeName) {
+                console.warn('Cannot save properties: shape name is empty');
+                return;
+            }
+
+            // Find the shape in the scene
+            const scene = this.sceneManager.getScene();
+            shape = scene.getMeshByName(shapeName);
+            if (!shape) {
+                console.warn('Cannot save properties: shape not found in scene:', shapeName);
+                return;
+            }
+            
+            // Set currentShape for future use
+            this.currentShape = shape;
+        }
 
         // Get the height value from the popup
         const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0, 0.001);
@@ -5434,10 +7254,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Get height value (always available for circles)
         const height = Math.max(parseFloat(document.getElementById('circleHeight').value) || 0.1, 0.1);
         
-        // Round to 1 decimal place
-        const roundedDiameterTop = Math.round(diameterTop * 10) / 10;
-        const roundedDiameterBottom = Math.round(diameterBottom * 10) / 10;
-        const roundedHeight = Math.round(height * 10) / 10;
+        // Round to 2 decimal places
+        const roundedDiameterTop = Math.round(diameterTop * 100) / 100;
+        const roundedDiameterBottom = Math.round(diameterBottom * 100) / 100;
+        const roundedHeight = Math.round(height * 100) / 100;
         
         console.log('Updating circle with:', { type, diameterTop: roundedDiameterTop, diameterBottom: roundedDiameterBottom, height: roundedHeight });
 
@@ -5495,6 +7315,7 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     showPolygonPropertiesPopup(polygon) {
         this.currentShape = polygon;
+        this.currentPolygon = polygon; // Store polygon reference for name validation
         
         // Store original values for cancel functionality
         const type = polygon.userData?.type || 'ground';
@@ -5508,9 +7329,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Set type
         document.getElementById('polygonType').value = type;
         
-        // Generate and set unique name based on type
-        const uniqueName = this.generateUniquePolygonName(type);
-        document.getElementById('polygonName').value = uniqueName;
+        // Use current polygon name (don't generate new name)
+        document.getElementById('polygonName').value = polygon.name;
         
         // Set color
         document.getElementById('polygonColor').value = color;
@@ -5570,9 +7390,21 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (!this.currentShape) return;
 
         // Get values from popup
-        const name = document.getElementById('polygonName').value;
+        const name = document.getElementById('polygonName').value.trim();
         const type = document.getElementById('polygonType').value;
         const color = document.getElementById('polygonColor').value;
+        
+        // Validate name (should already be validated by blur event, but double-check)
+        if (!name || name === '') {
+            console.warn('Cannot save polygon properties: name is empty');
+            return;
+        }
+        
+        // Check if name is unique (should already be validated, but double-check)
+        if (!this.isNameUnique(name, this.currentShape)) {
+            console.warn('Cannot save polygon properties: name is duplicate');
+            return;
+        }
         
         // Get height only for building type
         let height = undefined;
@@ -5580,8 +7412,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             height = parseFloat(document.getElementById('polygonHeight').value) || 1;
         }
 
-        // Update polygon name
-        this.currentShape.name = name;
+        // Update polygon name (only if it changed)
+        if (this.currentShape.name !== name) {
+            this.currentShape.name = name;
+            // Also update extrusion name if exists
+            if (this.currentShape.extrusion) {
+                this.currentShape.extrusion.name = `${name}_extrusion`;
+            }
+        }
 
         // Update polygon properties
         this.updatePolygonProperties(this.currentShape, {
@@ -5646,6 +7484,63 @@ Transform your 3D models into powerful energy analysis tools.`;
 
 
     /**
+     * Get the desired base Y position for a polygon (stores it if missing)
+     */
+    getPolygonBaseWorldY(polygon) {
+        if (!polygon) return 0;
+
+        polygon.computeWorldMatrix(true);
+        const boundingInfo = polygon.getBoundingInfo();
+        if (!boundingInfo || !boundingInfo.boundingBox) {
+            return 0;
+        }
+
+        const rawMinY = boundingInfo.boundingBox.minimumWorld.y;
+        const normalizedMinY = Math.abs(rawMinY) < 0.0001 ? 0 : rawMinY;
+
+        const userData = polygon.userData = polygon.userData || {};
+        const previousBaseY = userData.baseY;
+
+        if (previousBaseY === undefined || Math.abs(previousBaseY - normalizedMinY) > 0.0001) {
+            userData.baseY = normalizedMinY;
+        }
+
+        return userData.baseY;
+    }
+
+    /**
+     * Realign a polygon so its base stays anchored at the specified world Y level
+     */
+    realignPolygonBase(polygon, baseY) {
+        if (!polygon) return;
+
+        polygon.computeWorldMatrix(true);
+        const boundingInfo = polygon.getBoundingInfo();
+        if (!boundingInfo || !boundingInfo.boundingBox) {
+            return;
+        }
+
+        const minWorldY = boundingInfo.boundingBox.minimumWorld.y;
+        const normalizedMinY = Math.abs(minWorldY) < 0.0001 ? 0 : minWorldY;
+        const normalizedBaseY = Math.abs(baseY) < 0.0001 ? 0 : baseY;
+        const deltaY = normalizedBaseY - normalizedMinY;
+
+        if (Math.abs(deltaY) > 0.0001) {
+            polygon.position.y += deltaY;
+            polygon.computeWorldMatrix(true);
+        }
+
+        polygon.userData = polygon.userData || {};
+        polygon.userData.baseY = baseY;
+
+        if (this.selectionManager) {
+            this.selectionManager.updateWireframeTransforms(polygon);
+        }
+    }
+
+
+
+    /**
      * Update polygon properties
      */
     updatePolygonProperties(polygon, properties) {
@@ -5669,17 +7564,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (properties.height !== undefined && properties.type === 'building') {
             const originalHeight = polygon.userData?.originalHeight || 0.05;
             const scaleFactor = properties.height / originalHeight;
+            const baseY = this.getPolygonBaseWorldY(polygon);
             
             polygon.scaling.y = scaleFactor;
-            // Preserve current Y position instead of forcing it to properties.height
-            // This allows the polygon to maintain its vertical position when height changes
-            // polygon.position.y = properties.height; // REMOVED: This was causing the issue
+            this.realignPolygonBase(polygon, baseY);
             polygon.userData.currentHeight = properties.height;
-            
-            // Update wireframe if exists
-            if (this.selectionManager) {
-                this.selectionManager.updateWireframeTransforms(polygon);
-            }
         }
 
         console.log('Updated polygon properties:', properties);
@@ -5753,10 +7642,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         const originalHeight = polygon.userData?.originalHeight || 0.1;
         const scaleFactor = targetHeight / originalHeight;
         
+        const baseY = this.getPolygonBaseWorldY(polygon);
         polygon.scaling.y = scaleFactor;
-        // Preserve current Y position instead of forcing it to targetHeight
-        // This allows the polygon to maintain its vertical position when type changes
-        // polygon.position.y = targetHeight; // REMOVED: This was causing the issue
+        this.realignPolygonBase(polygon, baseY);
         
         // Update userData
         polygon.userData.currentHeight = targetHeight;
@@ -5873,5 +7761,233 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (this.objectListManager) {
             this.objectListManager.updateObjectList();
         }
+    }
+
+    /**
+     * Setup transform input fields (X, Y, Z position inputs at bottom of screen)
+     */
+    setupTransformInputFields() {
+        const transformX = document.getElementById('transformX');
+        const transformY = document.getElementById('transformY');
+        const transformZ = document.getElementById('transformZ');
+        
+        if (!transformX || !transformY || !transformZ) {
+            console.warn('Transform input fields not found');
+            return;
+        }
+
+        // Flag to prevent circular updates
+        this.isUpdatingFromInput = false;
+
+        // Listen for input changes - update object position
+        transformX.addEventListener('input', () => {
+            this.handleTransformInputChange('x', parseFloat(transformX.value) || 0);
+        });
+        
+        transformY.addEventListener('input', () => {
+            this.handleTransformInputChange('y', parseFloat(transformY.value) || 0);
+        });
+        
+        transformZ.addEventListener('input', () => {
+            this.handleTransformInputChange('z', parseFloat(transformZ.value) || 0);
+        });
+
+        // Listen for position changes from MoveManager via scene render loop
+        const scene = this.sceneManager.getScene();
+        let lastPositions = new Map();
+        
+        // Check transform changes in render loop
+        scene.onBeforeRenderObservable.add(() => {
+            if (this.isTransformEditingToolActive() && this.selectionManager && !this.isUpdatingFromInput) {
+                const selectedObjects = this.selectionManager.getSelectedObjects();
+                if (selectedObjects.length === 1) {
+                    const obj = selectedObjects[0];
+                    const activeTool = this.getActiveTransformTool();
+                    
+                    // Get current transform values based on active tool
+                    let currentTransform;
+                    if (activeTool === 'move') {
+                        currentTransform = obj.position;
+                    } else if (activeTool === 'rotate') {
+                        currentTransform = obj.rotation;
+                    } else if (activeTool === 'scale') {
+                        currentTransform = obj.scaling;
+                    } else {
+                        currentTransform = obj.position;
+                    }
+                    
+                    const lastTransform = lastPositions.get(obj);
+                    
+                    // Check if transform changed significantly
+                    if (!lastTransform || 
+                        Math.abs(currentTransform.x - lastTransform.x) > 0.01 ||
+                        Math.abs(currentTransform.y - lastTransform.y) > 0.01 ||
+                        Math.abs(currentTransform.z - lastTransform.z) > 0.01) {
+                        this.updateTransformInputFieldsValues();
+                        lastPositions.set(obj, currentTransform.clone());
+                    }
+                } else {
+                    // Clear last transforms if selection changed
+                    lastPositions.clear();
+                }
+            }
+        });
+    }
+
+    /**
+     * Update transform input fields visibility based on active transform tool
+     */
+    updateTransformInputFieldsVisibility() {
+        const transformInputPanel = document.getElementById('transformInputPanel');
+        if (!transformInputPanel) return;
+
+        // Only show fields for move, rotate, scale tools (not select or drawing tools)
+        const isTransformEditingToolActive = this.isTransformEditingToolActive();
+        
+        if (isTransformEditingToolActive) {
+            transformInputPanel.style.display = 'flex';
+            // Update values if object is selected
+            this.updateTransformInputFieldsValues();
+        } else {
+            transformInputPanel.style.display = 'none';
+        }
+    }
+
+    /**
+     * Update transform input fields values from selected object transform
+     */
+    updateTransformInputFieldsValues() {
+        if (this.isUpdatingFromInput) return;
+        
+        const transformX = document.getElementById('transformX');
+        const transformY = document.getElementById('transformY');
+        const transformZ = document.getElementById('transformZ');
+        
+        if (!transformX || !transformY || !transformZ) return;
+
+        if (!this.selectionManager) return;
+        
+        const selectedObjects = this.selectionManager.getSelectedObjects();
+        
+        if (selectedObjects.length === 1) {
+            const obj = selectedObjects[0];
+            const activeTool = this.getActiveTransformTool();
+            
+            let x, y, z;
+            
+            if (activeTool === 'move') {
+                // Position values
+                x = obj.position.x;
+                y = obj.position.y;
+                z = obj.position.z;
+            } else if (activeTool === 'rotate') {
+                // Rotation values (convert from radians to degrees)
+                x = obj.rotation.x * (180 / Math.PI);
+                y = obj.rotation.y * (180 / Math.PI);
+                z = obj.rotation.z * (180 / Math.PI);
+            } else if (activeTool === 'scale') {
+                // Scale values
+                x = obj.scaling.x;
+                y = obj.scaling.y;
+                z = obj.scaling.z;
+            } else {
+                // Default to position
+                x = obj.position.x;
+                y = obj.position.y;
+                z = obj.position.z;
+            }
+            
+            // Round to 2 decimal places
+            transformX.value = Math.round(x * 100) / 100;
+            transformY.value = Math.round(y * 100) / 100;
+            transformZ.value = Math.round(z * 100) / 100;
+        } else if (selectedObjects.length > 1) {
+            // For multiple objects, leave empty
+            transformX.value = '';
+            transformY.value = '';
+            transformZ.value = '';
+        } else {
+            // No selection - clear fields
+            transformX.value = '';
+            transformY.value = '';
+            transformZ.value = '';
+        }
+    }
+
+    /**
+     * Handle transform input field change - update object transform
+     */
+    handleTransformInputChange(axis, value) {
+        if (!this.selectionManager) return;
+        
+        const selectedObjects = this.selectionManager.getSelectedObjects();
+        if (selectedObjects.length !== 1) return;
+
+        const obj = selectedObjects[0];
+        const activeTool = this.getActiveTransformTool();
+        
+        // Set flag to prevent circular update
+        this.isUpdatingFromInput = true;
+        
+        // Update transform based on active tool and axis
+        if (activeTool === 'move') {
+            // Update position
+            if (axis === 'x') {
+                obj.position.x = value;
+            } else if (axis === 'y') {
+                obj.position.y = value;
+            } else if (axis === 'z') {
+                obj.position.z = value;
+            }
+        } else if (activeTool === 'rotate') {
+            // Update rotation (convert from degrees to radians)
+            const radians = value * (Math.PI / 180);
+            if (axis === 'x') {
+                obj.rotation.x = radians;
+            } else if (axis === 'y') {
+                obj.rotation.y = radians;
+            } else if (axis === 'z') {
+                obj.rotation.z = radians;
+            }
+        } else if (activeTool === 'scale') {
+            // Update scale
+            if (axis === 'x') {
+                obj.scaling.x = value;
+            } else if (axis === 'y') {
+                obj.scaling.y = value;
+            } else if (axis === 'z') {
+                obj.scaling.z = value;
+            }
+        } else {
+            // Default to position
+            if (axis === 'x') {
+                obj.position.x = value;
+            } else if (axis === 'y') {
+                obj.position.y = value;
+            } else if (axis === 'z') {
+                obj.position.z = value;
+            }
+        }
+        
+        // Update wireframe if exists
+        if (this.selectionManager) {
+            this.selectionManager.updateWireframeTransforms(obj);
+        }
+        
+        // Reset flag after a short delay
+        setTimeout(() => {
+            this.isUpdatingFromInput = false;
+        }, 100);
+    }
+
+    /**
+     * Get the currently active transform tool
+     */
+    getActiveTransformTool() {
+        const activeTool = document.querySelector('#transformPanel .tool-item.active:not([data-tool="coordinate-toggle"])');
+        if (activeTool) {
+            return activeTool.getAttribute('data-tool');
+        }
+        return 'select';
     }
 }

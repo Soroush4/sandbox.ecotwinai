@@ -35,14 +35,18 @@ class TreeManager {
     async loadTreeModels() {
         const treeTypes = ['1', '2', '3', '4'];
         
+        console.log('Loading tree models...');
         for (const treeType of treeTypes) {
             try {
                 const model = await this.loadTreeModel(`assets/Models/Trees/${treeType}.glb`);
                 this.treeModels.set(treeType, model);
+                console.log(`✓ Successfully loaded tree model: ${treeType}.glb`);
             } catch (error) {
-                // console.error(`Failed to load tree model ${treeType}:`, error);
+                console.error(`✗ Failed to load tree model ${treeType}.glb:`, error);
             }
         }
+        console.log(`Tree models loaded: ${this.treeModels.size} out of ${treeTypes.length}`);
+        console.log(`Loaded types:`, Array.from(this.treeModels.keys()));
     }
 
     /**
@@ -83,6 +87,64 @@ class TreeManager {
     stopTreePlacement() {
         this.isPlacingTree = false;
         this.selectedTreeType = null;
+    }
+
+    /**
+     * Place a tree at the specified position with a random type
+     * This method is used for automatic tree generation (e.g., on polygons)
+     */
+    placeTreeAtPosition(position, treeSize = null) {
+        // All available tree types (1, 2, 3, 4)
+        const allTreeTypes = ['1', '2', '3', '4'];
+        
+        // Get available tree types that are actually loaded
+        const loadedTypes = Array.from(this.treeModels.keys());
+        
+        // Debug: log loaded types
+        console.log(`Loaded tree types:`, loadedTypes);
+        console.log(`Total loaded models:`, this.treeModels.size);
+        
+        // Filter to only use types that are actually loaded
+        const availableTypes = allTreeTypes.filter(type => this.treeModels.has(type));
+        
+        if (availableTypes.length === 0) {
+            // No models loaded, use simple tree
+            console.log(`No tree models loaded, using simple tree as fallback`);
+            return this.createSimpleTree(position);
+        }
+        
+        // Randomly select a tree type from available loaded types
+        const randomIndex = Math.floor(Math.random() * availableTypes.length);
+        const randomType = availableTypes[randomIndex];
+        
+        console.log(`Placing tree of type ${randomType} (selected from ${availableTypes.length} available types: ${availableTypes.join(', ')}) at position:`, position);
+        
+        // Temporarily set tree type and placement mode
+        const originalIsPlacing = this.isPlacingTree;
+        const originalSelectedType = this.selectedTreeType;
+        
+        this.isPlacingTree = true;
+        this.selectedTreeType = randomType;
+        
+        // Temporarily set height parameters if treeSize is provided
+        const originalMinHeight = this.minHeight;
+        const originalMaxHeight = this.maxHeight;
+        
+        if (treeSize !== null) {
+            this.minHeight = treeSize;
+            this.maxHeight = treeSize;
+        }
+        
+        // Place the tree
+        const treeData = this.placeTree(position);
+        
+        // Restore original state
+        this.isPlacingTree = originalIsPlacing;
+        this.selectedTreeType = originalSelectedType;
+        this.minHeight = originalMinHeight;
+        this.maxHeight = originalMaxHeight;
+        
+        return treeData;
     }
 
     /**
@@ -280,32 +342,47 @@ class TreeManager {
     removeTree(tree) {
         if (!tree) return;
 
-        // Remove from selection manager
+        // Remove from selection manager first
         if (this.selectionManager) {
             this.selectionManager.removeSelectableObject(tree.parent);
         }
 
-        // Dispose all meshes and their materials
-        tree.meshes.forEach(mesh => {
-            // Dispose the material only if it's not shared with other meshes
-            if (mesh.material) {
-                // Check if this material is used by other meshes in the scene
-                const isMaterialShared = this.scene.meshes.some(otherMesh => 
-                    otherMesh !== mesh && 
-                    otherMesh.material === mesh.material &&
-                    !otherMesh.isDisposed()
-                );
-                
-                // Only dispose the material if it's not shared
-                if (!isMaterialShared) {
-                    mesh.material.dispose();
+        // Remove all meshes from scene and dispose them
+        if (tree.meshes && tree.meshes.length > 0) {
+            tree.meshes.forEach(mesh => {
+                if (mesh && !mesh.isDisposed()) {
+                    // Remove from scene first
+                    this.scene.removeMesh(mesh);
+                    
+                    // Dispose the material only if it's not shared with other meshes
+                    if (mesh.material) {
+                        // Check if this material is used by other meshes in the scene
+                        const isMaterialShared = this.scene.meshes.some(otherMesh => 
+                            otherMesh !== mesh && 
+                            otherMesh.material === mesh.material &&
+                            !otherMesh.isDisposed()
+                        );
+                        
+                        // Only dispose the material if it's not shared
+                        if (!isMaterialShared) {
+                            mesh.material.dispose();
+                        }
+                    }
+                    
+                    // Dispose the mesh
+                    mesh.dispose();
                 }
-            }
-            mesh.dispose();
-        });
+            });
+        }
 
-        // Dispose parent
-        tree.parent.dispose();
+        // Remove parent TransformNode from scene and dispose it
+        if (tree.parent && !tree.parent.isDisposed()) {
+            // Remove from scene
+            this.scene.removeTransformNode(tree.parent);
+            
+            // Dispose parent
+            tree.parent.dispose();
+        }
 
         // Remove from trees array
         const index = this.trees.indexOf(tree);
@@ -320,11 +397,63 @@ class TreeManager {
      * Clear all trees
      */
     clearAllTrees() {
-        this.trees.forEach(tree => {
+        // Create a copy of the trees array to avoid issues during iteration
+        const treesToRemove = [...this.trees];
+        
+        // Remove each tree
+        treesToRemove.forEach(tree => {
             this.removeTree(tree);
         });
+        
+        // Clear the trees array
         this.trees = [];
-        // console.log('All trees cleared');
+        
+        // Also find and remove any remaining tree meshes or TransformNodes from the scene
+        // This is a safety measure in case some trees weren't properly tracked
+        const scene = this.scene;
+        if (scene) {
+            // Find all TransformNodes with tree names
+            const treeTransformNodes = scene.transformNodes.filter(node => 
+                node.name && (node.name.startsWith('tree_') || node.name.startsWith('simple_tree_'))
+            );
+            
+            treeTransformNodes.forEach(node => {
+                // Get child meshes
+                const childMeshes = node.getChildMeshes();
+                childMeshes.forEach(mesh => {
+                    if (mesh && !mesh.isDisposed()) {
+                        scene.removeMesh(mesh);
+                        if (mesh.material && !mesh.material.isDisposed()) {
+                            mesh.material.dispose();
+                        }
+                        mesh.dispose();
+                    }
+                });
+                
+                // Remove and dispose the TransformNode
+                if (!node.isDisposed()) {
+                    scene.removeTransformNode(node);
+                    node.dispose();
+                }
+            });
+            
+            // Also find any orphaned tree meshes (meshes with tree names but no parent)
+            const orphanedTreeMeshes = scene.meshes.filter(mesh => 
+                mesh.name && 
+                (mesh.name.startsWith('tree_') || mesh.name.includes('_tree_') || mesh.name.startsWith('simple_tree_')) &&
+                !mesh.isDisposed()
+            );
+            
+            orphanedTreeMeshes.forEach(mesh => {
+                scene.removeMesh(mesh);
+                if (mesh.material && !mesh.material.isDisposed()) {
+                    mesh.material.dispose();
+                }
+                mesh.dispose();
+            });
+        }
+        
+        console.log(`Cleared all trees from scene (removed ${treesToRemove.length} tracked trees)`);
     }
 
     /**

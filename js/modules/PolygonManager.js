@@ -371,14 +371,18 @@ class PolygonManager {
         // Create triangles using proper polygon triangulation
         this.triangulatePolygon(relativePoints, indices);
 
-        // Create the mesh
-        const mesh = new BABYLON.Mesh("polygon", this.scene);
+        // Create the mesh with a temporary name (will be set by caller)
+        const mesh = new BABYLON.Mesh("temp_polygon", this.scene);
         
         // Set vertex data
         mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
         mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
         mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
         mesh.setIndices(indices);
+        
+        // Recalculate normals to ensure correct direction (upward)
+        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
 
         return mesh;
     }
@@ -1211,6 +1215,10 @@ class PolygonManager {
         
         // Store polygon properties in userData
         const dimensions = this.calculatePolygonDimensions();
+        this.currentPolygon.computeWorldMatrix(true);
+        const boundingInfo = this.currentPolygon.getBoundingInfo();
+        const rawBaseY = boundingInfo?.boundingBox?.minimumWorld.y || 0;
+        const baseY = Math.abs(rawBaseY) < 0.0001 ? 0 : rawBaseY;
         this.currentPolygon.userData = {
             type: 'ground',
             shapeType: 'polygon',
@@ -1218,7 +1226,8 @@ class PolygonManager {
             points: this.points.map(p => p.clone()),
             originalHeight: 0.1, // Initial height
             currentHeight: 0.1, // Current height (will change based on type)
-            is3D: true
+            is3D: true,
+            baseY: baseY
         };
         
         // Set name
@@ -1253,6 +1262,45 @@ class PolygonManager {
         }
     }
 
+    /**
+     * Clear all manually drawn polygons from the scene
+     * (Generated polygons are handled by BuildingGenerator)
+     */
+    clearAllPolygons() {
+        const scene = this.scene;
+        if (!scene) return;
+        
+        // Find all manually drawn polygons (not generated ones)
+        // Generated polygons have names starting with 'polygon_'
+        const polygons = scene.meshes.filter(mesh => {
+            return mesh.userData && 
+                   mesh.userData.shapeType === 'polygon' && 
+                   mesh.name && 
+                   !mesh.name.startsWith('polygon_');
+        });
+        
+        // Remove and dispose each polygon
+        polygons.forEach(polygon => {
+            if (polygon && polygon.dispose) {
+                scene.removeMesh(polygon);
+                if (polygon.material) {
+                    polygon.material.dispose();
+                }
+                // Also dispose extrusion if exists
+                if (polygon.extrusion && polygon.extrusion.dispose) {
+                    scene.removeMesh(polygon.extrusion);
+                    if (polygon.extrusion.material) {
+                        polygon.extrusion.material.dispose();
+                    }
+                    polygon.extrusion.dispose();
+                }
+                polygon.dispose();
+            }
+        });
+        
+        console.log(`Cleared ${polygons.length} manually drawn polygons from scene`);
+    }
+    
     /**
      * Cancel current polygon drawing
      */

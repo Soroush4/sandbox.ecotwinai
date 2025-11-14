@@ -189,6 +189,14 @@ class MoveManager {
             this.originalPosition = selectedObject.position.clone();
             this.originalCenter = this.singleObjectCenter.position.clone();
         }
+        
+        // Update shadow frustum after objects are moved
+        // This ensures shadows work correctly in all parts of the scene
+        if (window.digitalTwinApp && window.digitalTwinApp.lightingManager) {
+            setTimeout(() => {
+                window.digitalTwinApp.lightingManager.autoAdjustShadowFrustum();
+            }, 100);
+        }
     }
 
 

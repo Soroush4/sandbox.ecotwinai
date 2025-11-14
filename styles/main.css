@@ -1798,3 +1798,61 @@ input[type="range"]::-moz-range-thumb {
 #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active .tool-icon {
     filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
 }
+
+/* Transform Input Panel (Bottom of Screen) */
+.transform-input-panel {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 -2px 20px rgba(0, 0, 0, 0.1);
+    padding: 12px 20px;
+    z-index: 1400;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-width: 300px;
+    border-radius: 8px 8px 0 0;
+}
+
+.transform-input-container {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.transform-input-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.transform-input-group label {
+    font-weight: 600;
+    font-size: 14px;
+    color: #333;
+    min-width: 20px;
+}
+
+.transform-input {
+    width: 100px;
+    padding: 6px 10px;
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    font-size: 14px;
+    background: white;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.transform-input:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.transform-input:hover {
+    border-color: rgba(0, 0, 0, 0.3);
+}

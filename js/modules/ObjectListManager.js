@@ -380,6 +380,18 @@ class ObjectListManager {
             this.selectObject(mesh);
         });
 
+        // Double-click handler for zoom to extent
+        item.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // First select the object
+            this.selectObject(mesh);
+            // Then zoom to mesh extent (same as zoom extend)
+            if (this.selectionManager && this.selectionManager.zoomToMeshExtent) {
+                this.selectionManager.zoomToMeshExtent(mesh);
+            }
+        });
+
         return item;
     }
 
@@ -473,6 +485,98 @@ class ObjectListManager {
                 item.classList.add('selected');
             }
         });
+    }
+    
+    /**
+     * Scroll to and highlight an object in the list
+     * @param {BABYLON.Mesh|BABYLON.TransformNode} mesh - The mesh to scroll to
+     */
+    scrollToObjectInList(mesh) {
+        if (!mesh || !this.objectListContainer) return;
+        
+        // For trees (TransformNode), the list shows the TransformNode (parent) itself, not child meshes
+        // So we should search for the TransformNode directly in the list
+        let targetMesh = mesh;
+        
+        // If it's a TransformNode (like trees), use it directly
+        // Trees are added to the list as TransformNode (parent), not as child meshes
+        if (mesh instanceof BABYLON.TransformNode) {
+            targetMesh = mesh; // Use the TransformNode itself
+        }
+        
+        // Find the item in the list by ID (for both Mesh and TransformNode)
+        let item = this.objectListContainer.querySelector(`[data-mesh-id="${targetMesh.id}"]`);
+        
+        // If not found by ID, try to find by name
+        if (!item && targetMesh.name) {
+            item = this.objectListContainer.querySelector(`[data-mesh-name="${targetMesh.name}"]`);
+        }
+        
+        // If still not found and it's a TransformNode, try to find by checking all items
+        // (sometimes the ID might not match exactly)
+        if (!item && targetMesh instanceof BABYLON.TransformNode) {
+            const allItems = this.objectListContainer.querySelectorAll('.object-item');
+            for (const listItem of allItems) {
+                const itemMeshId = parseInt(listItem.dataset.meshId);
+                const itemMeshName = listItem.dataset.meshName;
+                
+                // Check if this item matches the TransformNode
+                if (itemMeshId === targetMesh.id || itemMeshName === targetMesh.name) {
+                    item = listItem;
+                    break;
+                }
+            }
+        }
+        
+        if (item) {
+            // Scroll to the item
+            this.scrollToItem(item);
+        } else {
+            console.warn(`Object ${mesh.name || targetMesh.name} (ID: ${mesh.id || targetMesh.id}) not found in object list`);
+        }
+    }
+    
+    /**
+     * Scroll to a specific item in the list and highlight it
+     * @param {HTMLElement} item - The item element to scroll to
+     */
+    scrollToItem(item) {
+        if (!item || !this.objectListContainer) return;
+        
+        // Ensure the category is expanded
+        const categorySection = item.closest('.category-section');
+        if (categorySection) {
+            const categoryHeader = categorySection.querySelector('.category-header');
+            if (categoryHeader) {
+                const categoryContent = categorySection.querySelector('.category-content');
+                if (categoryContent && categoryContent.style.display === 'none') {
+                    // Expand the category
+                    categoryContent.style.display = 'block';
+                    categoryHeader.classList.add('expanded');
+                }
+            }
+        }
+        
+        // Scroll to the item
+        item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Highlight the item temporarily
+        item.classList.add('selected');
+        
+        // Remove highlight after a short delay (optional, to show it was scrolled to)
+        setTimeout(() => {
+            // Keep it selected if it's actually selected
+            const selectedObjects = this.selectionManager.getSelectedObjects();
+            const isActuallySelected = selectedObjects.some(obj => {
+                return (obj.id === parseInt(item.dataset.meshId)) || 
+                       (obj.name === item.dataset.meshName) ||
+                       (obj === item.dataset.meshId);
+            });
+            
+            if (!isActuallySelected) {
+                item.classList.remove('selected');
+            }
+        }, 2000);
     }
 
     /**

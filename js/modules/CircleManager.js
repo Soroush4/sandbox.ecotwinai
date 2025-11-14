@@ -334,13 +334,16 @@ class CircleManager {
     generateUniqueNameByType(type) {
         // Count existing objects of this type in the scene
         let maxNumber = 0;
+        const usedNumbers = new Set();
         
         // Check all meshes in the scene for names of this type
+        // Only count enabled meshes that are still in the scene
         this.scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.name.startsWith(`${type}_`)) {
-                const match = mesh.name.match(new RegExp(`${type}_(\\d+)`));
+            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(`${type}_`)) {
+                const match = mesh.name.match(new RegExp(`^${type}_(\\d+)$`));
                 if (match) {
                     const number = parseInt(match[1]);
+                    usedNumbers.add(number);
                     if (number > maxNumber) {
                         maxNumber = number;
                     }
@@ -348,8 +351,14 @@ class CircleManager {
             }
         });
         
+        // Find the first available number (not just maxNumber + 1)
+        let nextNumber = 1;
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+        
         // Return next available number
-        return `${type}_${maxNumber + 1}`;
+        return `${type}_${nextNumber}`;
     }
 
     /**
@@ -477,6 +486,32 @@ class CircleManager {
         
         console.log('Circle updated successfully');
         return newCircle;
+    }
+    
+    /**
+     * Clear all circles from the scene
+     */
+    clearAllCircles() {
+        const scene = this.scene;
+        if (!scene) return;
+        
+        // Find all circles in the scene by checking userData
+        const circles = scene.meshes.filter(mesh => {
+            return mesh.userData && mesh.userData.shapeType === 'circle';
+        });
+        
+        // Remove and dispose each circle
+        circles.forEach(circle => {
+            if (circle && circle.dispose) {
+                scene.removeMesh(circle);
+                if (circle.material) {
+                    circle.material.dispose();
+                }
+                circle.dispose();
+            }
+        });
+        
+        console.log(`Cleared ${circles.length} circles from scene`);
     }
 }
 
