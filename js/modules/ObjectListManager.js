@@ -47,7 +47,7 @@ class ObjectListManager {
         header.className = 'object-list-header';
         header.innerHTML = `
             <h3>Objects in Scene</h3>
-            <button id="refreshObjectList" class="refresh-btn" title="Refresh List">↻</button>
+            <button id="closeObjectList" class="close-btn" title="Close">×</button>
         `;
         
         // Create scrollable container
@@ -66,11 +66,11 @@ class ObjectListManager {
      * Setup event listeners
      */
     setupEventListeners() {
-        // Refresh button
-        const refreshBtn = document.getElementById('refreshObjectList');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', () => {
-                this.updateObjectList();
+        // Close button
+        const closeBtn = document.getElementById('closeObjectList');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.hide();
             });
         }
 
@@ -584,7 +584,12 @@ class ObjectListManager {
      */
     toggleVisibility() {
         if (this.objectListPanel) {
+            const wasHidden = this.objectListPanel.classList.contains('hidden');
             this.objectListPanel.classList.toggle('hidden');
+            const isHidden = this.objectListPanel.classList.contains('hidden');
+            
+            // Dispatch event for visibility change
+            this.dispatchVisibilityChangeEvent(isHidden);
         }
     }
 
@@ -594,6 +599,7 @@ class ObjectListManager {
     show() {
         if (this.objectListPanel) {
             this.objectListPanel.classList.remove('hidden');
+            this.dispatchVisibilityChangeEvent(false);
         }
     }
 
@@ -603,7 +609,18 @@ class ObjectListManager {
     hide() {
         if (this.objectListPanel) {
             this.objectListPanel.classList.add('hidden');
+            this.dispatchVisibilityChangeEvent(true);
         }
+    }
+
+    /**
+     * Dispatch event when object list visibility changes
+     */
+    dispatchVisibilityChangeEvent(isHidden) {
+        const event = new CustomEvent('objectListVisibilityChanged', {
+            detail: { isHidden: isHidden }
+        });
+        document.dispatchEvent(event);
     }
 
     /**

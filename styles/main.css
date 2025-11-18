@@ -32,6 +32,7 @@ body {
     height: 28px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     z-index: 2000;
+    justify-content: space-between;
 }
 
 .menu-item {
@@ -121,6 +122,39 @@ body {
     height: 1px;
     background-color: rgba(0, 0, 0, 0.1);
     margin: 4px 0;
+}
+
+.menu-item-right {
+    margin-left: auto;
+}
+
+.hierarchy-button {
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    color: #667eea;
+    padding: 4px 12px;
+    margin: 0 8px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+}
+
+.hierarchy-button:hover {
+    background: rgba(102, 126, 234, 0.2);
+    border-color: rgba(102, 126, 234, 0.5);
+    color: #5568d3;
+}
+
+.hierarchy-button:active {
+    background: rgba(102, 126, 234, 0.3);
+    transform: scale(0.98);
 }
 
 /* Submenu Styles */
@@ -265,6 +299,11 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+.preferences-section .control-group.control-group-vertical {
+    flex-direction: column;
+    align-items: flex-start;
 }
 
 .preferences-section .control-group:last-child {
@@ -998,10 +1037,10 @@ input[type="range"]::-moz-range-thumb {
 /* Properties Popup Styles */
 .properties-popup {
     position: fixed;
-    top: calc(28px + 66.67vh + 10px); /* Below object list panel */
-    right: 0;
+    top: 28px; /* Below menu bar, same as object list */
+    right: 300px; /* Left of object list panel (which is 300px wide) */
     width: 300px;
-    height: calc(100vh - 28px - 66.67vh - 20px); /* Remaining height */
+    height: calc(100vh - 28px); /* Full height to bottom of screen */
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(10px);
     border-left: 1px solid rgba(0, 0, 0, 0.1);
@@ -1021,10 +1060,10 @@ input[type="range"]::-moz-range-thumb {
 #polygonPropertiesPopup,
 #treePropertiesPopup {
     position: fixed;
-    top: calc(28px + 66.67vh + 10px); /* Below object list panel */
-    right: 0;
+    top: 28px; /* Below menu bar, same as object list */
+    right: 300px; /* Left of object list panel (which is 300px wide) */
     width: 300px;
-    height: calc(100vh - 28px - 66.67vh - 20px); /* Remaining height */
+    height: calc(100vh - 28px); /* Full height to bottom of screen */
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(10px);
     border-left: 1px solid rgba(0, 0, 0, 0.1);
@@ -1045,37 +1084,38 @@ input[type="range"]::-moz-range-thumb {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-    background: #f8f9fa;
-    border-radius: 8px 8px 0 0;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    flex-shrink: 0;
 }
 
 .properties-header h3 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: #333;
+    color: white;
 }
 
 .close-btn {
-    background: none;
+    background: rgba(255, 255, 255, 0.2);
     border: none;
-    font-size: 24px;
+    font-size: 20px;
     cursor: pointer;
-    color: #666;
+    color: white;
     padding: 0;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
-    transition: background-color 0.2s;
+    border-radius: 50%;
+    transition: all 0.2s ease;
 }
 
 .close-btn:hover {
-    background-color: rgba(0, 0, 0, 0.1);
+    background-color: rgba(255, 255, 255, 0.3);
 }
 
 .properties-content {
@@ -1200,7 +1240,7 @@ input[type="range"]::-moz-range-thumb {
     top: 28px; /* Below menu bar */
     right: 0;
     width: 300px;
-    height: calc(66.67vh); /* Two-thirds of screen height */
+    height: calc(100vh - 28px); /* Full height to bottom of screen */
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(10px);
     border-left: 1px solid rgba(0, 0, 0, 0.1);
@@ -1458,7 +1498,16 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 480px) {
     .object-list-panel {
         width: 200px;
-        height: calc(50vh);
+        height: calc(100vh - 28px); /* Full height to bottom of screen */
+    }
+    
+    .properties-popup,
+    #circlePropertiesPopup,
+    #polygonPropertiesPopup,
+    #treePropertiesPopup {
+        right: 200px; /* Left of object list panel (which is 200px wide on mobile) */
+        width: 200px;
+        height: calc(100vh - 28px); /* Full height to bottom of screen */
     }
     
     .object-list-header {
@@ -1506,36 +1555,38 @@ input[type="range"]::-moz-range-thumb {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     position: sticky;
     top: 0;
     z-index: 1;
+    flex-shrink: 0;
 }
 
 .properties-header h3 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
+    color: white;
 }
 
 .close-btn {
-    background: none;
+    background: rgba(255, 255, 255, 0.2);
     border: none;
     color: white;
     font-size: 20px;
     cursor: pointer;
     padding: 0;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    transition: background-color 0.2s ease;
+    transition: all 0.2s ease;
 }
 
 .close-btn:hover {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.3);
 }
 
 .properties-content {

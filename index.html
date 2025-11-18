@@ -271,6 +271,9 @@
                     <div class="menu-option" data-action="about">About</div>
                 </div>
             </div>
+            <div class="menu-item menu-item-right">
+                <button id="hierarchyButton" class="hierarchy-button" title="Toggle Object List (Hierarchy)">Hierarchy</button>
+            </div>
         </nav>
 
         <!-- Drawing Tools Panel -->
@@ -483,6 +486,21 @@
                     <label for="shadowMaxZPref">Shadow Max Z</label>
                     <input type="range" id="shadowMaxZPref" min="500" max="3000" step="50" value="1500">
                     <span id="shadowMaxZValuePref">1500</span>
+                </div>
+            </div>
+            
+            <!-- STL Import Settings -->
+            <div class="preferences-section">
+                <h4>STL Import Settings</h4>
+                <div class="control-group control-group-vertical">
+                    <label for="smoothingAngleThresholdPref">Smoothing Angle Threshold (degrees)</label>
+                    <div style="display: flex; align-items: center; width: 100%; margin-top: 8px;">
+                        <input type="range" id="smoothingAngleThresholdPref" min="0" max="180" step="5" value="60" style="flex: 1; margin: 0 12px 0 0;">
+                        <span id="smoothingAngleThresholdValuePref" style="min-width: 40px; text-align: right;">60</span>
+                    </div>
+                    <small style="display: block; color: #666; margin-top: 8px; font-size: 12px; line-height: 1.4;">
+                        Lower values = less smoothing (more hard edges), Higher values = more smoothing (fewer hard edges)
+                    </small>
                 </div>
             </div>
             

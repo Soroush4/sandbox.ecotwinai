@@ -250,8 +250,18 @@ class MoveManager {
         // Calculate center position for the gizmo
         let center = selectedObject.position.clone();
         
+        // For imported STL meshes, calculate gizmo position from bounding box
+        // Gizmo should be at center X/Z but at minimum Y (base of the object)
+        if (selectedObject.userData && selectedObject.userData.isImportedSTL && selectedObject.userData.baseY !== undefined) {
+            // This is an imported STL mesh - use mesh position for X/Z and baseY for Y
+            center = new BABYLON.Vector3(
+                selectedObject.position.x, // Center X
+                selectedObject.userData.baseY, // Minimum Y (base of object) - already in world space
+                selectedObject.position.z  // Center Z
+            );
+        }
         // For rectangles, use the same position as the rectangle (same as extrusion position)
-        if (selectedObject.userData && selectedObject.userData.shapeType === 'rectangle') {
+        else if (selectedObject.userData && selectedObject.userData.shapeType === 'rectangle') {
             // No offset needed - use rectangle position directly
         }
         

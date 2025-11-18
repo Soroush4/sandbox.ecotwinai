@@ -535,9 +535,9 @@ class PolygonManager {
         // Use earcut to triangulate
         const triangles = earcut(flatPoints);
         
-        // Convert earcut indices to our mesh indices (reverse order for upward normals)
+        // Convert earcut indices to our mesh indices (counter-clockwise order for upward normals Y+)
         for (let i = 0; i < triangles.length; i += 3) {
-            indices.push(triangles[i], triangles[i + 2], triangles[i + 1]);
+            indices.push(triangles[i], triangles[i + 1], triangles[i + 2]);
         }
     }
 
@@ -563,15 +563,15 @@ class PolygonManager {
         }
         
         if (points.length === 3) {
-            // Triangle - just one triangle (reverse order for upward normals)
-            indices.push(0, 2, 1);
+            // Triangle - just one triangle (counter-clockwise order for upward normals Y+)
+            indices.push(0, 1, 2);
             return;
         }
         
         if (points.length === 4) {
-            // Quad - two triangles (reverse order for upward normals)
-            indices.push(0, 2, 1);
-            indices.push(0, 3, 2);
+            // Quad - two triangles (counter-clockwise order for upward normals Y+)
+            indices.push(0, 1, 2);
+            indices.push(0, 2, 3);
             return;
         }
         
@@ -596,8 +596,8 @@ class PolygonManager {
                 const next = vertexIndices[(i + 1) % vertexIndices.length];
                 
                 if (this.isEar(points, vertexIndices, prev, curr, next)) {
-                    // Add triangle (reverse order for upward normals)
-                    indices.push(prev, next, curr);
+                    // Add triangle (counter-clockwise order for upward normals Y+)
+                    indices.push(prev, curr, next);
                     
                     // Remove the ear vertex
                     vertexIndices.splice(i, 1);
@@ -619,9 +619,9 @@ class PolygonManager {
             }
         }
         
-        // Add the final triangle (reverse order for upward normals)
+        // Add the final triangle (counter-clockwise order for upward normals Y+)
         if (vertexIndices.length === 3) {
-            indices.push(vertexIndices[0], vertexIndices[2], vertexIndices[1]);
+            indices.push(vertexIndices[0], vertexIndices[1], vertexIndices[2]);
         }
     }
     
@@ -766,7 +766,7 @@ class PolygonManager {
         if (points.length < 3) return;
         
         if (points.length === 3) {
-            indices.push(0, 2, 1);
+            indices.push(0, 1, 2); // Counter-clockwise order for upward normals Y+
             return;
         }
         
@@ -799,7 +799,7 @@ class PolygonManager {
                 const next = vertexIndices[(i + 1) % vertexIndices.length];
                 
                 if (this.isAdvancedEar(points, vertexIndices, prev, curr, next)) {
-                    indices.push(prev, next, curr);
+                    indices.push(prev, curr, next); // Counter-clockwise order for upward normals Y+
                     vertexIndices.splice(i, 1);
                     earFound = true;
                     break;
@@ -814,9 +814,9 @@ class PolygonManager {
             }
         }
         
-        // Add final triangle
+        // Add final triangle (counter-clockwise order for upward normals Y+)
         if (vertexIndices.length === 3) {
-            indices.push(vertexIndices[0], vertexIndices[2], vertexIndices[1]);
+            indices.push(vertexIndices[0], vertexIndices[1], vertexIndices[2]);
         }
     }
 
@@ -860,14 +860,15 @@ class PolygonManager {
      * @param {number[]} indices - Array to store triangle indices
      */
     forceTriangulation(points, vertexIndices, indices) {
-        // Use fan triangulation from a safe vertex
+        // Use fan triangulation from a safe vertex (counter-clockwise order for upward normals Y+)
         const centerIndex = Math.floor(vertexIndices.length / 2);
         const center = vertexIndices[centerIndex];
         
+        // Fan triangulation from center vertex
         for (let i = 1; i < vertexIndices.length - 1; i++) {
-            const next = (centerIndex + i) % vertexIndices.length;
-            const prev = (centerIndex + i + 1) % vertexIndices.length;
-            indices.push(vertexIndices[center], vertexIndices[next], vertexIndices[prev]);
+            const curr = (centerIndex + i) % vertexIndices.length;
+            const next = (centerIndex + i + 1) % vertexIndices.length;
+            indices.push(vertexIndices[center], vertexIndices[curr], vertexIndices[next]);
         }
     }
 
@@ -918,9 +919,9 @@ class PolygonManager {
             }
         }
         
-        // Fan triangulation from first vertex
+        // Fan triangulation from first vertex (counter-clockwise order for upward normals Y+)
         for (let i = 1; i < vertexIndices.length - 1; i++) {
-            indices.push(vertexIndices[0], vertexIndices[i + 1], vertexIndices[i]);
+            indices.push(vertexIndices[0], vertexIndices[i], vertexIndices[i + 1]);
         }
     }
 

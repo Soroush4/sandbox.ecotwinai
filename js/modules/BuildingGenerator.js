@@ -551,7 +551,7 @@ class BuildingGenerator {
         ];
         
         // Create material based on type
-        const material = new BABYLON.StandardMaterial(`polygon_${type}_${this.polygons.length}`, this.scene);
+        const material = new BABYLON.StandardMaterial(`${type}_${this.polygons.length}`, this.scene);
         const color = this.uiManager.getColorByType(type);
         material.diffuseColor = color;
         material.backFaceCulling = false;
@@ -572,8 +572,8 @@ class BuildingGenerator {
             baseY: 0
         };
         
-        // Generate unique name
-        const polygonName = `polygon_${type}_${this.polygons.length + 1}`;
+        // Generate unique name (without "polygon" prefix)
+        const polygonName = `${type}_${this.polygons.length + 1}`;
         
         // Create polygon mesh using UIManager (center will be calculated from points)
         this.uiManager.createPolygonMesh(polygonName, points, new BABYLON.Vector3(0, 0, 0), material, userData);

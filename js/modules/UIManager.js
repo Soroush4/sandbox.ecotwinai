@@ -25,6 +25,9 @@ class UIManager {
         this.preferencesListenersSetup = false; // Track if preferences listeners are setup
         this.cameraControlsDisabled = false; // Initialize camera control state
         
+        // STL Import settings
+        this.smoothingAngleThreshold = 60; // Default: 60 degrees (cos(60°) = 0.5)
+        
         this.init();
     }
 
@@ -38,6 +41,8 @@ class UIManager {
         this.startStatsUpdate();
         this.updateCoordinateToggleUI(); // Initialize coordinate toggle UI
         this.initializeObjectListManager();
+        this.setupObjectListVisibilityListener();
+        this.setupHierarchyButton();
         this.isInitialized = true;
     }
 
@@ -1277,12 +1282,35 @@ class UIManager {
 
         console.log(`Found ${typedMeshes.length} typed meshes`);
 
-        // Add typed meshes to export list
+        // Group meshes by type for proper naming
+        const meshesByType = {};
         typedMeshes.forEach(mesh => {
-            meshesToExport.push({
-                mesh: mesh,
-                name: mesh.name || 'unnamed',
-                type: mesh.userData.type
+            const type = mesh.userData.type;
+            if (!meshesByType[type]) {
+                meshesByType[type] = [];
+            }
+            meshesByType[type].push(mesh);
+        });
+
+        // Add typed meshes to export list with proper naming
+        Object.keys(meshesByType).forEach(type => {
+            meshesByType[type].forEach((mesh, index) => {
+                let exportName;
+                
+                // For waterway, green, and ground, use simple type name (or type_1, type_2, etc. if multiple)
+                if (type === 'waterway' || type === 'green' || type === 'ground') {
+                    exportName = meshesByType[type].length === 1 ? type : `${type}_${index + 1}`;
+                }
+                // For other types, use type_name format
+                else {
+                    exportName = meshesByType[type].length === 1 ? type : `${type}_${index + 1}`;
+                }
+                
+                meshesToExport.push({
+                    mesh: mesh,
+                    name: exportName,
+                    type: type
+                });
             });
         });
 
@@ -1329,10 +1357,11 @@ class UIManager {
             stlContent += `solid ${objectName}\n`;
 
             if (obj.type === 'tree') {
-                // Handle trees: combine all child meshes with parent transform
+                // Handle trees: combine all child meshes
+                // Note: getWorldMatrix() of child meshes already includes parent TransformNode transform
                 if (obj.childMeshes && obj.childMeshes.length > 0) {
                     obj.childMeshes.forEach(childMesh => {
-                        const triangles = this.meshToTriangles(childMesh, obj.mesh);
+                        const triangles = this.meshToTriangles(childMesh);
                         triangles.forEach(triangle => {
                             stlContent += this.triangleToSTL(triangle);
                         });
@@ -1354,8 +1383,9 @@ class UIManager {
 
     /**
      * Convert a mesh to triangles with world positions
+     * Note: For child meshes parented to TransformNode, getWorldMatrix() automatically includes parent transform
      */
-    meshToTriangles(mesh, parentTransform = null) {
+    meshToTriangles(mesh) {
         if (!mesh || !mesh.isEnabled()) return [];
 
         try {
@@ -1385,40 +1415,25 @@ class UIManager {
                 const i1 = triangleIndices[i + 1] * 3;
                 const i2 = triangleIndices[i + 2] * 3;
 
-                // Get vertex positions
+                // Get vertex positions (local to mesh)
                 const v0 = new BABYLON.Vector3(positions[i0], positions[i0 + 1], positions[i0 + 2]);
                 const v1 = new BABYLON.Vector3(positions[i1], positions[i1 + 1], positions[i1 + 2]);
                 const v2 = new BABYLON.Vector3(positions[i2], positions[i2 + 1], positions[i2 + 2]);
 
-                // Apply mesh transform
+                // Use mesh's world matrix - this automatically includes parent transforms
+                // For child meshes parented to TransformNode, getWorldMatrix() already accounts for parent
                 const worldMatrix = mesh.getWorldMatrix();
-                const worldV0 = BABYLON.Vector3.TransformCoordinates(v0, worldMatrix);
-                const worldV1 = BABYLON.Vector3.TransformCoordinates(v1, worldMatrix);
-                const worldV2 = BABYLON.Vector3.TransformCoordinates(v2, worldMatrix);
+                const finalV0 = BABYLON.Vector3.TransformCoordinates(v0, worldMatrix);
+                const finalV1 = BABYLON.Vector3.TransformCoordinates(v1, worldMatrix);
+                const finalV2 = BABYLON.Vector3.TransformCoordinates(v2, worldMatrix);
 
-                // If parent transform exists (for trees), apply it
-                if (parentTransform) {
-                    const parentMatrix = parentTransform.getWorldMatrix();
-                    const finalV0 = BABYLON.Vector3.TransformCoordinates(worldV0, parentMatrix);
-                    const finalV1 = BABYLON.Vector3.TransformCoordinates(worldV1, parentMatrix);
-                    const finalV2 = BABYLON.Vector3.TransformCoordinates(worldV2, parentMatrix);
+                // Calculate normal
+                const normal = this.calculateTriangleNormal(finalV0, finalV1, finalV2);
 
-                    // Calculate normal
-                    const normal = this.calculateTriangleNormal(finalV0, finalV1, finalV2);
-
-                    triangles.push({
-                        normal: normal,
-                        vertices: [finalV0, finalV1, finalV2]
-                    });
-                } else {
-                    // Calculate normal
-                    const normal = this.calculateTriangleNormal(worldV0, worldV1, worldV2);
-
-                    triangles.push({
-                        normal: normal,
-                        vertices: [worldV0, worldV1, worldV2]
-                    });
-                }
+                triangles.push({
+                    normal: normal,
+                    vertices: [finalV0, finalV1, finalV2]
+                });
             }
 
             return triangles;
@@ -1441,6 +1456,9 @@ class UIManager {
 
     /**
      * Convert a triangle to STL format
+     * Note: STL format uses (X, Y, Z) where Y is vertical (up)
+     * Babylon.js uses (X, Y, Z) where Y is vertical (up)
+     * But we need to swap Y and Z for STL compatibility: (X, Z, Y)
      */
     triangleToSTL(triangle) {
         const normal = triangle.normal;
@@ -1466,11 +1484,27 @@ class UIManager {
             return str;
         };
 
-        let stl = `  facet normal ${formatFloat(normal.x)} ${formatFloat(normal.y)} ${formatFloat(normal.z)}\n`;
+        // Convert from Babylon.js coordinate system (X, Y, Z) to STL coordinate system (X, Z, Y)
+        // Babylon: X=right, Y=up, Z=forward
+        // STL: X=right, Y=forward, Z=up
+        // So we swap Y and Z: (x, y, z) -> (x, z, y)
+        const convertNormal = (n) => {
+            return { x: n.x, y: n.z, z: n.y };
+        };
+        const convertVertex = (v) => {
+            return { x: v.x, y: v.z, z: v.y };
+        };
+
+        const stlNormal = convertNormal(normal);
+        const stlV0 = convertVertex(v0);
+        const stlV1 = convertVertex(v1);
+        const stlV2 = convertVertex(v2);
+
+        let stl = `  facet normal ${formatFloat(stlNormal.x)} ${formatFloat(stlNormal.y)} ${formatFloat(stlNormal.z)}\n`;
         stl += `    outer loop\n`;
-        stl += `      vertex ${formatFloat(v0.x)} ${formatFloat(v0.y)} ${formatFloat(v0.z)}\n`;
-        stl += `      vertex ${formatFloat(v1.x)} ${formatFloat(v1.y)} ${formatFloat(v1.z)}\n`;
-        stl += `      vertex ${formatFloat(v2.x)} ${formatFloat(v2.y)} ${formatFloat(v2.z)}\n`;
+        stl += `      vertex ${formatFloat(stlV0.x)} ${formatFloat(stlV0.y)} ${formatFloat(stlV0.z)}\n`;
+        stl += `      vertex ${formatFloat(stlV1.x)} ${formatFloat(stlV1.y)} ${formatFloat(stlV1.z)}\n`;
+        stl += `      vertex ${formatFloat(stlV2.x)} ${formatFloat(stlV2.y)} ${formatFloat(stlV2.z)}\n`;
         stl += `    endloop\n`;
         stl += `  endfacet\n`;
 
@@ -1948,11 +1982,18 @@ Transform your 3D models into powerful energy analysis tools.`;
                 
                 const normalMatch = line.match(/facet normal\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)/);
                 if (normalMatch) {
+                    // STL format: (X, Y, Z) where Y=forward, Z=up
+                    // Babylon.js: (X, Y, Z) where Y=up, Z=forward
+                    // So we need to swap Y and Z: (x, y, z) -> (x, z, y)
+                    const stlX = parseFloat(normalMatch[1]);
+                    const stlY = parseFloat(normalMatch[2]); // This is forward in STL
+                    const stlZ = parseFloat(normalMatch[3]); // This is up in STL
+                    
                     currentTriangle = {
                         normal: {
-                            x: parseFloat(normalMatch[1]),
-                            y: parseFloat(normalMatch[2]),
-                            z: parseFloat(normalMatch[3])
+                            x: stlX,
+                            y: stlZ,  // STL Z becomes Babylon Y (up)
+                            z: stlY   // STL Y becomes Babylon Z (forward)
                         },
                         vertices: []
                     };
@@ -1981,10 +2022,17 @@ Transform your 3D models into powerful energy analysis tools.`;
             else if (line.startsWith('vertex ') && inFacet && inLoop) {
                 const vertexMatch = line.match(/vertex\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)/);
                 if (vertexMatch && currentTriangle) {
+                    // STL format: (X, Y, Z) where Y=forward, Z=up
+                    // Babylon.js: (X, Y, Z) where Y=up, Z=forward
+                    // So we need to swap Y and Z: (x, y, z) -> (x, z, y)
+                    const stlX = parseFloat(vertexMatch[1]);
+                    const stlY = parseFloat(vertexMatch[2]); // This is forward in STL
+                    const stlZ = parseFloat(vertexMatch[3]); // This is up in STL
+                    
                     currentTriangle.vertices.push({
-                        x: parseFloat(vertexMatch[1]),
-                        y: parseFloat(vertexMatch[2]),
-                        z: parseFloat(vertexMatch[3])
+                        x: stlX,
+                        y: stlZ,  // STL Z becomes Babylon Y (up)
+                        z: stlY   // STL Y becomes Babylon Z (forward)
                     });
                     vertexCount++;
                 }
@@ -2048,28 +2096,72 @@ Transform your 3D models into powerful energy analysis tools.`;
         }
 
         // Collect all vertices and create indices
+        // Use a smarter approach: group vertices by position AND normal similarity
+        // This allows proper smoothing while preserving hard edges
         const positions = [];
         const indices = [];
         const normals = [];
-        const vertexMap = new Map(); // Map to avoid duplicate vertices
-
-        // Process each triangle
+        const vertexMap = new Map(); // key -> array of {index, normal, triangleIndex}
+        // Use smoothing angle threshold from preferences (convert degrees to cosine)
+        // Note: We invert the angle (180 - angle) so that higher slider values = more smoothing
+        // cos(0°) = 1 (less smoothing), cos(180°) = -1 (more smoothing)
+        const angleDegrees = this.smoothingAngleThreshold || 60;
+        const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
+        
+        // First pass: collect vertices and group by position
         obj.triangles.forEach((triangle, triIndex) => {
             const triangleIndices = [];
+            const triangleNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
 
             // Process each vertex in the triangle
             triangle.vertices.forEach((vertex) => {
                 const key = `${vertex.x.toFixed(6)},${vertex.y.toFixed(6)},${vertex.z.toFixed(6)}`;
                 
-                if (vertexMap.has(key)) {
-                    // Vertex already exists, reuse index
-                    triangleIndices.push(vertexMap.get(key));
-                } else {
-                    // New vertex, add to positions
+                if (!vertexMap.has(key)) {
+                    vertexMap.set(key, []);
+                }
+                
+                const vertexGroup = vertexMap.get(key);
+                
+                // Find if there's a similar normal in this vertex group
+                let foundSimilar = false;
+                for (let i = 0; i < vertexGroup.length; i++) {
+                    const existing = vertexGroup[i];
+                    const existingNormal = new BABYLON.Vector3(
+                        existing.normal.x,
+                        existing.normal.y,
+                        existing.normal.z
+                    );
+                    existingNormal.normalize();
+                    
+                    const dotProduct = BABYLON.Vector3.Dot(existingNormal, triangleNormal);
+                    
+                    // If normals are similar (angle < 60°), use the same vertex index
+                    if (dotProduct > smoothingAngleThreshold) {
+                        triangleIndices.push(existing.index);
+                        foundSimilar = true;
+                        
+                        // Update normal by averaging (for better smoothing)
+                        const count = existing.triangleCount || 1;
+                        existing.normal.x = (existing.normal.x * count + triangle.normal.x) / (count + 1);
+                        existing.normal.y = (existing.normal.y * count + triangle.normal.y) / (count + 1);
+                        existing.normal.z = (existing.normal.z * count + triangle.normal.z) / (count + 1);
+                        existing.triangleCount = count + 1;
+                        break;
+                    }
+                }
+                
+                // If no similar normal found, create a new vertex (hard edge)
+                if (!foundSimilar) {
                     const vertexIndex = positions.length / 3;
                     positions.push(vertex.x, vertex.y, vertex.z);
-                    normals.push(triangle.normal.x, triangle.normal.y, triangle.normal.z);
-                    vertexMap.set(key, vertexIndex);
+                    
+                    vertexGroup.push({
+                        index: vertexIndex,
+                        normal: { x: triangle.normal.x, y: triangle.normal.y, z: triangle.normal.z },
+                        triangleCount: 1
+                    });
+                    
                     triangleIndices.push(vertexIndex);
                 }
             });
@@ -2078,6 +2170,59 @@ Transform your 3D models into powerful energy analysis tools.`;
             if (triangleIndices.length === 3) {
                 indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
             }
+        });
+        
+        // Second pass: calculate final normals for all vertices
+        let smoothingStats = {
+            totalVertices: 0,
+            smoothedVertices: 0,
+            hardEdges: 0,
+            uniqueNormals: new Set(),
+            maxVariantsPerPosition: 0
+        };
+        
+        vertexMap.forEach((vertexGroup) => {
+            smoothingStats.totalVertices++;
+            if (vertexGroup.length > 1) {
+                smoothingStats.hardEdges++;
+            }
+            if (vertexGroup.length > smoothingStats.maxVariantsPerPosition) {
+                smoothingStats.maxVariantsPerPosition = vertexGroup.length;
+            }
+            
+            vertexGroup.forEach((vertexData) => {
+                const normal = vertexData.normal;
+                
+                // Normalize the normal
+                const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+                if (length > 0.0001) {
+                    const normalizedX = normal.x / length;
+                    const normalizedY = normal.y / length;
+                    const normalizedZ = normal.z / length;
+                    normals.push(normalizedX, normalizedY, normalizedZ);
+                    
+                    if (vertexData.triangleCount > 1) {
+                        smoothingStats.smoothedVertices++;
+                    }
+                    
+                    // Track unique normals
+                    const normalKey = `${normalizedX.toFixed(3)},${normalizedY.toFixed(3)},${normalizedZ.toFixed(3)}`;
+                    smoothingStats.uniqueNormals.add(normalKey);
+                } else {
+                    normals.push(0, 1, 0);
+                    smoothingStats.uniqueNormals.add('0.000,1.000,0.000');
+                }
+            });
+        });
+        
+        // Log smoothing information
+        console.log(`[STL Import] ${obj.name} - Smoothing Info:`, {
+            totalPositions: smoothingStats.totalVertices,
+            smoothedVertices: smoothingStats.smoothedVertices,
+            hardEdges: smoothingStats.hardEdges,
+            uniqueNormalCount: smoothingStats.uniqueNormals.size,
+            maxVariantsPerPosition: smoothingStats.maxVariantsPerPosition,
+            note: 'STL format does not have smoothing groups. Smoothing uses 60° angle threshold to preserve hard edges.'
         });
 
         if (positions.length === 0) {
@@ -2092,25 +2237,68 @@ Transform your 3D models into powerful energy analysis tools.`;
         vertexData.positions = positions;
         vertexData.indices = indices;
         
-        // Recalculate normals to ensure correct direction
-        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        // Use smoothed normals (already calculated from STL normals)
+        // Note: STL format doesn't have smoothing groups, so we smooth by averaging
+        // normals of all triangles sharing each vertex
         vertexData.normals = normals;
 
         // Apply vertex data to mesh
         vertexData.applyToMesh(mesh);
 
+        // Calculate bounding box to determine mesh center and minimum Y
+        mesh.refreshBoundingInfo();
+        const boundingInfo = mesh.getBoundingInfo();
+        const min = boundingInfo.boundingBox.minimum;
+        const max = boundingInfo.boundingBox.maximum;
+        const center = new BABYLON.Vector3(
+            (min.x + max.x) / 2,
+            (min.y + max.y) / 2,
+            (min.z + max.z) / 2
+        );
+        const originalMinY = min.y; // Store original minimum Y before offset
+
+        // Adjust mesh position and vertices:
+        // 1. Move mesh to center position (so gizmo appears at center X/Z)
+        // 2. Offset vertices so mesh center is at origin in local space
+        mesh.position = center.clone();
+        
+        // Offset all vertices so mesh center is at origin in local space
+        const offset = center.clone();
+        const adjustedPositions = [];
+        for (let i = 0; i < positions.length; i += 3) {
+            adjustedPositions.push(
+                positions[i] - offset.x,
+                positions[i + 1] - offset.y,
+                positions[i + 2] - offset.z
+            );
+        }
+        
+        // Update mesh with adjusted positions
+        mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, adjustedPositions);
+        
+        // Keep the smoothed normals (they don't change with position offset)
+        // The smoothed normals are already calculated and should be preserved
+        // Position offset doesn't affect normal directions, only positions
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        
+        mesh.refreshBoundingInfo();
+        
+        // Calculate minimum Y after offset (in local space, should be negative or zero)
+        const updatedBoundingInfo = mesh.getBoundingInfo();
+        const updatedMin = updatedBoundingInfo.boundingBox.minimum;
+        const updatedMax = updatedBoundingInfo.boundingBox.maximum;
+        const localMinY = updatedMin.y;
+        
+        // Calculate world-space minimum Y for gizmo positioning
+        const worldMinY = mesh.position.y + localMinY;
+
         // Set mesh properties based on type
         mesh.renderingGroupId = 1;
 
-        // Create material based on type
+        // Create material based on type - ensure color is set correctly
         const material = new BABYLON.StandardMaterial(`${obj.name}Material`, scene);
-        if (this.getColorByType) {
-            const color = this.getColorByType(obj.type);
-            material.diffuseColor = color;
-        } else {
-            // Fallback color
-            material.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
-        }
+        const color = this.getColorByType ? this.getColorByType(obj.type) : new BABYLON.Color3(0.8, 0.8, 0.8);
+        material.diffuseColor = color;
         material.backFaceCulling = false;
         material.twoSidedLighting = true;
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
@@ -2121,18 +2309,21 @@ Transform your 3D models into powerful energy analysis tools.`;
         mesh.enableEdgesRendering();
         mesh.edgesWidth = 1.0;
         mesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
-
+        
         // Set userData based on type
+        // Store original STL data for real-time smoothing updates
         mesh.userData = {
             type: obj.type,
             shapeType: obj.type === 'tree' ? 'tree' : (obj.type === 'building' ? 'building' : 'polygon'),
             dimensions: {
-                // Calculate bounding box for dimensions
-                width: this.calculateBoundingBox(mesh).width,
-                depth: this.calculateBoundingBox(mesh).depth,
-                height: this.calculateBoundingBox(mesh).height
+                width: updatedMax.x - updatedMin.x,
+                depth: updatedMax.z - updatedMin.z,
+                height: updatedMax.y - updatedMin.y
             },
-            originalHeight: this.calculateBoundingBox(mesh).height
+            originalHeight: updatedMax.y - updatedMin.y,
+            baseY: worldMinY, // Store world-space minimum Y for gizmo positioning
+            isImportedSTL: true, // Flag to identify imported STL meshes
+            originalSTLData: JSON.parse(JSON.stringify(obj)) // Deep copy of original STL data for rebuilding
         };
 
         // Enable shadows
@@ -2355,6 +2546,27 @@ Transform your 3D models into powerful energy analysis tools.`;
                 const value = parseFloat(e.target.value);
                 this.setShadowMaxZ(value);
                 this.updateShadowMaxZDisplay(value);
+            });
+        }
+
+        // Smoothing angle threshold slider
+        const smoothingAngleThresholdSlider = document.getElementById('smoothingAngleThresholdPref');
+        if (smoothingAngleThresholdSlider) {
+            // Use debounce to avoid too frequent updates during slider drag
+            let smoothingUpdateTimeout = null;
+            smoothingAngleThresholdSlider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                this.updateSmoothingAngleThresholdDisplay(value);
+                
+                // Clear previous timeout
+                if (smoothingUpdateTimeout) {
+                    clearTimeout(smoothingUpdateTimeout);
+                }
+                
+                // Debounce the actual smoothing update (wait 100ms after user stops dragging)
+                smoothingUpdateTimeout = setTimeout(() => {
+                    this.setSmoothingAngleThreshold(value);
+                }, 100);
             });
         }
 
@@ -2595,6 +2807,15 @@ Transform your 3D models into powerful energy analysis tools.`;
             const currentMaxZ = this.lightingManager.directionalLight ? this.lightingManager.directionalLight.shadowMaxZ : 1500;
             shadowMaxZSlider.value = currentMaxZ;
             shadowMaxZValue.textContent = currentMaxZ.toFixed(0);
+        }
+
+        // Sync smoothing angle threshold
+        const smoothingAngleThresholdSlider = document.getElementById('smoothingAngleThresholdPref');
+        const smoothingAngleThresholdValue = document.getElementById('smoothingAngleThresholdValuePref');
+        if (smoothingAngleThresholdSlider && smoothingAngleThresholdValue) {
+            const currentThreshold = this.smoothingAngleThreshold || 60;
+            smoothingAngleThresholdSlider.value = currentThreshold;
+            smoothingAngleThresholdValue.textContent = currentThreshold.toFixed(0);
         }
 
         // Sync light position
@@ -3334,6 +3555,245 @@ Transform your 3D models into powerful energy analysis tools.`;
         const valueDisplay = document.getElementById('shadowMaxZValuePref');
         if (valueDisplay) {
             valueDisplay.textContent = maxZ.toFixed(0);
+        }
+    }
+
+    /**
+     * Set smoothing angle threshold for STL import
+     */
+    setSmoothingAngleThreshold(angleDegrees) {
+        this.smoothingAngleThreshold = angleDegrees;
+        console.log(`Smoothing angle threshold set to ${angleDegrees} degrees`);
+        
+        // Update all imported STL meshes in real-time
+        this.updateImportedSTLMeshes();
+    }
+    
+    /**
+     * Update all imported STL meshes with new smoothing angle threshold
+     */
+    updateImportedSTLMeshes() {
+        if (!this.sceneManager) {
+            return;
+        }
+        
+        const scene = this.sceneManager.getScene();
+        if (!scene) {
+            return;
+        }
+        
+        // Find all imported STL meshes
+        const importedMeshes = scene.meshes.filter(mesh => 
+            mesh.userData && mesh.userData.isImportedSTL && mesh.userData.originalSTLData
+        );
+        
+        if (importedMeshes.length === 0) {
+            console.log('[Smoothing] No imported STL meshes found to update');
+            return;
+        }
+        
+        console.log(`[Smoothing] Updating ${importedMeshes.length} imported STL mesh(es) with new threshold...`);
+        
+        // Update each mesh
+        importedMeshes.forEach(mesh => {
+            try {
+                this.rebuildMeshWithNewSmoothing(mesh);
+            } catch (error) {
+                console.error(`[Smoothing] Error updating mesh ${mesh.name}:`, error);
+            }
+        });
+        
+        console.log(`[Smoothing] Updated ${importedMeshes.length} mesh(es) successfully`);
+    }
+    
+    /**
+     * Rebuild a mesh with new smoothing angle threshold
+     * @param {BABYLON.Mesh} mesh - The mesh to rebuild
+     */
+    rebuildMeshWithNewSmoothing(mesh) {
+        if (!mesh.userData || !mesh.userData.originalSTLData) {
+            console.warn(`[Smoothing] Mesh ${mesh.name} does not have original STL data`);
+            return;
+        }
+        
+        const originalData = mesh.userData.originalSTLData;
+        const scene = mesh.getScene();
+        
+        // Store current properties
+        const currentPosition = mesh.position.clone();
+        const currentMaterial = mesh.material;
+        const currentUserData = { ...mesh.userData };
+        
+        // Rebuild mesh geometry with new smoothing
+        const positions = [];
+        const indices = [];
+        const normals = [];
+        const vertexMap = new Map();
+        
+        // Use current smoothing angle threshold
+        const angleDegrees = this.smoothingAngleThreshold || 60;
+        const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
+        
+        // First pass: collect vertices and group by position
+        originalData.triangles.forEach((triangle) => {
+            const triangleIndices = [];
+            const triangleNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
+
+            // Process each vertex in the triangle
+            triangle.vertices.forEach((vertex) => {
+                const key = `${vertex.x.toFixed(6)},${vertex.y.toFixed(6)},${vertex.z.toFixed(6)}`;
+                
+                if (!vertexMap.has(key)) {
+                    vertexMap.set(key, []);
+                }
+                
+                const vertexGroup = vertexMap.get(key);
+                
+                // Find if there's a similar normal in this vertex group
+                let foundSimilar = false;
+                for (let i = 0; i < vertexGroup.length; i++) {
+                    const existing = vertexGroup[i];
+                    const existingNormal = new BABYLON.Vector3(
+                        existing.normal.x,
+                        existing.normal.y,
+                        existing.normal.z
+                    );
+                    existingNormal.normalize();
+                    
+                    const dotProduct = BABYLON.Vector3.Dot(existingNormal, triangleNormal);
+                    
+                    // If normals are similar (angle < threshold), use the same vertex index
+                    if (dotProduct > smoothingAngleThreshold) {
+                        triangleIndices.push(existing.index);
+                        foundSimilar = true;
+                        
+                        // Update normal by averaging
+                        const count = existing.triangleCount || 1;
+                        existing.normal.x = (existing.normal.x * count + triangle.normal.x) / (count + 1);
+                        existing.normal.y = (existing.normal.y * count + triangle.normal.y) / (count + 1);
+                        existing.normal.z = (existing.normal.z * count + triangle.normal.z) / (count + 1);
+                        existing.triangleCount = count + 1;
+                        break;
+                    }
+                }
+                
+                // If no similar normal found, create a new vertex (hard edge)
+                if (!foundSimilar) {
+                    const vertexIndex = positions.length / 3;
+                    positions.push(vertex.x, vertex.y, vertex.z);
+                    
+                    vertexGroup.push({
+                        index: vertexIndex,
+                        normal: { x: triangle.normal.x, y: triangle.normal.y, z: triangle.normal.z },
+                        triangleCount: 1
+                    });
+                    
+                    triangleIndices.push(vertexIndex);
+                }
+            });
+
+            // Add triangle indices
+            if (triangleIndices.length === 3) {
+                indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
+            }
+        });
+        
+        // Second pass: calculate final normals for all vertices
+        vertexMap.forEach((vertexGroup) => {
+            vertexGroup.forEach((vertexData) => {
+                const normal = vertexData.normal;
+                
+                // Normalize the normal
+                const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+                if (length > 0.0001) {
+                    const normalizedX = normal.x / length;
+                    const normalizedY = normal.y / length;
+                    const normalizedZ = normal.z / length;
+                    normals.push(normalizedX, normalizedY, normalizedZ);
+                } else {
+                    normals.push(0, 1, 0);
+                }
+            });
+        });
+        
+        if (positions.length === 0) {
+            console.warn(`[Smoothing] No positions generated for mesh ${mesh.name}`);
+            return;
+        }
+        
+        // Calculate bounding box to determine mesh center
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        
+        for (let i = 0; i < positions.length; i += 3) {
+            minX = Math.min(minX, positions[i]);
+            minY = Math.min(minY, positions[i + 1]);
+            minZ = Math.min(minZ, positions[i + 2]);
+            maxX = Math.max(maxX, positions[i]);
+            maxY = Math.max(maxY, positions[i + 1]);
+            maxZ = Math.max(maxZ, positions[i + 2]);
+        }
+        
+        const center = new BABYLON.Vector3(
+            (minX + maxX) / 2,
+            (minY + maxY) / 2,
+            (minZ + maxZ) / 2
+        );
+        
+        // Offset all vertices so mesh center is at origin in local space
+        const offset = center.clone();
+        const adjustedPositions = [];
+        for (let i = 0; i < positions.length; i += 3) {
+            adjustedPositions.push(
+                positions[i] - offset.x,
+                positions[i + 1] - offset.y,
+                positions[i + 2] - offset.z
+            );
+        }
+        
+        // Update mesh geometry
+        mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, adjustedPositions);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        mesh.setIndices(indices);
+        
+        // Refresh bounding info
+        mesh.refreshBoundingInfo();
+        
+        // Update userData with new dimensions
+        const updatedBoundingInfo = mesh.getBoundingInfo();
+        const updatedMin = updatedBoundingInfo.boundingBox.minimum;
+        const updatedMax = updatedBoundingInfo.boundingBox.maximum;
+        const localMinY = updatedMin.y;
+        const worldMinY = currentPosition.y + localMinY;
+        
+        // Update userData
+        mesh.userData.dimensions = {
+            width: updatedMax.x - updatedMin.x,
+            depth: updatedMax.z - updatedMin.z,
+            height: updatedMax.y - updatedMin.y
+        };
+        mesh.userData.originalHeight = updatedMax.y - updatedMin.y;
+        mesh.userData.baseY = worldMinY;
+        
+        // Restore original STL data reference
+        mesh.userData.originalSTLData = originalData;
+        
+        // Update gizmo position if it exists and is attached to this mesh
+        if (this.moveManager && this.moveManager.gizmoManager) {
+            const attachedMesh = this.moveManager.gizmoManager.attachedMesh;
+            if (attachedMesh === mesh) {
+                this.moveManager.setupSingleObjectGizmo(mesh);
+            }
+        }
+    }
+
+    /**
+     * Update smoothing angle threshold display
+     */
+    updateSmoothingAngleThresholdDisplay(angleDegrees) {
+        const valueDisplay = document.getElementById('smoothingAngleThresholdValuePref');
+        if (valueDisplay) {
+            valueDisplay.textContent = angleDegrees.toFixed(0);
         }
     }
 
@@ -4852,7 +5312,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         }
         
         // Show popup
-        document.getElementById('propertiesPopup').classList.add('show');
+        const popup = document.getElementById('propertiesPopup');
+        popup.classList.add('show');
+        // Adjust position based on object list visibility
+        this.adjustPropertiesPopupPositionForElement(popup);
     }
 
     /**
@@ -4894,7 +5357,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         document.getElementById('circleHeight').value = properties.height || 0.1;
         
         // Show popup
-        document.getElementById('circlePropertiesPopup').classList.add('show');
+        const popup = document.getElementById('circlePropertiesPopup');
+        popup.classList.add('show');
+        // Adjust position based on object list visibility
+        this.adjustPropertiesPopupPositionForElement(popup);
     }
 
     /**
@@ -4926,7 +5392,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         document.getElementById('treeScale').value = currentScale.toFixed(1);
         
         // Show popup
-        document.getElementById('treePropertiesPopup').classList.add('show');
+        const popup = document.getElementById('treePropertiesPopup');
+        popup.classList.add('show');
+        // Adjust position based on object list visibility
+        this.adjustPropertiesPopupPositionForElement(popup);
     }
 
     /**
@@ -5551,6 +6020,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
         mesh.setIndices(indices);
 
+        // Recalculate normals based on the correct triangle winding order
+        // This ensures normals point upward (Y+) for proper lighting
+        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+
         return mesh;
     }
 
@@ -5561,13 +6035,13 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (points.length < 3) return;
         
         if (points.length === 3) {
-            indices.push(0, 2, 1); // Reverse order for upward normals
+            indices.push(0, 1, 2); // Counter-clockwise order for upward normals (Y+)
             return;
         }
         
         if (points.length === 4) {
-            indices.push(0, 2, 1); // Reverse order for upward normals
-            indices.push(0, 3, 2);
+            indices.push(0, 1, 2); // Counter-clockwise order for upward normals (Y+)
+            indices.push(0, 2, 3);
             return;
         }
         
@@ -5588,7 +6062,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 const next = vertexIndices[(i + 1) % vertexIndices.length];
                 
                 if (this.isEar(points, vertexIndices, prev, curr, next)) {
-                    indices.push(prev, next, curr); // Reverse order for upward normals
+                    indices.push(prev, curr, next); // Counter-clockwise order for upward normals (Y+)
                     vertexIndices.splice(i, 1);
                     earFound = true;
                     break;
@@ -5604,7 +6078,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                     const next = vertexIndices[(i + 1) % vertexIndices.length];
                     
                     if (this.isConvex(points, prev, curr, next)) {
-                        indices.push(prev, next, curr);
+                        indices.push(prev, curr, next); // Counter-clockwise order for upward normals (Y+)
                         vertexIndices.splice(i, 1);
                         convexFound = true;
                         break;
@@ -5614,7 +6088,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 if (!convexFound) {
                     // Force triangulation from first vertex
                     for (let i = 1; i < vertexIndices.length - 1; i++) {
-                        indices.push(vertexIndices[0], vertexIndices[i + 1], vertexIndices[i]);
+                        indices.push(vertexIndices[0], vertexIndices[i], vertexIndices[i + 1]); // Counter-clockwise order for upward normals (Y+)
                     }
                     break;
                 }
@@ -6856,6 +7330,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                 return new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
             case 'green':
                 return new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+            case 'tree':
+                return new BABYLON.Color3(0.2, 0.6, 0.2); // Dark green for trees
             default:
                 return new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
         }
@@ -7351,7 +7827,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         document.getElementById('polygonTriangles').value = triangleCount;
         
         // Show popup
-        document.getElementById('polygonPropertiesPopup').classList.add('show');
+        const popup = document.getElementById('polygonPropertiesPopup');
+        popup.classList.add('show');
+        // Adjust position based on object list visibility
+        this.adjustPropertiesPopupPositionForElement(popup);
     }
 
     /**
@@ -7725,6 +8204,71 @@ Transform your 3D models into powerful energy analysis tools.`;
             detail: { timestamp: Date.now() }
         });
         document.dispatchEvent(event);
+    }
+
+    /**
+     * Setup listener for object list visibility changes
+     */
+    setupObjectListVisibilityListener() {
+        document.addEventListener('objectListVisibilityChanged', (event) => {
+            const isHidden = event.detail.isHidden;
+            this.adjustPropertiesPopupPosition(isHidden);
+        });
+    }
+
+    /**
+     * Adjust properties popup position based on object list visibility
+     */
+    adjustPropertiesPopupPosition(objectListHidden) {
+        // Get all properties popups
+        const propertiesPopups = [
+            document.getElementById('propertiesPopup'),
+            document.getElementById('circlePropertiesPopup'),
+            document.getElementById('polygonPropertiesPopup'),
+            document.getElementById('treePropertiesPopup')
+        ];
+
+        propertiesPopups.forEach(popup => {
+            if (!popup) return;
+
+            // Check if popup is currently visible
+            const isVisible = popup.classList.contains('show');
+            
+            if (isVisible) {
+                this.adjustPropertiesPopupPositionForElement(popup);
+            }
+        });
+    }
+
+    /**
+     * Adjust position for a specific properties popup element
+     */
+    adjustPropertiesPopupPositionForElement(popup) {
+        if (!popup) return;
+
+        // Check if object list is hidden
+        const objectListPanel = document.querySelector('.object-list-panel');
+        const objectListHidden = objectListPanel && objectListPanel.classList.contains('hidden');
+
+        // If object list is hidden, move properties to right edge (right: 0)
+        // Otherwise, keep it at right: 300px (left of object list)
+        if (objectListHidden) {
+            popup.style.right = '0px';
+        } else {
+            popup.style.right = '300px';
+        }
+    }
+
+    /**
+     * Setup hierarchy button event listener
+     */
+    setupHierarchyButton() {
+        const hierarchyButton = document.getElementById('hierarchyButton');
+        if (hierarchyButton) {
+            hierarchyButton.addEventListener('click', () => {
+                this.toggleObjectList();
+            });
+        }
     }
 
     /**
