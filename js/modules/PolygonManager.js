@@ -26,7 +26,7 @@ class PolygonManager {
         // Use standardized color
         const defaultColor = this.uiManager ? this.uiManager.getDefaultDrawingColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
         this.polygonMaterial.diffuseColor = defaultColor;
-        this.polygonMaterial.backFaceCulling = false; // Make it 2-sided
+        this.polygonMaterial.backFaceCulling = true; // Single-sided
         this.polygonMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Normal specular
         this.polygonMaterial.roughness = 0.8; // Normal roughness
         this.polygonMaterial.metallic = 0.0; // Non-metallic
@@ -38,7 +38,7 @@ class PolygonManager {
         const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
         this.previewMaterial.diffuseColor = previewColor;
         this.previewMaterial.alpha = previewAlpha;
-        this.previewMaterial.backFaceCulling = false;
+        this.previewMaterial.backFaceCulling = true;
         
         // Material for points
         this.pointMaterial = new BABYLON.StandardMaterial("polygonPointMaterial", this.scene);

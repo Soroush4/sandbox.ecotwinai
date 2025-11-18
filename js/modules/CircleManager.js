@@ -21,8 +21,8 @@ class CircleManager {
         const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
         this.tempMaterial.diffuseColor = previewColor;
         this.tempMaterial.alpha = previewAlpha;
-        this.tempMaterial.backFaceCulling = false;
-        this.tempMaterial.twoSidedLighting = true;
+        this.tempMaterial.backFaceCulling = true;
+        this.tempMaterial.twoSidedLighting = false;
         
         // Counter for unique naming
         this.circleCounter = 0;
@@ -278,8 +278,8 @@ class CircleManager {
         }
         
         material.diffuseColor = materialColor;
-        material.backFaceCulling = false; // Make it 2-sided
-        material.twoSidedLighting = true; // Enable lighting on both sides
+        material.backFaceCulling = true; // Single-sided
+        material.twoSidedLighting = false; // Disable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         material.alpha = 1.0; // Fully opaque
         circle.material = material;
@@ -417,8 +417,8 @@ class CircleManager {
         // Create new material (color will be set later based on type)
         const material = new BABYLON.StandardMaterial(`${shape.name}Material`, this.scene);
         material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
-        material.backFaceCulling = false;
-        material.twoSidedLighting = true;
+        material.backFaceCulling = true;
+        material.twoSidedLighting = false;
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         material.alpha = 1.0;
         newCircle.material = material;

@@ -26,7 +26,7 @@ class UIManager {
         this.cameraControlsDisabled = false; // Initialize camera control state
         
         // STL Import settings
-        this.smoothingAngleThreshold = 60; // Default: 60 degrees (cos(60°) = 0.5)
+        this.smoothingAngleThreshold = 100; // Default: 100 degrees
         
         this.init();
     }
@@ -172,7 +172,11 @@ class UIManager {
                     userData: selectedObject.userData
                 });
                 
-                if (this.isTree(selectedObject)) {
+                // Check if this is an imported STL mesh first
+                if (selectedObject.userData && selectedObject.userData.isImportedSTL) {
+                    console.log('Showing STL properties popup');
+                    this.showSTLPropertiesPopup(selectedObject);
+                } else if (this.isTree(selectedObject)) {
                     console.log('Showing tree properties popup');
                     this.showTreePropertiesPopup(selectedObject);
                 } else if (isCircle || isBuildingFromCircle) {
@@ -1755,8 +1759,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                         clonedMaterial.emissiveColor = obj.material.emissiveColor ? obj.material.emissiveColor.clone() : new BABYLON.Color3(0, 0, 0);
                         clonedMaterial.ambientColor = obj.material.ambientColor ? obj.material.ambientColor.clone() : new BABYLON.Color3(0, 0, 0);
                         clonedMaterial.alpha = obj.material.alpha !== undefined ? obj.material.alpha : 1.0;
-                        clonedMaterial.backFaceCulling = obj.material.backFaceCulling !== undefined ? obj.material.backFaceCulling : false;
-                        clonedMaterial.twoSidedLighting = obj.material.twoSidedLighting !== undefined ? obj.material.twoSidedLighting : true;
+                        clonedMaterial.backFaceCulling = obj.material.backFaceCulling !== undefined ? obj.material.backFaceCulling : true;
+                        clonedMaterial.twoSidedLighting = obj.material.twoSidedLighting !== undefined ? obj.material.twoSidedLighting : false;
                     }
                     
                     clonedMesh.material = clonedMaterial;
@@ -1791,8 +1795,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                                 clonedExtrusionMaterial.specularColor = originalExtrusion.material.specularColor ? originalExtrusion.material.specularColor.clone() : new BABYLON.Color3(0.1, 0.1, 0.1);
                                 clonedExtrusionMaterial.emissiveColor = originalExtrusion.material.emissiveColor ? originalExtrusion.material.emissiveColor.clone() : new BABYLON.Color3(0, 0, 0);
                                 clonedExtrusionMaterial.alpha = originalExtrusion.material.alpha !== undefined ? originalExtrusion.material.alpha : 1.0;
-                                clonedExtrusionMaterial.backFaceCulling = originalExtrusion.material.backFaceCulling !== undefined ? originalExtrusion.material.backFaceCulling : false;
-                                clonedExtrusionMaterial.twoSidedLighting = originalExtrusion.material.twoSidedLighting !== undefined ? originalExtrusion.material.twoSidedLighting : true;
+                                clonedExtrusionMaterial.backFaceCulling = originalExtrusion.material.backFaceCulling !== undefined ? originalExtrusion.material.backFaceCulling : true;
+                                clonedExtrusionMaterial.twoSidedLighting = originalExtrusion.material.twoSidedLighting !== undefined ? originalExtrusion.material.twoSidedLighting : false;
                             }
                             clonedExtrusion.material = clonedExtrusionMaterial;
                         }
@@ -2105,7 +2109,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Use smoothing angle threshold from preferences (convert degrees to cosine)
         // Note: We invert the angle (180 - angle) so that higher slider values = more smoothing
         // cos(0°) = 1 (less smoothing), cos(180°) = -1 (more smoothing)
-        const angleDegrees = this.smoothingAngleThreshold || 60;
+        const angleDegrees = this.smoothingAngleThreshold || 100;
         const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
         
         // First pass: collect vertices and group by position
@@ -2167,8 +2171,34 @@ Transform your 3D models into powerful energy analysis tools.`;
             });
 
             // Add triangle indices
+            // Check if we need to flip the triangle order based on normal direction
+            // In STL, normals should point outward. If the normal from STL points inward,
+            // we need to reverse the vertex order to get correct lighting
             if (triangleIndices.length === 3) {
-                indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
+                // Calculate normal from triangle vertices to verify direction
+                const v0 = triangle.vertices[0];
+                const v1 = triangle.vertices[1];
+                const v2 = triangle.vertices[2];
+                
+                const edge1 = new BABYLON.Vector3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
+                const edge2 = new BABYLON.Vector3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
+                const calculatedNormal = BABYLON.Vector3.Cross(edge1, edge2);
+                calculatedNormal.normalize();
+                
+                // Compare with STL normal
+                const stlNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
+                stlNormal.normalize();
+                
+                const dotProduct = BABYLON.Vector3.Dot(calculatedNormal, stlNormal);
+                
+                // If normals are opposite (dot product < 0), reverse the triangle order
+                if (dotProduct < 0) {
+                    // Reverse order: (0, 1, 2) -> (0, 2, 1)
+                    indices.push(triangleIndices[0], triangleIndices[2], triangleIndices[1]);
+                } else {
+                    // Keep original order
+                    indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
+                }
             }
         });
         
@@ -2276,10 +2306,12 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Update mesh with adjusted positions
         mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, adjustedPositions);
         
-        // Keep the smoothed normals (they don't change with position offset)
-        // The smoothed normals are already calculated and should be preserved
-        // Position offset doesn't affect normal directions, only positions
-        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        // Recalculate normals from geometry to ensure correct direction
+        // This fixes the issue where STL normals might be inverted
+        // ComputeNormals calculates normals based on triangle winding order (counter-clockwise = upward)
+        const recalculatedNormals = [];
+        BABYLON.VertexData.ComputeNormals(adjustedPositions, indices, recalculatedNormals);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, recalculatedNormals);
         
         mesh.refreshBoundingInfo();
         
@@ -2299,8 +2331,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         const material = new BABYLON.StandardMaterial(`${obj.name}Material`, scene);
         const color = this.getColorByType ? this.getColorByType(obj.type) : new BABYLON.Color3(0.8, 0.8, 0.8);
         material.diffuseColor = color;
-        material.backFaceCulling = false;
-        material.twoSidedLighting = true;
+        material.backFaceCulling = true;
+        material.twoSidedLighting = false;
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         material.roughness = 0.7;
         mesh.material = material;
@@ -2337,7 +2369,8 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Add to scene manager if it's a building
         if (obj.type === 'building' && this.sceneManager) {
-            this.sceneManager.addBuilding(mesh);
+            // SceneManager.addBuilding expects an object with mesh property
+            this.sceneManager.addBuilding({ mesh: mesh });
         }
 
         // For trees, we would need to handle them differently (as TransformNode with child meshes)
@@ -2813,7 +2846,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         const smoothingAngleThresholdSlider = document.getElementById('smoothingAngleThresholdPref');
         const smoothingAngleThresholdValue = document.getElementById('smoothingAngleThresholdValuePref');
         if (smoothingAngleThresholdSlider && smoothingAngleThresholdValue) {
-            const currentThreshold = this.smoothingAngleThreshold || 60;
+            const currentThreshold = this.smoothingAngleThreshold || 100;
             smoothingAngleThresholdSlider.value = currentThreshold;
             smoothingAngleThresholdValue.textContent = currentThreshold.toFixed(0);
         }
@@ -3631,7 +3664,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         const vertexMap = new Map();
         
         // Use current smoothing angle threshold
-        const angleDegrees = this.smoothingAngleThreshold || 60;
+        const angleDegrees = this.smoothingAngleThreshold || 100;
         const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
         
         // First pass: collect vertices and group by position
@@ -3693,8 +3726,32 @@ Transform your 3D models into powerful energy analysis tools.`;
             });
 
             // Add triangle indices
+            // Check if we need to flip the triangle order based on normal direction
             if (triangleIndices.length === 3) {
-                indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
+                // Calculate normal from triangle vertices to verify direction
+                const v0 = triangle.vertices[0];
+                const v1 = triangle.vertices[1];
+                const v2 = triangle.vertices[2];
+                
+                const edge1 = new BABYLON.Vector3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
+                const edge2 = new BABYLON.Vector3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
+                const calculatedNormal = BABYLON.Vector3.Cross(edge1, edge2);
+                calculatedNormal.normalize();
+                
+                // Compare with STL normal
+                const stlNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
+                stlNormal.normalize();
+                
+                const dotProduct = BABYLON.Vector3.Dot(calculatedNormal, stlNormal);
+                
+                // If normals are opposite (dot product < 0), reverse the triangle order
+                if (dotProduct < 0) {
+                    // Reverse order: (0, 1, 2) -> (0, 2, 1)
+                    indices.push(triangleIndices[0], triangleIndices[2], triangleIndices[1]);
+                } else {
+                    // Keep original order
+                    indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
+                }
             }
         });
         
@@ -3753,8 +3810,13 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Update mesh geometry
         mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, adjustedPositions);
-        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
         mesh.setIndices(indices);
+        
+        // Recalculate normals from geometry to ensure correct direction
+        // This fixes the issue where STL normals might be inverted
+        const recalculatedNormals = [];
+        BABYLON.VertexData.ComputeNormals(adjustedPositions, indices, recalculatedNormals);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, recalculatedNormals);
         
         // Refresh bounding info
         mesh.refreshBoundingInfo();
@@ -4817,6 +4879,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.hideTreePropertiesPopup();
         });
 
+        // STL properties popup event listeners
+        document.getElementById('closeSTLProperties').addEventListener('click', () => {
+            this.hideSTLPropertiesPopup();
+        });
+
+        // STL properties auto-save listeners
+        this.setupSTLPropertiesListeners();
+
         // Auto-save event listeners for shape properties
         this.setupAutoSaveListeners();
 
@@ -5329,6 +5399,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         document.getElementById('circlePropertiesPopup').classList.remove('show');
         document.getElementById('polygonPropertiesPopup').classList.remove('show');
         document.getElementById('treePropertiesPopup').classList.remove('show');
+        document.getElementById('stlPropertiesPopup').classList.remove('show');
         this.currentShape = null;
     }
 
@@ -5404,6 +5475,149 @@ Transform your 3D models into powerful energy analysis tools.`;
     hideTreePropertiesPopup() {
         document.getElementById('treePropertiesPopup').classList.remove('show');
         this.currentShape = null;
+    }
+
+    /**
+     * Show STL properties popup
+     */
+    showSTLPropertiesPopup(mesh) {
+        this.currentShape = mesh;
+        this.currentSTLMesh = mesh; // Store STL mesh reference for name validation
+        
+        console.log('Showing STL properties for mesh:', mesh.name);
+        console.log('Mesh userData:', mesh.userData);
+        
+        // Fill form fields
+        const stlNameInput = document.getElementById('stlName');
+        const stlTypeSelect = document.getElementById('stlType');
+        const stlNameError = document.getElementById('stlNameError');
+        
+        if (stlNameInput) {
+            stlNameInput.value = mesh.name || '';
+        }
+        
+        if (stlTypeSelect) {
+            const type = mesh.userData?.type || 'ground';
+            stlTypeSelect.value = type;
+        }
+        
+        // Clear error message
+        if (stlNameError) {
+            stlNameError.style.display = 'none';
+            stlNameError.textContent = '';
+        }
+        
+        // Show popup
+        const popup = document.getElementById('stlPropertiesPopup');
+        if (popup) {
+            popup.classList.add('show');
+            // Adjust position based on object list visibility
+            this.adjustPropertiesPopupPositionForElement(popup);
+        }
+    }
+
+    /**
+     * Hide STL properties popup
+     */
+    hideSTLPropertiesPopup() {
+        const popup = document.getElementById('stlPropertiesPopup');
+        if (popup) {
+            popup.classList.remove('show');
+        }
+        this.currentShape = null;
+        this.currentSTLMesh = null;
+    }
+
+    /**
+     * Setup STL properties listeners
+     */
+    setupSTLPropertiesListeners() {
+        const stlNameInput = document.getElementById('stlName');
+        const stlTypeSelect = document.getElementById('stlType');
+        const stlNameError = document.getElementById('stlNameError');
+        
+        if (!stlNameInput || !stlTypeSelect) {
+            console.warn('STL properties inputs not found');
+            return;
+        }
+        
+        // Store original name for validation
+        let originalSTLName = '';
+        
+        stlNameInput.addEventListener('focus', () => {
+            originalSTLName = stlNameInput.value;
+        });
+        
+        stlNameInput.addEventListener('blur', () => {
+            const newName = stlNameInput.value.trim();
+            
+            // Clear previous error
+            if (stlNameError) {
+                stlNameError.style.display = 'none';
+                stlNameError.textContent = '';
+            }
+            
+            // Validate name
+            if (!newName || newName === '') {
+                if (stlNameError) {
+                    stlNameError.textContent = 'Name cannot be empty';
+                    stlNameError.style.display = 'block';
+                }
+                // Restore original name
+                stlNameInput.value = originalSTLName;
+                return;
+            }
+            
+            // Check if name is unique
+            if (!this.isNameUnique(newName, this.currentSTLMesh)) {
+                if (stlNameError) {
+                    stlNameError.textContent = 'Name already exists. Please choose a different name.';
+                    stlNameError.style.display = 'block';
+                }
+                // Restore original name
+                stlNameInput.value = originalSTLName;
+                return;
+            }
+            
+            // Update mesh name if valid
+            if (this.currentSTLMesh && newName !== originalSTLName) {
+                this.currentSTLMesh.name = newName;
+                console.log(`STL mesh renamed to: ${newName}`);
+                
+                // Update object list if available
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                }
+            }
+        });
+        
+        // Type change listener
+        stlTypeSelect.addEventListener('change', () => {
+            if (!this.currentSTLMesh) return;
+            
+            const newType = stlTypeSelect.value;
+            const oldType = this.currentSTLMesh.userData?.type;
+            
+            if (newType !== oldType) {
+                // Update userData
+                this.currentSTLMesh.userData.type = newType;
+                this.currentSTLMesh.userData.shapeType = newType === 'tree' ? 'tree' : 
+                    (newType === 'building' ? 'building' : 'polygon');
+                
+                // Update material color based on type
+                if (this.currentSTLMesh.material) {
+                    const color = this.getColorByType(newType);
+                    this.currentSTLMesh.material.diffuseColor = color;
+                }
+                
+                console.log(`STL mesh type changed from ${oldType} to ${newType}`);
+                
+                // Update object list if available
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                }
+            }
+        });
     }
 
     /**
@@ -5570,8 +5784,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Use oldName since shape is already disposed
         const material = new BABYLON.StandardMaterial(`${oldName}Material`, this.sceneManager.getScene());
         material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
-        material.backFaceCulling = false;
-        material.twoSidedLighting = true;
+        material.backFaceCulling = true;
+        material.twoSidedLighting = false;
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         material.alpha = 1.0;
         newRectangle.material = material;
@@ -5805,7 +6019,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         newMaterial.roughness = 0.7;
-        newMaterial.twoSidedLighting = true;
+        newMaterial.twoSidedLighting = false;
         
         newMesh.material = newMaterial;
         newMesh.renderingGroupId = 1;
@@ -6171,10 +6385,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Flip faces to correct side wall normals
         mesh.flipFaces(false);
         
-        // Ensure material has backFaceCulling disabled and is double-sided
+        // Ensure material has backFaceCulling enabled (single-sided)
         if (mesh.material) {
-            mesh.material.backFaceCulling = false;
-            mesh.material.sideOrientation = BABYLON.Material.DoubleSide;
+            mesh.material.backFaceCulling = true;
+            mesh.material.sideOrientation = BABYLON.Material.FrontSide;
         }
         
         // Force normal recalculation
@@ -6262,7 +6476,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (polygon.material) {
             const newMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
             newMaterial.diffuseColor = polygon.material.diffuseColor.clone();
-            newMaterial.backFaceCulling = false;
+            newMaterial.backFaceCulling = true;
             extrusion.material = newMaterial;
         }
         
@@ -6562,7 +6776,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                     if (shape.material) {
                         const newMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
                         newMaterial.diffuseColor = shape.material.diffuseColor.clone();
-                        newMaterial.backFaceCulling = false;
+                        newMaterial.backFaceCulling = true;
                         extrusion.material = newMaterial;
                     }
                     
@@ -7479,7 +7693,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             const previewMaterial = new BABYLON.StandardMaterial(`${previewName}Material`, this.sceneManager.getScene());
             previewMaterial.diffuseColor = new BABYLON.Color3(0.5, 0.5, 1.0); // Light blue
             previewMaterial.alpha = 0.3; // Semi-transparent
-            previewMaterial.backFaceCulling = false;
+            previewMaterial.backFaceCulling = true;
             previewExtrusion.material = previewMaterial;
             previewExtrusion.renderingGroupId = 1;
             
@@ -7607,34 +7821,41 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Delete each selected object
         selectedObjects.forEach(obj => {
-            if (obj && obj.dispose) {
-                // Check if it's a tree
-                if (this.treeManager && this.isTree(obj)) {
-                    // Find the tree object in the tree manager
-                    const tree = this.treeManager.trees.find(t => t.parent === obj);
-                    if (tree) {
-                        this.treeManager.removeTree(tree);
-                    } else {
-                        // Fallback: just dispose the object
-                        obj.dispose();
-                    }
-                }
-                // Check if it's a 2D shape
-                else if (this.shape2DManager && this.is2DShape(obj)) {
-                    this.shape2DManager.removeShape(obj);
-                } 
-                // Check if it's a polygon
-                else if (this.polygonManager && this.isPolygon(obj)) {
-                    // For now, just dispose the polygon object
-                    // TODO: Add proper polygon removal method to PolygonManager
-                    obj.dispose();
-                }
-                else {
-                    // It's a 3D building or other object
-                    obj.dispose();
-                }
-                console.log(`Deleted object: ${obj.name}`);
+            if (!obj || !obj.dispose) return;
+            
+            // Check if it's an imported STL object (including STL trees)
+            const isImportedSTL = obj.userData && obj.userData.isImportedSTL;
+            
+            if (isImportedSTL) {
+                // Handle imported STL objects (including trees)
+                this.deleteImportedSTLObject(obj);
             }
+            // Check if it's a tree (regular trees, not STL imported)
+            else if (this.treeManager && this.isTree(obj)) {
+                // Find the tree object in the tree manager
+                const tree = this.treeManager.trees.find(t => t.parent === obj);
+                if (tree) {
+                    this.treeManager.removeTree(tree);
+                } else {
+                    // Fallback: just dispose the object
+                    this.deleteImportedSTLObject(obj);
+                }
+            }
+            // Check if it's a 2D shape
+            else if (this.shape2DManager && this.is2DShape(obj)) {
+                this.shape2DManager.removeShape(obj);
+            } 
+            // Check if it's a polygon
+            else if (this.polygonManager && this.isPolygon(obj)) {
+                // For now, just dispose the polygon object
+                // TODO: Add proper polygon removal method to PolygonManager
+                obj.dispose();
+            }
+            else {
+                // It's a 3D building or other object
+                obj.dispose();
+            }
+            console.log(`Deleted object: ${obj.name}`);
         });
 
         // Clear selection after deletion
@@ -7644,6 +7865,77 @@ Transform your 3D models into powerful energy analysis tools.`;
         this.dispatchSceneChangeEvent();
         
         console.log('Selected objects deleted and selection cleared');
+    }
+
+    /**
+     * Delete an imported STL object (including STL trees)
+     * @param {BABYLON.Mesh} obj - The STL object to delete
+     */
+    deleteImportedSTLObject(obj) {
+        if (!obj) return;
+        
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            console.warn('Scene not available for deleting STL object');
+            return;
+        }
+        
+        // Remove from selection manager first
+        if (this.selectionManager) {
+            this.selectionManager.removeSelectableObject(obj);
+        }
+        
+        // Remove from SceneManager if it's a building
+        if (obj.userData && obj.userData.type === 'building' && this.sceneManager) {
+            try {
+                // Find and remove building from SceneManager
+                const buildings = this.sceneManager.getBuildings();
+                const buildingIndex = buildings.findIndex(b => {
+                    // Buildings can be stored as {mesh: ...} or directly as mesh
+                    return (b.mesh && b.mesh === obj) || (b === obj);
+                });
+                if (buildingIndex !== -1) {
+                    buildings.splice(buildingIndex, 1);
+                }
+            } catch (error) {
+                console.warn('Error removing building from SceneManager:', error);
+            }
+        }
+        
+        // Remove from scene
+        try {
+            scene.removeMesh(obj);
+        } catch (error) {
+            console.warn('Error removing mesh from scene:', error);
+        }
+        
+        // Dispose material if not shared
+        if (obj.material) {
+            // Check if this material is used by other meshes in the scene
+            const isMaterialShared = scene.meshes.some(otherMesh => 
+                otherMesh !== obj && 
+                otherMesh.material === obj.material &&
+                !otherMesh.isDisposed()
+            );
+            
+            // Only dispose the material if it's not shared
+            if (!isMaterialShared) {
+                try {
+                    obj.material.dispose();
+                } catch (error) {
+                    console.warn('Error disposing material:', error);
+                }
+            }
+        }
+        
+        // Dispose the mesh
+        try {
+            obj.dispose();
+        } catch (error) {
+            console.warn('Error disposing mesh:', error);
+        }
+        
+        console.log(`Deleted imported STL object: ${obj.name}`);
     }
 
     /**

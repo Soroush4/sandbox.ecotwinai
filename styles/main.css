@@ -1055,10 +1055,11 @@ input[type="range"]::-moz-range-thumb {
     display: block;
 }
 
-/* Circle, Polygon, and Tree Properties Popup - same positioning as main popup */
+/* Circle, Polygon, Tree, and STL Properties Popup - same positioning as main popup */
 #circlePropertiesPopup,
 #polygonPropertiesPopup,
-#treePropertiesPopup {
+#treePropertiesPopup,
+#stlPropertiesPopup {
     position: fixed;
     top: 28px; /* Below menu bar, same as object list */
     right: 300px; /* Left of object list panel (which is 300px wide) */
@@ -1076,7 +1077,8 @@ input[type="range"]::-moz-range-thumb {
 
 #circlePropertiesPopup.show,
 #polygonPropertiesPopup.show,
-#treePropertiesPopup.show {
+#treePropertiesPopup.show,
+#stlPropertiesPopup.show {
     display: block;
 }
 
@@ -1178,6 +1180,17 @@ input[type="range"]::-moz-range-thumb {
 .property-group input[readonly] {
     background-color: #f8f9fa;
     color: #666;
+}
+
+.property-group .error-message {
+    display: block;
+    color: #dc3545;
+    font-size: 12px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
 }
 
 .properties-footer {
@@ -1504,7 +1517,8 @@ input[type="range"]::-moz-range-thumb {
     .properties-popup,
     #circlePropertiesPopup,
     #polygonPropertiesPopup,
-    #treePropertiesPopup {
+    #treePropertiesPopup,
+    #stlPropertiesPopup {
         right: 200px; /* Left of object list panel (which is 200px wide on mobile) */
         width: 200px;
         height: calc(100vh - 28px); /* Full height to bottom of screen */

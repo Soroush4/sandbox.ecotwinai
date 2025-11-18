@@ -159,14 +159,37 @@ class ObjectListManager {
         // Get other meshes (shapes, etc.) from scene
         const otherMeshes = scene.meshes.filter(mesh => {
             // Filter out system meshes, grid, default earth, trees, buildings, and disabled meshes
-            return mesh.name && 
-                   mesh.isEnabled() && // Only include enabled meshes
-                   !mesh.name.includes('__root__') &&
-                   !mesh.name.includes('grid') &&
-                   mesh.name !== 'earth' &&
-                   !mesh.name.startsWith('tree_') && // Exclude tree meshes (they're handled separately)
-                   !mesh.name.includes('_tree_') && // Also exclude tree mesh parts
-                   !buildingMeshes.includes(mesh); // Exclude buildings (they're handled separately)
+            if (!mesh.name || !mesh.isEnabled()) return false;
+            
+            // Exclude system meshes
+            if (mesh.name.includes('__root__') || 
+                mesh.name.includes('grid') || 
+                mesh.name === 'earth') {
+                return false;
+            }
+            
+            // Exclude buildings (they're handled separately)
+            if (buildingMeshes.includes(mesh)) {
+                return false;
+            }
+            
+            // Exclude regular tree meshes (they're handled separately via TreeManager)
+            // BUT include imported STL trees (they're simple meshes, not in TreeManager)
+            const isImportedSTLTree = mesh.userData && 
+                                      mesh.userData.isImportedSTL && 
+                                      mesh.userData.type === 'tree';
+            
+            if (isImportedSTLTree) {
+                // Include imported STL trees
+                return true;
+            }
+            
+            // Exclude regular tree meshes (from TreeManager)
+            if (mesh.name.startsWith('tree_') || mesh.name.includes('_tree_')) {
+                return false;
+            }
+            
+            return true;
         });
 
         // Combine building meshes, tree parents, and other meshes (remove duplicates)

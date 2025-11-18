@@ -79,8 +79,8 @@ class SelectionManager {
         const edgeMaterial = new BABYLON.StandardMaterial("edgeWireframeMaterial", this.scene);
         edgeMaterial.diffuseColor = new BABYLON.Color3(0.0, 0.8, 1.0); // Bright blue edges
         edgeMaterial.wireframe = true;
-        edgeMaterial.backFaceCulling = false;
-        edgeMaterial.cullBackFaces = false;
+        edgeMaterial.backFaceCulling = true;
+        edgeMaterial.cullBackFaces = true;
         
         // Use wireframe fill mode to show only edges
         edgeMaterial.fillMode = BABYLON.Material.WireFrameFillMode;

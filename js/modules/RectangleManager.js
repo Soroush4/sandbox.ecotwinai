@@ -21,8 +21,8 @@ class RectangleManager {
         const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
         this.tempRectMaterial.diffuseColor = previewColor;
         this.tempRectMaterial.alpha = previewAlpha;
-        this.tempRectMaterial.backFaceCulling = false;
-        this.tempRectMaterial.twoSidedLighting = true; // Enable lighting on both sides
+        this.tempRectMaterial.backFaceCulling = true;
+        this.tempRectMaterial.twoSidedLighting = false; // Disable lighting on both sides
         this.tempRectMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         
         // Shape counter for unique naming
@@ -114,8 +114,8 @@ class RectangleManager {
             materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Fallback brown
         }
         material.diffuseColor = materialColor;
-        material.backFaceCulling = false; // Make it 2-sided
-        material.twoSidedLighting = true; // Enable lighting on both sides
+        material.backFaceCulling = true; // Single-sided
+        material.twoSidedLighting = false; // Disable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         rectangle.material = material;
         

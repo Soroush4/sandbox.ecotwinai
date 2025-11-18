@@ -540,59 +540,68 @@ class BuildingGenerator {
     createPolygonInCell(cellX, cellZ, cellSize, type) {
         if (!this.uiManager) return;
         
-        // Create a simple rectangular polygon (4 points)
-        // Points must be in counter-clockwise order (when viewed from above) for correct normal direction
+        // Use same method as buildings (Rectangle Box or Circle Cylinder) but with very low height
         const halfSize = cellSize * 0.4; // Use 80% of cell size to leave some margin
-        const points = [
-            new BABYLON.Vector3(cellX - halfSize, 0, cellZ - halfSize), // Bottom-left
-            new BABYLON.Vector3(cellX - halfSize, 0, cellZ + halfSize), // Top-left
-            new BABYLON.Vector3(cellX + halfSize, 0, cellZ + halfSize), // Top-right
-            new BABYLON.Vector3(cellX + halfSize, 0, cellZ - halfSize)  // Bottom-right
-        ];
+        const width = halfSize * 2;
+        const depth = halfSize * 2;
+        const height = 0.05; // Very low height (5 cm) like roads
         
-        // Create material based on type
-        const material = new BABYLON.StandardMaterial(`${type}_${this.polygons.length}`, this.scene);
-        const color = this.uiManager.getColorByType(type);
-        material.diffuseColor = color;
-        material.backFaceCulling = false;
-        material.twoSidedLighting = true;
-        material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        material.roughness = 0.8;
+        const position = new BABYLON.Vector3(cellX, 0, cellZ);
         
-        // Create userData
-        const userData = {
-            type: type,
-            shapeType: 'polygon',
-            dimensions: {
-                width: halfSize * 2,
-                depth: halfSize * 2,
-                height: 0.1
-            },
-            originalHeight: 0.1,
-            baseY: 0
-        };
+        // Randomly decide between rectangle and circle (30% chance for circle, same as buildings)
+        let polygonMesh;
+        const useCircle = Math.random() < 0.3;
         
-        // Generate unique name (without "polygon" prefix)
-        const polygonName = `${type}_${this.polygons.length + 1}`;
-        
-        // Create polygon mesh using UIManager (center will be calculated from points)
-        this.uiManager.createPolygonMesh(polygonName, points, new BABYLON.Vector3(0, 0, 0), material, userData);
+        if (useCircle && this.circleManager) {
+            // Create circle (cylinder) with very low height
+            const radius = Math.min(width, depth) / 2;
+            polygonMesh = this.createBuildingCircle(radius, position, height, type);
+        } else {
+            // Create rectangle (box) with very low height
+            polygonMesh = this.createBuildingRectangle(width, depth, position, height, type);
+        }
         
         // Store polygon reference and verify it was created correctly
-        const polygonMesh = this.scene.getMeshByName(polygonName);
         if (polygonMesh) {
-            // Ensure material is set correctly
-            if (polygonMesh.material !== material) {
-                polygonMesh.material = material;
+            // Ensure userData is set correctly and has a valid type
+            if (!polygonMesh.userData) {
+                polygonMesh.userData = {};
             }
             
-            // Ensure userData is set correctly and has a valid type
-            if (!polygonMesh.userData || !polygonMesh.userData.type || polygonMesh.userData.type === undefined || polygonMesh.userData.type === null) {
-                polygonMesh.userData = userData;
-            } else if (polygonMesh.userData.type !== type) {
-                // Update type if it doesn't match
-                polygonMesh.userData.type = type;
+            // Update type and shapeType
+            polygonMesh.userData.type = type;
+            polygonMesh.userData.shapeType = useCircle ? 'circle' : 'rectangle';
+            
+            // Update dimensions
+            if (useCircle) {
+                const radius = Math.min(width, depth) / 2;
+                polygonMesh.userData.dimensions = {
+                    width: radius * 2,
+                    depth: radius * 2,
+                    height: height,
+                    radius: radius,
+                    diameterTop: radius * 2,
+                    diameterBottom: radius * 2
+                };
+            } else {
+                polygonMesh.userData.dimensions = {
+                    width: width,
+                    depth: depth,
+                    height: height
+                };
             }
+            
+            polygonMesh.userData.originalHeight = height;
+            polygonMesh.userData.baseY = 0;
+            
+            // Update material color based on type (if not already set correctly)
+            if (polygonMesh.material) {
+                const color = this.uiManager.getColorByType(type);
+                polygonMesh.material.diffuseColor = color;
+            }
+            
+            // Name is already set by createBuildingRectangle/createBuildingCircle
+            const polygonName = polygonMesh.name;
             
             // Final check: ensure type is valid
             if (!polygonMesh.userData.type || polygonMesh.userData.type === undefined || polygonMesh.userData.type === null) {
@@ -600,20 +609,16 @@ class BuildingGenerator {
                 console.warn(`Polygon ${polygonName} had no type, set to 'ground'`);
             }
             
-            // Ensure name is correct
-            if (polygonMesh.name !== polygonName) {
-                polygonMesh.name = polygonName;
-            }
-            
             this.polygons.push(polygonMesh);
-            console.log(`Created polygon: ${polygonName}, type: ${polygonMesh.userData.type}, color: R=${color.r.toFixed(2)}, G=${color.g.toFixed(2)}, B=${color.b.toFixed(2)}`);
+            const color = this.uiManager.getColorByType(type);
+            console.log(`Created ${useCircle ? 'circle' : 'rectangle'} polygon: ${polygonName}, type: ${polygonMesh.userData.type}, color: R=${color.r.toFixed(2)}, G=${color.g.toFixed(2)}, B=${color.b.toFixed(2)}`);
             
             // Add trees on ground and green polygons (not on waterway)
             if ((type === 'ground' || type === 'green') && this.treeManager) {
-                this.addTreesOnPolygon(polygonMesh, halfSize * 2);
+                this.addTreesOnPolygon(polygonMesh, Math.max(width, depth));
             }
         } else {
-            console.warn(`Failed to create polygon: ${polygonName}`);
+            console.warn(`Failed to create polygon for type: ${type}`);
         }
     }
     
@@ -838,6 +843,39 @@ class BuildingGenerator {
     }
 
     /**
+     * Generate unique name by type (for ground, green, waterway)
+     */
+    generateUniqueNameByType(type) {
+        // Count existing objects of this type in the scene
+        let maxNumber = 0;
+        const usedNumbers = new Set();
+        
+        // Check all meshes in the scene for names of this type
+        // Only count enabled meshes that are still in the scene
+        this.scene.meshes.forEach(mesh => {
+            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(`${type}_`)) {
+                const match = mesh.name.match(new RegExp(`^${type}_(\\d+)$`));
+                if (match) {
+                    const number = parseInt(match[1]);
+                    usedNumbers.add(number);
+                    if (number > maxNumber) {
+                        maxNumber = number;
+                    }
+                }
+            }
+        });
+        
+        // Find the first available number (not just maxNumber + 1)
+        let nextNumber = 1;
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+        
+        // Return next available number
+        return `${type}_${nextNumber}`;
+    }
+
+    /**
      * Create a single building using rectangle method (same as RectangleManager)
      */
     createBuilding(position, minHeight, maxHeight, width = null, depth = null) {
@@ -880,8 +918,14 @@ class BuildingGenerator {
      * This ensures consistent structure with drawing tools
      */
     createBuildingRectangle(width, depth, position, height, type = 'building') {
-        // Generate unique building name
-        const buildingName = this.generateUniqueBuildingName();
+        // Generate unique name based on type
+        let buildingName;
+        if (type === 'building') {
+            buildingName = this.generateUniqueBuildingName();
+        } else {
+            // For ground, green, waterway, use type-based naming
+            buildingName = this.generateUniqueNameByType(type);
+        }
         
         // Create a 3D box (same as RectangleManager.createRectangle)
         const rectangle = BABYLON.MeshBuilder.CreateBox(buildingName, {
@@ -911,10 +955,15 @@ class BuildingGenerator {
         
         // Create material (same structure as RectangleManager)
         const material = new BABYLON.StandardMaterial(`${buildingName}Material`, this.scene);
-        // Use white color for buildings (as per original design)
-        material.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white for buildings
-        material.backFaceCulling = false; // Make it 2-sided
-        material.twoSidedLighting = true; // Enable lighting on both sides
+        // Use color based on type (white for buildings, color from UIManager for other types)
+        if (this.uiManager && type !== 'building') {
+            const color = this.uiManager.getColorByType(type);
+            material.diffuseColor = color;
+        } else {
+            material.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white for buildings
+        }
+        material.backFaceCulling = true; // Single-sided
+        material.twoSidedLighting = false; // Disable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         material.roughness = 0.7;
         rectangle.material = material;
@@ -930,7 +979,7 @@ class BuildingGenerator {
         // Store rectangle properties in userData (same structure as RectangleManager)
         rectangle.userData = {
             type: validType,
-            shapeType: 'building', // Mark as building but use rectangle structure
+            shapeType: validType === 'building' ? 'building' : 'rectangle', // Mark as building or rectangle based on type
             dimensions: {
                 width: width,
                 depth: depth,
@@ -957,8 +1006,14 @@ class BuildingGenerator {
      * This ensures consistent structure with drawing tools
      */
     createBuildingCircle(radius, position, height, type = 'building') {
-        // Generate unique building name
-        const buildingName = this.generateUniqueBuildingName();
+        // Generate unique name based on type
+        let buildingName;
+        if (type === 'building') {
+            buildingName = this.generateUniqueBuildingName();
+        } else {
+            // For ground, green, waterway, use type-based naming
+            buildingName = this.generateUniqueNameByType(type);
+        }
         const diameter = radius * 2;
         
         // Create a 3D cylinder (same as CircleManager.createCircle)
@@ -990,10 +1045,15 @@ class BuildingGenerator {
         
         // Create material (same structure as CircleManager)
         const material = new BABYLON.StandardMaterial(`${buildingName}Material`, this.scene);
-        // Use white color for buildings (as per original design)
-        material.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white for buildings
-        material.backFaceCulling = false; // Make it 2-sided
-        material.twoSidedLighting = true; // Enable lighting on both sides
+        // Use color based on type (white for buildings, color from UIManager for other types)
+        if (this.uiManager && type !== 'building') {
+            const color = this.uiManager.getColorByType(type);
+            material.diffuseColor = color;
+        } else {
+            material.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white for buildings
+        }
+        material.backFaceCulling = true; // Single-sided
+        material.twoSidedLighting = false; // Disable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         material.roughness = 0.7;
         circle.material = material;
@@ -1010,7 +1070,7 @@ class BuildingGenerator {
         // For collision detection, we need width and depth (both equal to diameter for circles)
         circle.userData = {
             type: validType,
-            shapeType: 'circle', // Mark as circle
+            shapeType: validType === 'building' ? 'building' : 'circle', // Mark as building or circle based on type
             dimensions: {
                 diameterTop: diameter,
                 diameterBottom: diameter,
