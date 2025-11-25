@@ -381,6 +381,208 @@ class MoveManager {
             
             // Set gizmo to local space (object coordinates)
             this.gizmoManager.gizmos.positionGizmo.updateGizmoRotationToMatchAttachedMesh = true;
+            
+            // Make plane gizmos more transparent
+            this.setPlaneGizmoTransparency(0.3); // 30% opacity (70% transparent)
+        }
+    }
+    
+    /**
+     * Set transparency for plane gizmos (XY, XZ, YZ planes)
+     * @param {number} alpha - Alpha value (0 = fully transparent, 1 = fully opaque)
+     */
+    setPlaneGizmoTransparency(alpha = 0.3) {
+        if (this.gizmoManager.gizmos.positionGizmo) {
+            const positionGizmo = this.gizmoManager.gizmos.positionGizmo;
+            
+            // Use setTimeout to ensure gizmos are fully initialized
+            setTimeout(() => {
+                // Helper function to set material transparency
+                const setMaterialTransparency = (material) => {
+                    if (material && material instanceof BABYLON.Material) {
+                        material.alpha = alpha;
+                        // Enable transparency by setting transparency mode
+                        material.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+                        // Alternative: use alphaMode if available (Babylon.js 5.0+)
+                        if (material.alphaMode !== undefined) {
+                            material.alphaMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+                        }
+                        // Ensure back face culling is disabled for transparency to work properly
+                        material.backFaceCulling = false;
+                        // Force material to be recompiled
+                        material.markAsDirty(BABYLON.Material.AllDirtyFlag);
+                    }
+                };
+                
+                // Method 1: Try accessing plane gizmos directly
+                const planeGizmoProperties = ['xPlaneGizmo', 'yPlaneGizmo', 'zPlaneGizmo', 
+                                               'xPlane', 'yPlane', 'zPlane',
+                                               'planarGizmo', 'planeGizmo'];
+                
+                planeGizmoProperties.forEach(prop => {
+                    if (positionGizmo[prop]) {
+                        const gizmo = positionGizmo[prop];
+                        if (gizmo.material) {
+                            setMaterialTransparency(gizmo.material);
+                        }
+                        // Check for child meshes
+                        if (gizmo.getChildMeshes) {
+                            gizmo.getChildMeshes().forEach(child => {
+                                if (child.material) {
+                                    setMaterialTransparency(child.material);
+                                }
+                            });
+                        }
+                    }
+                });
+                
+                // Method 2: Access through _rootMesh or _gizmoMesh
+                if (positionGizmo._rootMesh) {
+                    const rootChildren = positionGizmo._rootMesh.getChildMeshes();
+                    rootChildren.forEach(child => {
+                        // Check if this is a plane gizmo by checking its name or properties
+                        if (child.material && child.name && 
+                            (child.name.toLowerCase().includes('plane') || 
+                             child.name.includes('Plane') ||
+                             child.name.includes('planar'))) {
+                            setMaterialTransparency(child.material);
+                        }
+                    });
+                }
+                
+                // Method 3: Find all meshes in the scene that are part of plane gizmos
+                // Plane gizmos usually have names containing "plane" or specific patterns
+                if (this.scene) {
+                    this.scene.meshes.forEach(mesh => {
+                        if (mesh.material && mesh.name) {
+                            const nameLower = mesh.name.toLowerCase();
+                            // Check for plane gizmo patterns
+                            if (nameLower.includes('plane') || 
+                                nameLower.includes('planar') ||
+                                nameLower.includes('gizmo') && nameLower.includes('plane')) {
+                                setMaterialTransparency(mesh.material);
+                            }
+                        }
+                    });
+                }
+                
+                // Method 4: Try to access through _attachedMesh and find plane gizmos in its children
+                if (this.gizmoManager.attachedMesh) {
+                    const attachedMesh = this.gizmoManager.attachedMesh;
+                    // Plane gizmos might be children of the attached mesh's gizmo
+                    if (attachedMesh.getChildMeshes) {
+                        attachedMesh.getChildMeshes().forEach(child => {
+                            if (child.material && child.name && 
+                                child.name.toLowerCase().includes('plane')) {
+                                setMaterialTransparency(child.material);
+                            }
+                        });
+                    }
+                }
+                
+                // Method 5: Try accessing through _rootMesh or _gizmoMesh directly
+                if (positionGizmo._rootMesh) {
+                    const allChildren = [];
+                    const collectChildren = (mesh) => {
+                        allChildren.push(mesh);
+                        if (mesh.getChildMeshes) {
+                            mesh.getChildMeshes().forEach(child => collectChildren(child));
+                        }
+                    };
+                    collectChildren(positionGizmo._rootMesh);
+                    
+                    allChildren.forEach(mesh => {
+                        if (mesh.material) {
+                            // Check if this looks like a plane gizmo (usually has specific colors or patterns)
+                            const material = mesh.material;
+                            if (material.diffuseColor) {
+                                const color = material.diffuseColor;
+                                // Plane gizmos often have mixed colors (red+green, red+blue, green+blue)
+                                // Or check by mesh geometry (usually planes)
+                                if (mesh.geometry && mesh.geometry.positions) {
+                                    // This is likely a plane gizmo
+                                    setMaterialTransparency(material);
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                // Method 6: Try to find plane gizmos by iterating through all scene meshes and checking their properties
+                if (this.scene) {
+                    let foundPlaneMeshes = 0;
+                    this.scene.meshes.forEach(mesh => {
+                        if (mesh.material && mesh.geometry) {
+                            // Check if this mesh is a plane (usually has 4 vertices forming a quad)
+                            const positions = mesh.geometry.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+                            if (positions && positions.length === 12) { // 4 vertices * 3 components = 12
+                                // This might be a plane gizmo
+                                const material = mesh.material;
+                                // Check if material has gizmo-like colors (red, green, blue combinations)
+                                if (material.diffuseColor) {
+                                    const color = material.diffuseColor;
+                                    // Plane gizmos often have specific color combinations
+                                    const isRedGreen = (color.r > 0.5 && color.g > 0.5 && color.b < 0.3);
+                                    const isRedBlue = (color.r > 0.5 && color.g < 0.3 && color.b > 0.5);
+                                    const isGreenBlue = (color.r < 0.3 && color.g > 0.5 && color.b > 0.5);
+                                    
+                                    if (isRedGreen || isRedBlue || isGreenBlue) {
+                                        setMaterialTransparency(material);
+                                        foundPlaneMeshes++;
+                                        console.log('[MoveManager] Found plane gizmo mesh:', mesh.name, 'color:', color);
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    console.log('[MoveManager] Found', foundPlaneMeshes, 'plane gizmo meshes');
+                }
+                
+                // Method 7: Try to access plane gizmos through the position gizmo's internal structure
+                // In some versions of Babylon.js, plane gizmos are stored in _gizmoMesh or similar
+                if (positionGizmo._gizmoMesh) {
+                    const gizmoMesh = positionGizmo._gizmoMesh;
+                    const allGizmoMeshes = [];
+                    const collectAllMeshes = (node) => {
+                        if (node instanceof BABYLON.Mesh) {
+                            allGizmoMeshes.push(node);
+                        }
+                        if (node.getChildMeshes) {
+                            node.getChildMeshes().forEach(child => collectAllMeshes(child));
+                        }
+                        if (node.getChildren) {
+                            node.getChildren().forEach(child => {
+                                if (child instanceof BABYLON.Mesh) {
+                                    allGizmoMeshes.push(child);
+                                }
+                            });
+                        }
+                    };
+                    collectAllMeshes(gizmoMesh);
+                    
+                    allGizmoMeshes.forEach(mesh => {
+                        if (mesh.material) {
+                            // Check if this is a plane (quad) by checking vertex count
+                            const positions = mesh.geometry ? mesh.geometry.getVerticesData(BABYLON.VertexBuffer.PositionKind) : null;
+                            if (positions && (positions.length === 12 || positions.length === 18)) { // Quad or triangle-based plane
+                                setMaterialTransparency(mesh.material);
+                                console.log('[MoveManager] Applied transparency to gizmo mesh:', mesh.name || 'unnamed');
+                            }
+                        }
+                    });
+                }
+                
+                // Debug - log all meshes to find plane gizmos
+                console.log('[MoveManager] Attempting to set plane gizmo transparency, alpha:', alpha);
+                console.log('[MoveManager] Position gizmo properties:', Object.keys(positionGizmo));
+                if (positionGizmo._rootMesh) {
+                    console.log('[MoveManager] _rootMesh children:', positionGizmo._rootMesh.getChildMeshes().length);
+                }
+                if (positionGizmo._gizmoMesh) {
+                    console.log('[MoveManager] _gizmoMesh found');
+                }
+                
+            }, 100); // Increased delay to ensure gizmos are fully initialized
         }
     }
 
@@ -402,6 +604,13 @@ class MoveManager {
             const selectedObjects = this.selectionManager.getSelectedObjects();
             if (selectedObjects.length > 1) {
                 this.setupMultiObjectGizmo(selectedObjects);
+            }
+            
+            // Apply transparency to plane gizmos when switching to local mode
+            if (!this.isGlobalMode) {
+                setTimeout(() => {
+                    this.setPlaneGizmoTransparency(0.3);
+                }, 100);
             }
         }
     }
@@ -497,6 +706,13 @@ class MoveManager {
             } else {
                 this.gizmoManager.attachToMesh(this.selectedObjects[0]);
             }
+        }
+        
+        // Apply transparency to plane gizmos after attachment
+        if (!this.isGlobalMode) {
+            setTimeout(() => {
+                this.setPlaneGizmoTransparency(0.3);
+            }, 100);
         }
         
         this.canvas.style.cursor = 'grab';

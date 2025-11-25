@@ -454,8 +454,8 @@ class BuildingGenerator {
                 if (this.isCellEmpty(cellX, cellZ, gridSize, roadBoundaries, buildingBoundaries)) {
                     // Randomly decide to create a polygon (70% chance)
                     if (Math.random() < 0.7) {
-                        // Randomly select polygon type (ground, green, or waterway)
-                        const types = ['ground', 'green', 'waterway'];
+                        // Randomly select polygon type (ground, grass, or waterway)
+                        const types = ['ground', 'grass', 'waterway'];
                         const type = types[Math.floor(Math.random() * types.length)];
                         
                         // Ensure type is valid before creating polygon
@@ -613,8 +613,8 @@ class BuildingGenerator {
             const color = this.uiManager.getColorByType(type);
             console.log(`Created ${useCircle ? 'circle' : 'rectangle'} polygon: ${polygonName}, type: ${polygonMesh.userData.type}, color: R=${color.r.toFixed(2)}, G=${color.g.toFixed(2)}, B=${color.b.toFixed(2)}`);
             
-            // Add trees on ground and green polygons (not on waterway)
-            if ((type === 'ground' || type === 'green') && this.treeManager) {
+            // Add trees on ground and grass polygons (not on waterway)
+            if ((type === 'ground' || type === 'grass') && this.treeManager) {
                 this.addTreesOnPolygon(polygonMesh, Math.max(width, depth));
             }
         } else {
@@ -623,7 +623,7 @@ class BuildingGenerator {
     }
     
     /**
-     * Add trees on a polygon (ground or green)
+     * Add trees on a polygon (ground or grass)
      * @param {BABYLON.Mesh} polygon - The polygon mesh
      * @param {number} polygonSize - Size of the polygon (width/depth)
      */
@@ -823,14 +823,27 @@ class BuildingGenerator {
      */
     generateUniqueBuildingName() {
         // Count existing buildings in the scene
+        const usedNumbers = new Set();
         let maxBuildingNumber = 0;
         
         // Check all meshes in the scene for building names
+        // Support both formats: building_1 (old), building1 (new)
         this.scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.name.startsWith('building_')) {
-                const match = mesh.name.match(/building_(\d+)/);
-                if (match) {
-                    const number = parseInt(match[1]);
+            if (mesh.name && !mesh.isDisposed()) {
+                // Check for buildingشماره format (without underscore) - new format
+                const noUnderscoreMatch = mesh.name.match(/^building(\d+)$/);
+                if (noUnderscoreMatch) {
+                    const number = parseInt(noUnderscoreMatch[1]);
+                    usedNumbers.add(number);
+                    if (number > maxBuildingNumber) {
+                        maxBuildingNumber = number;
+                    }
+                }
+                // Also check for building_شماره format (with underscore) for backward compatibility
+                const underscoreMatch = mesh.name.match(/^building_(\d+)$/);
+                if (underscoreMatch) {
+                    const number = parseInt(underscoreMatch[1]);
+                    usedNumbers.add(number);
                     if (number > maxBuildingNumber) {
                         maxBuildingNumber = number;
                     }
@@ -838,12 +851,26 @@ class BuildingGenerator {
             }
         });
         
-        // Return next available number
-        return `building_${maxBuildingNumber + 1}`;
+        // Start from maxBuildingNumber + 1, but check for duplicates
+        let nextNumber = maxBuildingNumber + 1;
+        
+        // Keep incrementing until we find a unique name
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+        
+        // Verify the name doesn't exist in the scene
+        let proposedName = `building${nextNumber}`;
+        while (this.scene.meshes.some(mesh => mesh.name === proposedName && !mesh.isDisposed())) {
+            nextNumber++;
+            proposedName = `building${nextNumber}`;
+        }
+        
+        return proposedName;
     }
 
     /**
-     * Generate unique name by type (for ground, green, waterway)
+     * Generate unique name by type (for ground, grass, waterway)
      */
     generateUniqueNameByType(type) {
         // Count existing objects of this type in the scene
@@ -853,8 +880,8 @@ class BuildingGenerator {
         // Check all meshes in the scene for names of this type
         // Only count enabled meshes that are still in the scene
         this.scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(`${type}_`)) {
-                const match = mesh.name.match(new RegExp(`^${type}_(\\d+)$`));
+            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(type) && /^\d+$/.test(mesh.name.substring(type.length))) {
+                const match = mesh.name.match(new RegExp(`^${type}(\\d+)$`));
                 if (match) {
                     const number = parseInt(match[1]);
                     usedNumbers.add(number);
@@ -872,7 +899,7 @@ class BuildingGenerator {
         }
         
         // Return next available number
-        return `${type}_${nextNumber}`;
+        return `${type}${nextNumber}`;
     }
 
     /**
@@ -923,7 +950,7 @@ class BuildingGenerator {
         if (type === 'building') {
             buildingName = this.generateUniqueBuildingName();
         } else {
-            // For ground, green, waterway, use type-based naming
+            // For ground, grass, waterway, use type-based naming
             buildingName = this.generateUniqueNameByType(type);
         }
         
@@ -962,8 +989,8 @@ class BuildingGenerator {
         } else {
             material.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white for buildings
         }
-        material.backFaceCulling = true; // Single-sided
-        material.twoSidedLighting = false; // Disable lighting on both sides
+        material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         material.roughness = 0.7;
         rectangle.material = material;
@@ -1011,7 +1038,7 @@ class BuildingGenerator {
         if (type === 'building') {
             buildingName = this.generateUniqueBuildingName();
         } else {
-            // For ground, green, waterway, use type-based naming
+            // For ground, grass, waterway, use type-based naming
             buildingName = this.generateUniqueNameByType(type);
         }
         const diameter = radius * 2;
@@ -1052,8 +1079,8 @@ class BuildingGenerator {
         } else {
             material.diffuseColor = new BABYLON.Color3(1, 1, 1); // Pure white for buildings
         }
-        material.backFaceCulling = true; // Single-sided
-        material.twoSidedLighting = false; // Disable lighting on both sides
+        material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         material.roughness = 0.7;
         circle.material = material;

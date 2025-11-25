@@ -1038,8 +1038,8 @@ input[type="range"]::-moz-range-thumb {
 .properties-popup {
     position: fixed;
     top: 28px; /* Below menu bar, same as object list */
-    right: 300px; /* Left of object list panel (which is 300px wide) */
-    width: 300px;
+    right: 250px; /* Left of object list panel (which is 250px wide) */
+    width: 380px; /* Increased width to better display values */
     height: calc(100vh - 28px); /* Full height to bottom of screen */
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(10px);
@@ -1062,8 +1062,8 @@ input[type="range"]::-moz-range-thumb {
 #stlPropertiesPopup {
     position: fixed;
     top: 28px; /* Below menu bar, same as object list */
-    right: 300px; /* Left of object list panel (which is 300px wide) */
-    width: 300px;
+    right: 250px; /* Left of object list panel (which is 250px wide) */
+    width: 380px; /* Increased width to better display values */
     height: calc(100vh - 28px); /* Full height to bottom of screen */
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(10px);
@@ -1132,10 +1132,11 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .property-group label {
-    min-width: 80px;
+    min-width: 140px; /* Increased to accommodate longer labels */
     font-weight: 500;
     color: #555;
     font-size: 14px;
+    flex-shrink: 0; /* Prevent label from shrinking */
 }
 
 .property-group input,
@@ -1177,9 +1178,28 @@ input[type="range"]::-moz-range-thumb {
     cursor: pointer;
 }
 
+/* Remove spinner arrows for readonly number inputs */
+.property-group input[type="number"][readonly] {
+    -webkit-appearance: textfield;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.property-group input[type="number"][readonly]::-webkit-outer-spin-button,
+.property-group input[type="number"][readonly]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
 .property-group input[readonly] {
     background-color: #f8f9fa;
     color: #666;
+    cursor: default;
+    padding-right: 12px; /* Ensure consistent padding without spinner */
 }
 
 .property-group .error-message {
@@ -1252,7 +1272,7 @@ input[type="range"]::-moz-range-thumb {
     position: fixed;
     top: 28px; /* Below menu bar */
     right: 0;
-    width: 300px;
+    width: 250px;
     height: calc(100vh - 28px); /* Full height to bottom of screen */
     background: rgba(255, 255, 255, 0.98);
     backdrop-filter: blur(10px);
@@ -1483,8 +1503,21 @@ input[type="range"]::-moz-range-thumb {
 /* Responsive Design */
 @media (max-width: 768px) {
     .object-list-panel {
-        width: 250px;
+        width: 200px;
         height: calc(60vh);
+    }
+    
+    .properties-popup,
+    #circlePropertiesPopup,
+    #polygonPropertiesPopup,
+    #treePropertiesPopup,
+    #stlPropertiesPopup {
+        right: 200px; /* Left of object list panel (which is 200px wide on tablet) */
+        width: 300px; /* Increased width for better value display */
+    }
+    
+    .property-group label {
+        min-width: 120px; /* Slightly reduced for tablet */
     }
     
     .object-list-header {
@@ -1510,7 +1543,7 @@ input[type="range"]::-moz-range-thumb {
 
 @media (max-width: 480px) {
     .object-list-panel {
-        width: 200px;
+        width: 100px;
         height: calc(100vh - 28px); /* Full height to bottom of screen */
     }
     
@@ -1519,9 +1552,20 @@ input[type="range"]::-moz-range-thumb {
     #polygonPropertiesPopup,
     #treePropertiesPopup,
     #stlPropertiesPopup {
-        right: 200px; /* Left of object list panel (which is 200px wide on mobile) */
-        width: 200px;
+        right: 100px; /* Left of object list panel (which is 100px wide on mobile) */
+        width: 250px; /* Increased width for better value display on mobile */
         height: calc(100vh - 28px); /* Full height to bottom of screen */
+    }
+    
+    .property-group label {
+        min-width: 100px; /* Reduced for mobile */
+        font-size: 12px;
+    }
+    
+    .property-group input,
+    .property-group select {
+        font-size: 12px;
+        padding: 6px 10px;
     }
     
     .object-list-header {
@@ -1751,7 +1795,7 @@ input[type="range"]::-moz-range-thumb {
 /* Responsive Design for Properties Panel */
 @media (max-width: 768px) {
     .properties-panel {
-        width: 250px;
+        width: 200px;
         height: calc(100vh - 28px - 60vh - 20px);
     }
     
@@ -1810,9 +1854,136 @@ input[type="range"]::-moz-range-thumb {
     }
     
     .properties-popup {
-        min-width: 300px;
+        min-width: 250px;
         margin: 20px;
     }
+}
+
+/* ===== MODAL DIALOG STYLES ===== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+}
+
+.modal-dialog {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    min-width: 400px;
+    max-width: 90%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.modal-close:hover {
+    background-color: #f0f0f0;
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    padding: 16px 20px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+}
+
+.form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #667eea;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #5568d3;
+}
+
+.btn-secondary {
+    background: #e0e0e0;
+    color: #333;
+}
+
+.btn-secondary:hover {
+    background: #d0d0d0;
 }
 
 /* ===== DRAWING TOOLS ACTIVE STATES - FINAL OVERRIDE ===== */
@@ -1920,4 +2091,165 @@ input[type="range"]::-moz-range-thumb {
 
 .transform-input:hover {
     border-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Surface Types Manager Styles */
+.surface-types-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 400px;
+}
+
+.surface-types-tabs {
+    display: flex;
+    border-bottom: 2px solid #e0e0e0;
+    background: #f8f9fa;
+    border-radius: 8px 8px 0 0;
+}
+
+.tab-button {
+    padding: 12px 24px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: #666;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.tab-button:hover {
+    background: rgba(102, 126, 234, 0.1);
+    color: #667eea;
+}
+
+.tab-button.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+    background: white;
+}
+
+.surface-types-content {
+    flex: 1;
+    overflow: hidden;
+    padding: 20px;
+}
+
+.tab-content {
+    display: none;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.surface-types-table-container {
+    width: 100%;
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+}
+
+.surface-types-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.surface-types-table thead {
+    background: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.surface-types-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #333;
+    border-bottom: 2px solid #e0e0e0;
+    white-space: nowrap;
+}
+
+.surface-types-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #555;
+}
+
+.surface-types-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.surface-types-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.surface-type-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+    background: white;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.surface-type-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.surface-type-input:hover {
+    border-color: #bbb;
+}
+
+.add-row-btn {
+    width: auto;
+    margin-top: 10px;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.delete-row-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: 60px;
+}
+
+.delete-row-btn:hover {
+    background: #dc3545;
+    color: white;
+}
+
+/* Smaller buttons for Surface Types Manager dialog */
+#surfaceTypesManagerDialog .modal-footer {
+    justify-content: flex-start !important;
+}
+
+#surfaceTypesManagerDialog .modal-footer .btn {
+    padding: 8px 20px !important;
+    font-size: 13px !important;
+    width: auto !important;
+    min-width: 70px !important;
+    max-width: 100px !important;
+    margin: 0 5px;
+}
+
+#surfaceTypesManagerDialog .modal-footer .btn:disabled,
+#surfaceTypesManagerDialog .modal-footer .btn.btn-disabled {
+    background: #ccc !important;
+    color: #666 !important;
+    cursor: not-allowed !important;
+    opacity: 0.5 !important;
 }

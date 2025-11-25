@@ -222,8 +222,8 @@
                             <div class="menu-option" data-action="default-scene">Default Scene</div>
                         </div>
                     </div>
-                    <div class="menu-option" data-action="save-scene">Save Scene</div>
-                    <div class="menu-option" data-action="load-scene">Load Scene</div>
+                    <div class="menu-option" data-action="save-scene">Save Project</div>
+                    <div class="menu-option" data-action="load-scene">Load Project</div>
                     <div class="menu-separator"></div>
                     <div class="menu-option" data-action="export-stl">Export STL</div>
                     <div class="menu-option" data-action="import-stl">Import STL</div>
@@ -265,9 +265,16 @@
                 </div>
             </div>
             <div class="menu-item">
+                <span class="menu-label">Surface Types</span>
+                <div class="menu-dropdown">
+                    <div class="menu-option" data-action="surface-types-manager">Manage Surface Types</div>
+                </div>
+            </div>
+            <div class="menu-item">
                 <span class="menu-label">Settings</span>
                 <div class="menu-dropdown">
                     <div class="menu-option" data-action="preferences">Preferences</div>
+                    <div class="menu-option" data-action="post-processing">Post Processing</div>
                     <div class="menu-option" data-action="about">About</div>
                 </div>
             </div>
@@ -411,6 +418,9 @@
 
     <!-- Preferences Overlay -->
     <div id="preferencesOverlay" class="preferences-overlay"></div>
+    
+    <!-- Post Processing Overlay -->
+    <div id="postProcessingOverlay" class="preferences-overlay"></div>
 
     <!-- Preferences Window -->
     <div id="preferencesWindow" class="preferences-window">
@@ -641,6 +651,216 @@
         </div>
     </div>
 
+    <!-- Post Processing Window -->
+    <div id="postProcessingWindow" class="preferences-window">
+        <div class="preferences-header">
+            <h3>Post Processing Settings</h3>
+            <button id="closePostProcessing" class="close-btn">&times;</button>
+        </div>
+        <div class="preferences-content">
+            <!-- FXAA -->
+            <div class="preferences-section">
+                <h4>Anti-Aliasing (FXAA)</h4>
+                <div class="control-group">
+                    <label for="fxaaEnabled">Enable FXAA</label>
+                    <button id="fxaaEnabled" class="toggle-btn">
+                    </button>
+                </div>
+            </div>
+
+            <!-- Bloom -->
+            <div class="preferences-section">
+                <h4>Bloom</h4>
+                <div class="control-group">
+                    <label for="bloomEnabled">Enable Bloom</label>
+                    <button id="bloomEnabled" class="toggle-btn">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="bloomThreshold">Threshold</label>
+                    <input type="range" id="bloomThreshold" min="0" max="1" step="0.01" value="0.9">
+                    <span id="bloomThresholdValue">0.9</span>
+                </div>
+                <div class="control-group">
+                    <label for="bloomWeight">Weight</label>
+                    <input type="range" id="bloomWeight" min="0" max="1" step="0.01" value="0.3">
+                    <span id="bloomWeightValue">0.3</span>
+                </div>
+                <div class="control-group">
+                    <label for="bloomKernelSize">Kernel Size</label>
+                    <input type="range" id="bloomKernelSize" min="16" max="128" step="16" value="64">
+                    <span id="bloomKernelSizeValue">64</span>
+                </div>
+                <div class="control-group">
+                    <label for="bloomScale">Scale</label>
+                    <input type="range" id="bloomScale" min="0.1" max="1" step="0.1" value="0.5">
+                    <span id="bloomScaleValue">0.5</span>
+                </div>
+            </div>
+
+            <!-- Color Correction -->
+            <div class="preferences-section">
+                <h4>Color Correction</h4>
+                <div class="control-group">
+                    <label for="colorExposure">Exposure</label>
+                    <input type="range" id="colorExposure" min="0.1" max="3" step="0.1" value="1.0">
+                    <span id="colorExposureValue">1.0</span>
+                </div>
+                <div class="control-group">
+                    <label for="colorContrast">Contrast</label>
+                    <input type="range" id="colorContrast" min="0" max="2" step="0.1" value="1.0">
+                    <span id="colorContrastValue">1.0</span>
+                </div>
+                <div class="control-group">
+                    <label for="colorSaturation">Saturation</label>
+                    <input type="range" id="colorSaturation" min="0" max="2" step="0.1" value="1.0">
+                    <span id="colorSaturationValue">1.0</span>
+                </div>
+            </div>
+
+            <!-- Chromatic Aberration -->
+            <div class="preferences-section">
+                <h4>Chromatic Aberration</h4>
+                <div class="control-group">
+                    <label for="chromaticEnabled">Enable Chromatic Aberration</label>
+                    <button id="chromaticEnabled" class="toggle-btn">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="chromaticAmount">Aberration Amount</label>
+                    <input type="range" id="chromaticAmount" min="0" max="2" step="0.1" value="0.5">
+                    <span id="chromaticAmountValue">0.5</span>
+                </div>
+                <div class="control-group">
+                    <label for="chromaticRadial">Radial Intensity</label>
+                    <input type="range" id="chromaticRadial" min="0" max="1" step="0.1" value="0.5">
+                    <span id="chromaticRadialValue">0.5</span>
+                </div>
+            </div>
+
+            <!-- Depth of Field -->
+            <div class="preferences-section">
+                <h4>Depth of Field</h4>
+                <div class="control-group">
+                    <label for="dofEnabled">Enable Depth of Field</label>
+                    <button id="dofEnabled" class="toggle-btn">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="dofFocusDistance">Focus Distance</label>
+                    <input type="range" id="dofFocusDistance" min="1" max="100" step="1" value="10">
+                    <span id="dofFocusDistanceValue">10</span>
+                </div>
+                <div class="control-group">
+                    <label for="dofLensSize">Lens Size</label>
+                    <input type="range" id="dofLensSize" min="0.01" max="0.5" step="0.01" value="0.1">
+                    <span id="dofLensSizeValue">0.1</span>
+                </div>
+                <div class="control-group">
+                    <label for="dofFStop">F-Stop</label>
+                    <input type="range" id="dofFStop" min="0.5" max="5" step="0.1" value="1.4">
+                    <span id="dofFStopValue">1.4</span>
+                </div>
+            </div>
+
+            <!-- Grain -->
+            <div class="preferences-section">
+                <h4>Film Grain</h4>
+                <div class="control-group">
+                    <label for="grainEnabled">Enable Grain</label>
+                    <button id="grainEnabled" class="toggle-btn">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="grainIntensity">Intensity</label>
+                    <input type="range" id="grainIntensity" min="0" max="1" step="0.1" value="0.5">
+                    <span id="grainIntensityValue">0.5</span>
+                </div>
+                <div class="control-group">
+                    <label for="grainAnimated">Animated</label>
+                    <button id="grainAnimated" class="toggle-btn active">
+                    </button>
+                </div>
+            </div>
+
+            <!-- Sharpen -->
+            <div class="preferences-section">
+                <h4>Sharpen</h4>
+                <div class="control-group">
+                    <label for="sharpenEnabled">Enable Sharpen</label>
+                    <button id="sharpenEnabled" class="toggle-btn">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="sharpenEdgeAmount">Edge Amount</label>
+                    <input type="range" id="sharpenEdgeAmount" min="0" max="1" step="0.1" value="0.3">
+                    <span id="sharpenEdgeAmountValue">0.3</span>
+                </div>
+            </div>
+
+            <!-- Vignette -->
+            <div class="preferences-section">
+                <h4>Vignette</h4>
+                <div class="control-group">
+                    <label for="vignetteEnabled">Enable Vignette</label>
+                    <button id="vignetteEnabled" class="toggle-btn">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="vignetteScale">Scale</label>
+                    <input type="range" id="vignetteScale" min="0" max="1" step="0.1" value="0.5">
+                    <span id="vignetteScaleValue">0.5</span>
+                </div>
+                <div class="control-group">
+                    <label for="vignettePower">Power</label>
+                    <input type="range" id="vignettePower" min="0" max="2" step="0.1" value="0.5">
+                    <span id="vignettePowerValue">0.5</span>
+                </div>
+            </div>
+
+            <!-- SSAO (Screen Space Ambient Occlusion) -->
+            <div class="preferences-section">
+                <h4>SSAO (Ambient Occlusion)</h4>
+                <div id="ssaoWarning" style="display: none; color: #ff6b6b; font-size: 12px; margin-bottom: 12px; padding: 8px; background: #fff3cd; border-radius: 4px;">
+                    ⚠️ SSAO is not available in this version of Babylon.js.
+                </div>
+                <div class="control-group">
+                    <label for="ssaoEnabled">Enable SSAO</label>
+                    <button id="ssaoEnabled" class="toggle-btn" title="Enable Screen Space Ambient Occlusion">
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label for="ssaoRadius">Radius</label>
+                    <input type="range" id="ssaoRadius" min="0.1" max="5" step="0.1" value="2.0">
+                    <span id="ssaoRadiusValue">2.0</span>
+                </div>
+                <div class="control-group">
+                    <label for="ssaoSamples">Samples</label>
+                    <input type="range" id="ssaoSamples" min="4" max="32" step="4" value="16">
+                    <span id="ssaoSamplesValue">16</span>
+                </div>
+                <div class="control-group">
+                    <label for="ssaoStrength">Strength</label>
+                    <input type="range" id="ssaoStrength" min="0" max="2" step="0.1" value="1.0">
+                    <span id="ssaoStrengthValue">1.0</span>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="preferences-section">
+                <h4>Actions</h4>
+                <div class="control-group">
+                    <button id="resetPostProcessing" class="btn btn-secondary">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <use href="icons/reset.svg#icon"></use>
+                        </svg>
+                        Reset to Defaults
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Compass -->
     <div id="compass" class="compass">
         <div class="compass-inner">
@@ -655,16 +875,19 @@
     </div>
 
     <!-- Scripts -->
-    <script src="js/libs/babylon.js"></script>
-    <script src="js/libs/babylonjs.materials.min.js"></script>
+    <!-- Using CDN for latest Babylon.js version with better SSAO support -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
     <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
     <script src="https://unpkg.com/earcut@2.2.4/dist/earcut.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="js/modules/SceneManager.js?v=2"></script>
     <script src="js/modules/BuildingGenerator.js"></script>
     <script src="js/modules/LightingManager.js"></script>
     <script src="js/modules/CameraController.js?v=5"></script>
     <script src="js/modules/GridManager.js"></script>
     <script src="js/modules/SelectionManager.js"></script>
+    <script src="js/modules/PostProcessingManager.js"></script>
     <script src="js/modules/MoveManager.js"></script>
     <script src="js/modules/RotateManager.js"></script>
     <script src="js/modules/ScaleManager.js"></script>
@@ -675,6 +898,12 @@
     <script src="js/modules/CircleManager.js"></script>
     <script src="js/modules/FPSMonitor.js"></script>
     <script src="js/modules/ObjectListManager.js"></script>
+    <script src="js/modules/STLManager.js"></script>
+    <script src="js/modules/SceneOperationsManager.js"></script>
+    <script src="js/modules/PropertiesPopupManager.js"></script>
+    <script src="js/modules/ToolManager.js"></script>
+    <script src="js/modules/TransformInputManager.js"></script>
+    <script src="js/modules/SurfaceTypesManager.js"></script>
     <script src="js/modules/UIManager.js"></script>
     <!-- Properties Popup -->
     <div id="propertiesPopup" class="properties-popup">
@@ -693,7 +922,7 @@
                     <option value="ground">Ground</option>
                     <option value="waterway">Waterway</option>
                     <option value="highway">Highway</option>
-                    <option value="green">Green</option>
+                    <option value="grass">Grass</option>
                     <option value="building">Building</option>
                 </select>
             </div>
@@ -713,9 +942,792 @@
                 <label>Height:</label>
                 <input type="number" id="shapeHeight" step="0.1" min="0.1" value="0.1">
             </div>
+            <!-- Year of Construction (for buildings only) -->
+            <div class="property-group" id="buildingYearOfConstructionGroup" style="display: none;">
+                <label>Year of Construction:</label>
+                <input type="number" id="buildingYearOfConstruction" step="1" min="1" placeholder="Optional">
+            </div>
+            <!-- Building Envelope Properties Selection -->
+            <div class="property-group" id="buildingEnvelopePropertiesGroup" style="display: none;">
+                <label>Envelope Properties:</label>
+                <select id="buildingEnvelopeProperties">
+                    <option value="archytypes">Archytypes</option>
+                    <option value="groups">Groups</option>
+                    <option value="customSpec">Custom Spec</option>
+                </select>
+            </div>
+            <!-- Building Envelope Properties Selection -->
+            <div class="property-group" id="buildingEnvelopePropertiesGroup" style="display: none;">
+                <label>Envelope Properties:</label>
+                <select id="buildingEnvelopeProperties">
+                    <option value="archytypes">Archytypes</option>
+                    <option value="groups">Groups</option>
+                    <option value="customSpec">Custom Spec</option>
+                </select>
+            </div>
+            <!-- Building Archytypes Selection -->
+            <div class="property-group" id="buildingArchytypesGroup" style="display: none;">
+                <label>Archytype:</label>
+                <select id="buildingArchytype">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Archetype Period Selection -->
+            <div class="property-group" id="buildingArchetypePeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="buildingArchetypePeriod">
+                    <!-- Will be populated dynamically based on selected archetype -->
+                </select>
+            </div>
+            <!-- Building Groups Selection -->
+            <div class="property-group" id="buildingGroupsGroup" style="display: none;">
+                <label>Group:</label>
+                <select id="buildingGroup">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Group Period Selection -->
+            <div class="property-group" id="buildingGroupPeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="buildingGroupPeriod">
+                    <!-- Will be populated dynamically based on selected group -->
+                </select>
+            </div>
+            <!-- Building Envelope Properties Readonly Values (for Archytypes and Groups) -->
+            <div id="buildingEnvelopeReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Start Period:</label>
+                    <input type="number" id="buildingReadonlyStartPeriod" readonly>
+                </div>
+                <div class="property-group">
+                    <label>End Period:</label>
+                    <input type="number" id="buildingReadonlyEndPeriod" readonly>
+                </div>
+                <div class="property-group">
+                    <label>U-value Window (W/m²/K):</label>
+                    <input type="number" id="buildingReadonlyUvalueWindow" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Window SHGC (-):</label>
+                    <input type="number" id="buildingReadonlyWindowSHGC" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Window Emissivity (-):</label>
+                    <input type="number" id="buildingReadonlyWindowEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Wall1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingReadonlyThermalConductivityWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Roof1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingReadonlyThermalConductivityRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Floor1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingReadonlyThermalConductivityFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Wall1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingReadonlySpecificHeatWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Roof1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingReadonlySpecificHeatRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Floor1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingReadonlySpecificHeatFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Wall1 (kgm⁻³):</label>
+                    <input type="number" id="buildingReadonlyDensityWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Roof1 (kgm⁻³):</label>
+                    <input type="number" id="buildingReadonlyDensityRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Floor1 (kgm⁻³):</label>
+                    <input type="number" id="buildingReadonlyDensityFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Wall1 (m):</label>
+                    <input type="number" id="buildingReadonlyThicknessWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Roof1 (m):</label>
+                    <input type="number" id="buildingReadonlyThicknessRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Floor1 (m):</label>
+                    <input type="number" id="buildingReadonlyThicknessFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Wall Albedo (-):</label>
+                    <input type="number" id="buildingReadonlyWallAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Roof Albedo (-):</label>
+                    <input type="number" id="buildingReadonlyRoofAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Floor Albedo (-):</label>
+                    <input type="number" id="buildingReadonlyFloorAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Wall Emissivity (-):</label>
+                    <input type="number" id="buildingReadonlyWallEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Roof Emissivity (-):</label>
+                    <input type="number" id="buildingReadonlyRoofEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Floor Emissivity (-):</label>
+                    <input type="number" id="buildingReadonlyFloorEmissivity" readonly>
+                </div>
+            </div>
+            <!-- Building Custom Spec Fields -->
+            <div id="buildingCustomSpecGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Number of Wall Layers:</label>
+                    <input type="number" id="buildingCustomWallLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Number of Roof Layers:</label>
+                    <input type="number" id="buildingCustomRoofLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Number of Floor Layers:</label>
+                    <input type="number" id="buildingCustomFloorLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Start Period:</label>
+                    <input type="text" id="buildingCustomStartPeriod" value="NA" readonly>
+                </div>
+                <div class="property-group">
+                    <label>End Period:</label>
+                    <input type="text" id="buildingCustomEndPeriod" value="NA" readonly>
+                </div>
+                <div class="property-group">
+                    <label>U-value Window (W/m²/K):</label>
+                    <input type="number" id="buildingCustomUvalueWindow" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Window SHGC (-):</label>
+                    <input type="number" id="buildingCustomWindowSHGC" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Window Emissivity (-):</label>
+                    <input type="number" id="buildingCustomWindowEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <!-- Dynamic layer fields will be inserted here -->
+                <div id="buildingCustomLayerFields">
+                <div class="property-group">
+                    <label>Thermal Conductivity Wall1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingCustomThermalConductivityWall1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Roof1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingCustomThermalConductivityRoof1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Floor1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingCustomThermalConductivityFloor1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Wall1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingCustomSpecificHeatWall1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Roof1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingCustomSpecificHeatRoof1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Floor1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="buildingCustomSpecificHeatFloor1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Wall1 (kgm⁻³):</label>
+                    <input type="number" id="buildingCustomDensityWall1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Roof1 (kgm⁻³):</label>
+                    <input type="number" id="buildingCustomDensityRoof1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Floor1 (kgm⁻³):</label>
+                    <input type="number" id="buildingCustomDensityFloor1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Wall1 (m):</label>
+                    <input type="number" id="buildingCustomThicknessWall1" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Roof1 (m):</label>
+                    <input type="number" id="buildingCustomThicknessRoof1" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Floor1 (m):</label>
+                    <input type="number" id="buildingCustomThicknessFloor1" step="0.01">
+                </div>
+                </div>
+                <!-- End of dynamic layer fields -->
+                <div class="property-group">
+                    <label>Wall Albedo (-):</label>
+                    <input type="number" id="buildingCustomWallAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Roof Albedo (-):</label>
+                    <input type="number" id="buildingCustomRoofAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Floor Albedo (-):</label>
+                    <input type="number" id="buildingCustomFloorAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Wall Emissivity (-):</label>
+                    <input type="number" id="buildingCustomWallEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Roof Emissivity (-):</label>
+                    <input type="number" id="buildingCustomRoofEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Floor Emissivity (-):</label>
+                    <input type="number" id="buildingCustomFloorEmissivity" step="0.01" min="0" max="1">
+                </div>
+            </div>
             <div class="property-group" id="radiusGroup" style="display: none;">
                 <label>Radius:</label>
                 <input type="number" id="shapeRadius" step="0.1" min="0">
+            </div>
+            <!-- Highway Road Type Selection -->
+            <div class="property-group" id="highwayRoadTypeGroup" style="display: none;">
+                <label>Road Type:</label>
+                <select id="highwayRoadType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Highway -->
+            <div id="highwayReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="highwayReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="highwayReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="highwayReadonlyThermalConductivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="highwayReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="highwayReadonlySpecificHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Highway -->
+            <div id="highwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="highwayAlbedo" step="0.01" min="0" max="1" value="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="highwayEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="highwayThermalConductivity" step="0.1" min="0" value="1.2">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="highwayDensity" step="1" min="0" value="2300">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="highwaySpecificHeatCapacity" step="1" min="0" value="870">
+                </div>
+            </div>
+            <!-- Waterway Water Type Selection -->
+            <div class="property-group" id="waterwayWaterTypeGroup" style="display: none;">
+                <label>Water Type:</label>
+                <select id="waterwayWaterType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Waterway -->
+            <div id="waterwayReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="waterwayReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="waterwayReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="waterwayReadonlySpecificHeatCapacity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="waterwayReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Depth:</label>
+                    <input type="number" id="waterwayReadonlyDepth" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Waterway -->
+            <div id="waterwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="waterwayAlbedo" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="waterwayEmissivity" step="0.01" min="0" max="1" value="0.96">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="waterwaySpecificHeatCapacity" step="1" min="0" value="4190">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="waterwayDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Depth:</label>
+                    <input type="number" id="waterwayDepth" step="1" min="0" value="50">
+                </div>
+            </div>
+            <!-- Grass Vegetation Type Selection -->
+            <div class="property-group" id="grassVegetationTypeGroup" style="display: none;">
+                <label>Vegetation Type:</label>
+                <select id="grassVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Grass -->
+            <div class="property-group" id="grassSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="grassSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Grass -->
+            <div id="grassReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="grassReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="grassReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="grassReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="grassReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="grassReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="grassReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="grassReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="grassReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="grassReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="grassReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="grassReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="grassReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="grassReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="grassReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="grassReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Grass -->
+            <div id="grassCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="grassRootFractionLayer1" step="0.01" min="0" max="1" value="0.35">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="grassRootFractionLayer2" step="0.01" min="0" max="1" value="0.38">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="grassRootFractionLayer3" step="0.01" min="0" max="1" value="0.23">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="grassRootFractionLayer4" step="0.01" min="0" max="1" value="0.04">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="grassMinCanopyRes" step="1" min="0" value="110">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="grassLeafAreaIndex" step="0.1" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="grassTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="grassMomentumRoughLength" step="0.001" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="grassHeatRoughLength" step="0.00001" min="0" value="0.0003">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="grassThermalCondStable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="grassThermalCondUnstable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="grassAlbedo" step="0.01" min="0" max="1" value="0.18">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="grassEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="grassDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="grassHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Ground Vegetation Type Selection -->
+            <div class="property-group" id="groundVegetationTypeGroup" style="display: none;">
+                <label>Ground Type:</label>
+                <select id="groundVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Ground -->
+            <div class="property-group" id="groundSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="groundSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Ground -->
+            <div id="groundReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="groundReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="groundReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="groundReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="groundReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="groundReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="groundReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="groundReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="groundReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="groundReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="groundReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="groundReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="groundReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="groundReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="groundReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="groundReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Ground -->
+            <div id="groundCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="groundRootFractionLayer1" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="groundRootFractionLayer2" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="groundRootFractionLayer3" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="groundRootFractionLayer4" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="groundMinCanopyRes" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="groundLeafAreaIndex" step="0.1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="groundTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="groundMomentumRoughLength" step="0.001" min="0" value="0.005">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="groundHeatRoughLength" step="0.00001" min="0" value="0.00005">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="groundThermalCondStable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="groundThermalCondUnstable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="groundAlbedo" step="0.01" min="0" max="1" value="0.17">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="groundEmissivity" step="0.01" min="0" max="1" value="0.94">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="groundDensity" step="1" min="0" value="1600">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="groundHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Tree Vegetation Type Selection -->
+            <div class="property-group" id="treeVegetationTypeGroup" style="display: none;">
+                <label>Tree Type:</label>
+                <select id="treeVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Tree -->
+            <div class="property-group" id="treeSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="treeSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Tree -->
+            <div id="treeReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="treeReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="treeReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="treeReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="treeReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="treeReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="treeReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="treeReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="treeReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="treeReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="treeReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="treeReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="treeReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="treeReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="treeReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="treeReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Tree -->
+            <div id="treeCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="treeRootFractionLayer1" step="0.01" min="0" max="1" value="0.26">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="treeRootFractionLayer2" step="0.01" min="0" max="1" value="0.39">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="treeRootFractionLayer3" step="0.01" min="0" max="1" value="0.29">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="treeRootFractionLayer4" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="treeMinCanopyRes" step="1" min="0" value="500">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="treeLeafAreaIndex" step="0.1" min="0" value="5">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="treeTallVegCorrFac" step="0.01" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="treeMomentumRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="treeHeatRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="treeThermalCondStable" step="1" min="0" value="20">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="treeThermalCondUnstable" step="1" min="0" value="15">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="treeAlbedo" step="0.01" min="0" max="1" value="0.12">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="treeEmissivity" step="0.01" min="0" max="1" value="0.97">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="treeDensity" step="1" min="0" value="1200">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="treeHeatCapacity" step="1" min="0" value="2000">
+                </div>
             </div>
         </div>
         <div class="properties-footer">
@@ -740,7 +1752,7 @@
                     <option value="ground">Ground</option>
                     <option value="waterway">Waterway</option>
                     <option value="highway">Highway</option>
-                    <option value="green">Green</option>
+                    <option value="grass">Grass</option>
                     <option value="building">Building</option>
                 </select>
             </div>
@@ -755,6 +1767,780 @@
             <div class="property-group" id="circleHeightGroup">
                 <label>Height:</label>
                 <input type="number" id="circleHeight" step="0.1" min="0.1" value="0.1">
+            </div>
+            <!-- Year of Construction (for buildings only) -->
+            <div class="property-group" id="circleBuildingYearOfConstructionGroup" style="display: none;">
+                <label>Year of Construction:</label>
+                <input type="number" id="circleBuildingYearOfConstruction" step="1" min="1" placeholder="Optional">
+            </div>
+            <!-- Building Envelope Properties Selection -->
+            <div class="property-group" id="circleBuildingEnvelopePropertiesGroup" style="display: none;">
+                <label>Envelope Properties:</label>
+                <select id="circleBuildingEnvelopeProperties">
+                    <option value="archytypes">Archytypes</option>
+                    <option value="groups">Groups</option>
+                    <option value="customSpec">Custom Spec</option>
+                </select>
+            </div>
+            <!-- Building Archytypes Selection for Circle -->
+            <div class="property-group" id="circleBuildingArchytypesGroup" style="display: none;">
+                <label>Archytype:</label>
+                <select id="circleBuildingArchytype">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Archetype Period Selection for Circle -->
+            <div class="property-group" id="circleBuildingArchetypePeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="circleBuildingArchetypePeriod">
+                    <!-- Will be populated dynamically based on selected archetype -->
+                </select>
+            </div>
+            <!-- Building Groups Selection for Circle -->
+            <div class="property-group" id="circleBuildingGroupsGroup" style="display: none;">
+                <label>Group:</label>
+                <select id="circleBuildingGroup">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Group Period Selection for Circle -->
+            <div class="property-group" id="circleBuildingGroupPeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="circleBuildingGroupPeriod">
+                    <!-- Will be populated dynamically based on selected group -->
+                </select>
+            </div>
+            <!-- Building Envelope Properties Readonly Values for Circle (for Archytypes and Groups) -->
+            <div id="circleBuildingEnvelopeReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Start Period:</label>
+                    <input type="number" id="circleBuildingReadonlyStartPeriod" readonly>
+                </div>
+                <div class="property-group">
+                    <label>End Period:</label>
+                    <input type="number" id="circleBuildingReadonlyEndPeriod" readonly>
+                </div>
+                <div class="property-group">
+                    <label>U-value Window (W/m²/K):</label>
+                    <input type="number" id="circleBuildingReadonlyUvalueWindow" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Window SHGC (-):</label>
+                    <input type="number" id="circleBuildingReadonlyWindowSHGC" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Window Emissivity (-):</label>
+                    <input type="number" id="circleBuildingReadonlyWindowEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Wall1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingReadonlyThermalConductivityWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Roof1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingReadonlyThermalConductivityRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Floor1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingReadonlyThermalConductivityFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Wall1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingReadonlySpecificHeatWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Roof1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingReadonlySpecificHeatRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Floor1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingReadonlySpecificHeatFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Wall1 (kgm⁻³):</label>
+                    <input type="number" id="circleBuildingReadonlyDensityWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Roof1 (kgm⁻³):</label>
+                    <input type="number" id="circleBuildingReadonlyDensityRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Floor1 (kgm⁻³):</label>
+                    <input type="number" id="circleBuildingReadonlyDensityFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Wall1 (m):</label>
+                    <input type="number" id="circleBuildingReadonlyThicknessWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Roof1 (m):</label>
+                    <input type="number" id="circleBuildingReadonlyThicknessRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Floor1 (m):</label>
+                    <input type="number" id="circleBuildingReadonlyThicknessFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Wall Albedo (-):</label>
+                    <input type="number" id="circleBuildingReadonlyWallAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Roof Albedo (-):</label>
+                    <input type="number" id="circleBuildingReadonlyRoofAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Floor Albedo (-):</label>
+                    <input type="number" id="circleBuildingReadonlyFloorAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Wall Emissivity (-):</label>
+                    <input type="number" id="circleBuildingReadonlyWallEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Roof Emissivity (-):</label>
+                    <input type="number" id="circleBuildingReadonlyRoofEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Floor Emissivity (-):</label>
+                    <input type="number" id="circleBuildingReadonlyFloorEmissivity" readonly>
+                </div>
+            </div>
+            <!-- Building Custom Spec Fields for Circle -->
+            <div id="circleBuildingCustomSpecGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Number of Wall Layers:</label>
+                    <input type="number" id="circleBuildingCustomWallLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Number of Roof Layers:</label>
+                    <input type="number" id="circleBuildingCustomRoofLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Number of Floor Layers:</label>
+                    <input type="number" id="circleBuildingCustomFloorLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Start Period:</label>
+                    <input type="text" id="circleBuildingCustomStartPeriod" value="NA" readonly>
+                </div>
+                <div class="property-group">
+                    <label>End Period:</label>
+                    <input type="text" id="circleBuildingCustomEndPeriod" value="NA" readonly>
+                </div>
+                <div class="property-group">
+                    <label>U-value Window (W/m²/K):</label>
+                    <input type="number" id="circleBuildingCustomUvalueWindow" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Window SHGC (-):</label>
+                    <input type="number" id="circleBuildingCustomWindowSHGC" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Window Emissivity (-):</label>
+                    <input type="number" id="circleBuildingCustomWindowEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <!-- Dynamic layer fields will be inserted here -->
+                <div id="circleBuildingCustomLayerFields">
+                <div class="property-group">
+                    <label>Thermal Conductivity Wall1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingCustomThermalConductivityWall1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Roof1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingCustomThermalConductivityRoof1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Floor1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingCustomThermalConductivityFloor1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Wall1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingCustomSpecificHeatWall1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Roof1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingCustomSpecificHeatRoof1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Floor1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="circleBuildingCustomSpecificHeatFloor1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Wall1 (kgm⁻³):</label>
+                    <input type="number" id="circleBuildingCustomDensityWall1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Roof1 (kgm⁻³):</label>
+                    <input type="number" id="circleBuildingCustomDensityRoof1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Floor1 (kgm⁻³):</label>
+                    <input type="number" id="circleBuildingCustomDensityFloor1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Wall1 (m):</label>
+                    <input type="number" id="circleBuildingCustomThicknessWall1" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Roof1 (m):</label>
+                    <input type="number" id="circleBuildingCustomThicknessRoof1" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Floor1 (m):</label>
+                    <input type="number" id="circleBuildingCustomThicknessFloor1" step="0.01">
+                </div>
+                </div>
+                <!-- End of dynamic layer fields -->
+                <div class="property-group">
+                    <label>Wall Albedo (-):</label>
+                    <input type="number" id="circleBuildingCustomWallAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Roof Albedo (-):</label>
+                    <input type="number" id="circleBuildingCustomRoofAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Floor Albedo (-):</label>
+                    <input type="number" id="circleBuildingCustomFloorAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Wall Emissivity (-):</label>
+                    <input type="number" id="circleBuildingCustomWallEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Roof Emissivity (-):</label>
+                    <input type="number" id="circleBuildingCustomRoofEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Floor Emissivity (-):</label>
+                    <input type="number" id="circleBuildingCustomFloorEmissivity" step="0.01" min="0" max="1">
+                </div>
+            </div>
+            <!-- Highway Road Type Selection -->
+            <div class="property-group" id="circleHighwayRoadTypeGroup" style="display: none;">
+                <label>Road Type:</label>
+                <select id="circleHighwayRoadType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values for Highway -->
+            <div id="circleHighwayReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleHighwayReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleHighwayReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="circleHighwayReadonlyThermalConductivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleHighwayReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="circleHighwayReadonlySpecificHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Highway -->
+            <div id="circleHighwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleHighwayAlbedo" step="0.01" min="0" max="1" value="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleHighwayEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="circleHighwayThermalConductivity" step="0.1" min="0" value="1.2">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleHighwayDensity" step="1" min="0" value="2300">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="circleHighwaySpecificHeatCapacity" step="1" min="0" value="870">
+                </div>
+            </div>
+            <!-- Waterway Water Type Selection -->
+            <div class="property-group" id="circleWaterwayWaterTypeGroup" style="display: none;">
+                <label>Water Type:</label>
+                <select id="circleWaterwayWaterType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values for Waterway -->
+            <div id="circleWaterwayReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleWaterwayReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleWaterwayReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="circleWaterwayReadonlySpecificHeatCapacity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleWaterwayReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Depth:</label>
+                    <input type="number" id="circleWaterwayReadonlyDepth" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Waterway -->
+            <div id="circleWaterwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleWaterwayAlbedo" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleWaterwayEmissivity" step="0.01" min="0" max="1" value="0.96">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="circleWaterwaySpecificHeatCapacity" step="1" min="0" value="4190">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleWaterwayDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Depth:</label>
+                    <input type="number" id="circleWaterwayDepth" step="1" min="0" value="50">
+                </div>
+            </div>
+            <!-- Grass Vegetation Type Selection -->
+            <div class="property-group" id="circleGrassVegetationTypeGroup" style="display: none;">
+                <label>Vegetation Type:</label>
+                <select id="circleGrassVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Grass -->
+            <div class="property-group" id="circleGrassSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="circleGrassSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values for Grass -->
+            <div id="circleGrassReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="circleGrassReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="circleGrassReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="circleGrassReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="circleGrassReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="circleGrassReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="circleGrassReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="circleGrassReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="circleGrassReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="circleGrassReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="circleGrassReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="circleGrassReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleGrassReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleGrassReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleGrassReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="circleGrassReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Grass -->
+            <div id="circleGrassCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="circleGrassRootFractionLayer1" step="0.01" min="0" max="1" value="0.35">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="circleGrassRootFractionLayer2" step="0.01" min="0" max="1" value="0.38">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="circleGrassRootFractionLayer3" step="0.01" min="0" max="1" value="0.23">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="circleGrassRootFractionLayer4" step="0.01" min="0" max="1" value="0.04">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="circleGrassMinCanopyRes" step="1" min="0" value="110">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="circleGrassLeafAreaIndex" step="0.1" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="circleGrassTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="circleGrassMomentumRoughLength" step="0.001" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="circleGrassHeatRoughLength" step="0.00001" min="0" value="0.0003">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="circleGrassThermalCondStable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="circleGrassThermalCondUnstable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleGrassAlbedo" step="0.01" min="0" max="1" value="0.18">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleGrassEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleGrassDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="circleGrassHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Ground Vegetation Type Selection -->
+            <div class="property-group" id="circleGroundVegetationTypeGroup" style="display: none;">
+                <label>Ground Type:</label>
+                <select id="circleGroundVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Ground -->
+            <div class="property-group" id="circleGroundSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="circleGroundSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values for Ground -->
+            <div id="circleGroundReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="circleGroundReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="circleGroundReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="circleGroundReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="circleGroundReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="circleGroundReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="circleGroundReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="circleGroundReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="circleGroundReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="circleGroundReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="circleGroundReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="circleGroundReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleGroundReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleGroundReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleGroundReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="circleGroundReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Ground -->
+            <div id="circleGroundCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="circleGroundRootFractionLayer1" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="circleGroundRootFractionLayer2" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="circleGroundRootFractionLayer3" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="circleGroundRootFractionLayer4" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="circleGroundMinCanopyRes" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="circleGroundLeafAreaIndex" step="0.1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="circleGroundTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="circleGroundMomentumRoughLength" step="0.001" min="0" value="0.005">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="circleGroundHeatRoughLength" step="0.00001" min="0" value="0.00005">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="circleGroundThermalCondStable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="circleGroundThermalCondUnstable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleGroundAlbedo" step="0.01" min="0" max="1" value="0.17">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleGroundEmissivity" step="0.01" min="0" max="1" value="0.94">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleGroundDensity" step="1" min="0" value="1600">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="circleGroundHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Tree Vegetation Type Selection -->
+            <div class="property-group" id="circleTreeVegetationTypeGroup" style="display: none;">
+                <label>Tree Type:</label>
+                <select id="circleTreeVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Tree -->
+            <div class="property-group" id="circleTreeSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="circleTreeSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values for Tree -->
+            <div id="circleTreeReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="circleTreeReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="circleTreeReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="circleTreeReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="circleTreeReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="circleTreeReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="circleTreeReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="circleTreeReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="circleTreeReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="circleTreeReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="circleTreeReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="circleTreeReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleTreeReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleTreeReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleTreeReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="circleTreeReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Tree -->
+            <div id="circleTreeCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="circleTreeRootFractionLayer1" step="0.01" min="0" max="1" value="0.26">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="circleTreeRootFractionLayer2" step="0.01" min="0" max="1" value="0.39">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="circleTreeRootFractionLayer3" step="0.01" min="0" max="1" value="0.29">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="circleTreeRootFractionLayer4" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="circleTreeMinCanopyRes" step="1" min="0" value="500">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="circleTreeLeafAreaIndex" step="0.1" min="0" value="5">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="circleTreeTallVegCorrFac" step="0.01" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="circleTreeMomentumRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="circleTreeHeatRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="circleTreeThermalCondStable" step="1" min="0" value="20">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="circleTreeThermalCondUnstable" step="1" min="0" value="15">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="circleTreeAlbedo" step="0.01" min="0" max="1" value="0.12">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="circleTreeEmissivity" step="0.01" min="0" max="1" value="0.97">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="circleTreeDensity" step="1" min="0" value="1200">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="circleTreeHeatCapacity" step="1" min="0" value="2000">
+                </div>
             </div>
         </div>
         <div class="properties-footer">
@@ -779,7 +2565,7 @@
                     <option value="ground" selected>Ground</option>
                     <option value="waterway">Waterway</option>
                     <option value="highway">Highway</option>
-                    <option value="green">Green</option>
+                    <option value="grass">Grass</option>
                     <option value="building">Building</option>
                 </select>
             </div>
@@ -791,9 +2577,571 @@
                 <label>Height:</label>
                 <input type="number" id="polygonHeight" step="0.01" min="0.01" max="50" value="1">
             </div>
+            <!-- Year of Construction (for buildings only) -->
+            <div class="property-group" id="polygonBuildingYearOfConstructionGroup" style="display: none;">
+                <label>Year of Construction:</label>
+                <input type="number" id="polygonBuildingYearOfConstruction" step="1" min="1" placeholder="Optional">
+            </div>
+            <!-- Building Envelope Properties Selection -->
+            <div class="property-group" id="polygonBuildingEnvelopePropertiesGroup" style="display: none;">
+                <label>Envelope Properties:</label>
+                <select id="polygonBuildingEnvelopeProperties">
+                    <option value="archytypes">Archytypes</option>
+                    <option value="groups">Groups</option>
+                    <option value="customSpec">Custom Spec</option>
+                </select>
+            </div>
+            <!-- Building Archytypes Selection for Polygon -->
+            <div class="property-group" id="polygonBuildingArchytypesGroup" style="display: none;">
+                <label>Archytype:</label>
+                <select id="polygonBuildingArchytype">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Archetype Period Selection for Polygon -->
+            <div class="property-group" id="polygonBuildingArchetypePeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="polygonBuildingArchetypePeriod">
+                    <!-- Will be populated dynamically based on selected archetype -->
+                </select>
+            </div>
+            <!-- Building Groups Selection for Polygon -->
+            <div class="property-group" id="polygonBuildingGroupsGroup" style="display: none;">
+                <label>Group:</label>
+                <select id="polygonBuildingGroup">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Group Period Selection for Polygon -->
+            <div class="property-group" id="polygonBuildingGroupPeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="polygonBuildingGroupPeriod">
+                    <!-- Will be populated dynamically based on selected group -->
+                </select>
+            </div>
+            <!-- Building Envelope Properties Readonly Values for Polygon (for Archytypes and Groups) -->
+            <div id="polygonBuildingEnvelopeReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Start Period:</label>
+                    <input type="number" id="polygonBuildingReadonlyStartPeriod" readonly>
+                </div>
+                <div class="property-group">
+                    <label>End Period:</label>
+                    <input type="number" id="polygonBuildingReadonlyEndPeriod" readonly>
+                </div>
+                <div class="property-group">
+                    <label>U-value Window (W/m²/K):</label>
+                    <input type="number" id="polygonBuildingReadonlyUvalueWindow" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Window SHGC (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyWindowSHGC" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Window Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyWindowEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Wall1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingReadonlyThermalConductivityWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Roof1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingReadonlyThermalConductivityRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Floor1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingReadonlyThermalConductivityFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Wall1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingReadonlySpecificHeatWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Roof1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingReadonlySpecificHeatRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Floor1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingReadonlySpecificHeatFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Wall1 (kgm⁻³):</label>
+                    <input type="number" id="polygonBuildingReadonlyDensityWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Roof1 (kgm⁻³):</label>
+                    <input type="number" id="polygonBuildingReadonlyDensityRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density Floor1 (kgm⁻³):</label>
+                    <input type="number" id="polygonBuildingReadonlyDensityFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Wall1 (m):</label>
+                    <input type="number" id="polygonBuildingReadonlyThicknessWall1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Roof1 (m):</label>
+                    <input type="number" id="polygonBuildingReadonlyThicknessRoof1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thickness Floor1 (m):</label>
+                    <input type="number" id="polygonBuildingReadonlyThicknessFloor1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Wall Albedo (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyWallAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Roof Albedo (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyRoofAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Floor Albedo (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyFloorAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Wall Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyWallEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Roof Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyRoofEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Floor Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingReadonlyFloorEmissivity" readonly>
+                </div>
+            </div>
+            <!-- Building Custom Spec Fields for Polygon -->
+            <div id="polygonBuildingCustomSpecGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Number of Wall Layers:</label>
+                    <input type="number" id="polygonBuildingCustomWallLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Number of Roof Layers:</label>
+                    <input type="number" id="polygonBuildingCustomRoofLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Number of Floor Layers:</label>
+                    <input type="number" id="polygonBuildingCustomFloorLayers" min="1" max="10" value="1">
+                </div>
+                <div class="property-group">
+                    <label>Start Period:</label>
+                    <input type="text" id="polygonBuildingCustomStartPeriod" value="NA" readonly>
+                </div>
+                <div class="property-group">
+                    <label>End Period:</label>
+                    <input type="text" id="polygonBuildingCustomEndPeriod" value="NA" readonly>
+                </div>
+                <div class="property-group">
+                    <label>U-value Window (W/m²/K):</label>
+                    <input type="number" id="polygonBuildingCustomUvalueWindow" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Window SHGC (-):</label>
+                    <input type="number" id="polygonBuildingCustomWindowSHGC" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Window Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingCustomWindowEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <!-- Dynamic layer fields will be inserted here -->
+                <div id="polygonBuildingCustomLayerFields">
+                <div class="property-group">
+                    <label>Thermal Conductivity Wall1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingCustomThermalConductivityWall1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Roof1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingCustomThermalConductivityRoof1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Floor1 (Wm⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingCustomThermalConductivityFloor1" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Wall1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingCustomSpecificHeatWall1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Roof1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingCustomSpecificHeatRoof1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Floor1 (Jkg⁻¹K⁻¹):</label>
+                    <input type="number" id="polygonBuildingCustomSpecificHeatFloor1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Wall1 (kgm⁻³):</label>
+                    <input type="number" id="polygonBuildingCustomDensityWall1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Roof1 (kgm⁻³):</label>
+                    <input type="number" id="polygonBuildingCustomDensityRoof1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Density Floor1 (kgm⁻³):</label>
+                    <input type="number" id="polygonBuildingCustomDensityFloor1" step="1">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Wall1 (m):</label>
+                    <input type="number" id="polygonBuildingCustomThicknessWall1" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Roof1 (m):</label>
+                    <input type="number" id="polygonBuildingCustomThicknessRoof1" step="0.01">
+                </div>
+                <div class="property-group">
+                    <label>Thickness Floor1 (m):</label>
+                    <input type="number" id="polygonBuildingCustomThicknessFloor1" step="0.01">
+                </div>
+                </div>
+                <!-- End of dynamic layer fields -->
+                <div class="property-group">
+                    <label>Wall Albedo (-):</label>
+                    <input type="number" id="polygonBuildingCustomWallAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Roof Albedo (-):</label>
+                    <input type="number" id="polygonBuildingCustomRoofAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Floor Albedo (-):</label>
+                    <input type="number" id="polygonBuildingCustomFloorAlbedo" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Wall Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingCustomWallEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Roof Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingCustomRoofEmissivity" step="0.01" min="0" max="1">
+                </div>
+                <div class="property-group">
+                    <label>Floor Emissivity (-):</label>
+                    <input type="number" id="polygonBuildingCustomFloorEmissivity" step="0.01" min="0" max="1">
+                </div>
+            </div>
             <div class="property-group">
                 <label>Triangles:</label>
                 <input type="text" id="polygonTriangles" readonly>
+            </div>
+            <!-- Highway Road Type Selection -->
+            <div class="property-group" id="polygonHighwayRoadTypeGroup" style="display: none;">
+                <label>Road Type:</label>
+                <select id="polygonHighwayRoadType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Highway -->
+            <div id="polygonHighwayReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="polygonHighwayReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="polygonHighwayReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="polygonHighwayReadonlyThermalConductivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="polygonHighwayReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="polygonHighwayReadonlySpecificHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Highway -->
+            <div id="polygonHighwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="polygonHighwayAlbedo" step="0.01" min="0" max="1" value="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="polygonHighwayEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="polygonHighwayThermalConductivity" step="0.1" min="0" value="1.2">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="polygonHighwayDensity" step="1" min="0" value="2300">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="polygonHighwaySpecificHeatCapacity" step="1" min="0" value="870">
+                </div>
+            </div>
+            <!-- Waterway Water Type Selection -->
+            <div class="property-group" id="polygonWaterwayWaterTypeGroup" style="display: none;">
+                <label>Water Type:</label>
+                <select id="polygonWaterwayWaterType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Customize Fields for Waterway -->
+            <div id="polygonWaterwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="polygonWaterwayAlbedo" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="polygonWaterwayEmissivity" step="0.01" min="0" max="1" value="0.96">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="polygonWaterwaySpecificHeatCapacity" step="1" min="0" value="4190">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="polygonWaterwayDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Depth:</label>
+                    <input type="number" id="polygonWaterwayDepth" step="1" min="0" value="50">
+                </div>
+            </div>
+            <!-- Grass Vegetation Type Selection -->
+            <div class="property-group" id="polygonGrassVegetationTypeGroup" style="display: none;">
+                <label>Vegetation Type:</label>
+                <select id="polygonGrassVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Grass -->
+            <div class="property-group" id="polygonGrassSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="polygonGrassSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Customize Fields for Grass -->
+            <div id="polygonGrassCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="polygonGrassRootFractionLayer1" step="0.01" min="0" max="1" value="0.35">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="polygonGrassRootFractionLayer2" step="0.01" min="0" max="1" value="0.38">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="polygonGrassRootFractionLayer3" step="0.01" min="0" max="1" value="0.23">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="polygonGrassRootFractionLayer4" step="0.01" min="0" max="1" value="0.04">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="polygonGrassMinCanopyRes" step="1" min="0" value="110">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="polygonGrassLeafAreaIndex" step="0.1" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="polygonGrassTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="polygonGrassMomentumRoughLength" step="0.001" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="polygonGrassHeatRoughLength" step="0.00001" min="0" value="0.0003">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="polygonGrassThermalCondStable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="polygonGrassThermalCondUnstable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="polygonGrassAlbedo" step="0.01" min="0" max="1" value="0.18">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="polygonGrassEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="polygonGrassDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="polygonGrassHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Ground Vegetation Type Selection -->
+            <div class="property-group" id="polygonGroundVegetationTypeGroup" style="display: none;">
+                <label>Ground Type:</label>
+                <select id="polygonGroundVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Ground -->
+            <div class="property-group" id="polygonGroundSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="polygonGroundSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Customize Fields for Ground -->
+            <div id="polygonGroundCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="polygonGroundRootFractionLayer1" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="polygonGroundRootFractionLayer2" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="polygonGroundRootFractionLayer3" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="polygonGroundRootFractionLayer4" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="polygonGroundMinCanopyRes" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="polygonGroundLeafAreaIndex" step="0.1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="polygonGroundTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="polygonGroundMomentumRoughLength" step="0.001" min="0" value="0.005">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="polygonGroundHeatRoughLength" step="0.00001" min="0" value="0.00005">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="polygonGroundThermalCondStable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="polygonGroundThermalCondUnstable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="polygonGroundAlbedo" step="0.01" min="0" max="1" value="0.17">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="polygonGroundEmissivity" step="0.01" min="0" max="1" value="0.94">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="polygonGroundDensity" step="1" min="0" value="1600">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="polygonGroundHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Tree Vegetation Type Selection -->
+            <div class="property-group" id="polygonTreeVegetationTypeGroup" style="display: none;">
+                <label>Tree Type:</label>
+                <select id="polygonTreeVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Tree -->
+            <div class="property-group" id="polygonTreeSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="polygonTreeSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Customize Fields for Tree -->
+            <div id="polygonTreeCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="polygonTreeRootFractionLayer1" step="0.01" min="0" max="1" value="0.26">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="polygonTreeRootFractionLayer2" step="0.01" min="0" max="1" value="0.39">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="polygonTreeRootFractionLayer3" step="0.01" min="0" max="1" value="0.29">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="polygonTreeRootFractionLayer4" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="polygonTreeMinCanopyRes" step="1" min="0" value="500">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="polygonTreeLeafAreaIndex" step="0.1" min="0" value="5">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="polygonTreeTallVegCorrFac" step="0.01" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="polygonTreeMomentumRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="polygonTreeHeatRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="polygonTreeThermalCondStable" step="1" min="0" value="20">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="polygonTreeThermalCondUnstable" step="1" min="0" value="15">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="polygonTreeAlbedo" step="0.01" min="0" max="1" value="0.12">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="polygonTreeEmissivity" step="0.01" min="0" max="1" value="0.97">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="polygonTreeDensity" step="1" min="0" value="1200">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="polygonTreeHeatCapacity" step="1" min="0" value="2000">
+                </div>
             </div>
         </div>
         <div class="properties-footer">
@@ -820,6 +3168,146 @@
                 <label>Scale:</label>
                 <input type="number" id="treeScale" min="1" step="0.1" value="1">
             </div>
+            <!-- Tree Vegetation Type Selection -->
+            <div class="property-group" id="treeTreeVegetationTypeGroup" style="display: flex;">
+                <label>Tree Type:</label>
+                <select id="treeTreeVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Tree -->
+            <div class="property-group" id="treeTreeSoilTypeGroup" style="display: flex;">
+                <label>Soil Type:</label>
+                <select id="treeTreeSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Tree -->
+            <div id="treeTreeReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="treeTreeReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="treeTreeReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="treeTreeReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="treeTreeReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="treeTreeReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="treeTreeReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="treeTreeReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="treeTreeReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="treeTreeReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="treeTreeReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="treeTreeReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="treeTreeReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="treeTreeReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="treeTreeReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="treeTreeReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Tree -->
+            <div id="treeTreeCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="treeTreeRootFractionLayer1" step="0.01" min="0" max="1" value="0.26">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="treeTreeRootFractionLayer2" step="0.01" min="0" max="1" value="0.39">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="treeTreeRootFractionLayer3" step="0.01" min="0" max="1" value="0.29">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="treeTreeRootFractionLayer4" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="treeTreeMinCanopyRes" step="1" min="0" value="500">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="treeTreeLeafAreaIndex" step="0.1" min="0" value="5">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="treeTreeTallVegCorrFac" step="0.01" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="treeTreeMomentumRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="treeTreeHeatRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="treeTreeThermalCondStable" step="1" min="0" value="20">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="treeTreeThermalCondUnstable" step="1" min="0" value="15">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="treeTreeAlbedo" step="0.01" min="0" max="1" value="0.12">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="treeTreeEmissivity" step="0.01" min="0" max="1" value="0.97">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="treeTreeDensity" step="1" min="0" value="1200">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="treeTreeHeatCapacity" step="1" min="0" value="2000">
+                </div>
+            </div>
         </div>
         <div class="properties-footer">
             <!-- Auto-save enabled - no buttons needed -->
@@ -843,10 +3331,586 @@
                     <option value="building">Building</option>
                     <option value="highway">Highway</option>
                     <option value="ground">Ground</option>
-                    <option value="green">Green</option>
+                    <option value="grass">Grass</option>
                     <option value="waterway">Waterway</option>
                     <option value="tree">Tree</option>
                 </select>
+            </div>
+            <!-- Tree Vegetation Type Selection (moved to top, below Type) -->
+            <div class="property-group" id="stlTreeVegetationTypeGroup" style="display: none;">
+                <label>Tree Type:</label>
+                <select id="stlTreeVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Tree (moved to top, below Type) -->
+            <div class="property-group" id="stlTreeSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="stlTreeSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Highway Road Type Selection -->
+            <div class="property-group" id="stlHighwayRoadTypeGroup" style="display: none;">
+                <label>Road Type:</label>
+                <select id="stlHighwayRoadType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Highway -->
+            <div id="stlHighwayReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlHighwayReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlHighwayReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="stlHighwayReadonlyThermalConductivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlHighwayReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="stlHighwayReadonlySpecificHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Highway -->
+            <div id="stlHighwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlHighwayAlbedo" step="0.01" min="0" max="1" value="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlHighwayEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity:</label>
+                    <input type="number" id="stlHighwayThermalConductivity" step="0.1" min="0" value="1.2">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlHighwayDensity" step="1" min="0" value="2300">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="stlHighwaySpecificHeatCapacity" step="1" min="0" value="870">
+                </div>
+            </div>
+            <!-- Waterway Water Type Selection -->
+            <div class="property-group" id="stlWaterwayWaterTypeGroup" style="display: none;">
+                <label>Water Type:</label>
+                <select id="stlWaterwayWaterType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Waterway -->
+            <div id="stlWaterwayReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlWaterwayReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlWaterwayReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="stlWaterwayReadonlySpecificHeatCapacity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlWaterwayReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Depth:</label>
+                    <input type="number" id="stlWaterwayReadonlyDepth" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Waterway -->
+            <div id="stlWaterwayCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlWaterwayAlbedo" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlWaterwayEmissivity" step="0.01" min="0" max="1" value="0.96">
+                </div>
+                <div class="property-group">
+                    <label>Specific Heat Capacity:</label>
+                    <input type="number" id="stlWaterwaySpecificHeatCapacity" step="1" min="0" value="4190">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlWaterwayDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Depth:</label>
+                    <input type="number" id="stlWaterwayDepth" step="1" min="0" value="50">
+                </div>
+            </div>
+            <!-- Grass Vegetation Type Selection -->
+            <div class="property-group" id="stlGrassVegetationTypeGroup" style="display: none;">
+                <label>Vegetation Type:</label>
+                <select id="stlGrassVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Grass -->
+            <div class="property-group" id="stlGrassSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="stlGrassSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Grass -->
+            <div id="stlGrassReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="stlGrassReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="stlGrassReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="stlGrassReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="stlGrassReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="stlGrassReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="stlGrassReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="stlGrassReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="stlGrassReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="stlGrassReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="stlGrassReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="stlGrassReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlGrassReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlGrassReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlGrassReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="stlGrassReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Grass -->
+            <div id="stlGrassCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="stlGrassRootFractionLayer1" step="0.01" min="0" max="1" value="0.35">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="stlGrassRootFractionLayer2" step="0.01" min="0" max="1" value="0.38">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="stlGrassRootFractionLayer3" step="0.01" min="0" max="1" value="0.23">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="stlGrassRootFractionLayer4" step="0.01" min="0" max="1" value="0.04">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="stlGrassMinCanopyRes" step="1" min="0" value="110">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="stlGrassLeafAreaIndex" step="0.1" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="stlGrassTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="stlGrassMomentumRoughLength" step="0.001" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="stlGrassHeatRoughLength" step="0.00001" min="0" value="0.0003">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="stlGrassThermalCondStable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="stlGrassThermalCondUnstable" step="1" min="0" value="10">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlGrassAlbedo" step="0.01" min="0" max="1" value="0.18">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlGrassEmissivity" step="0.01" min="0" max="1" value="0.95">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlGrassDensity" step="1" min="0" value="1000">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="stlGrassHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Ground Vegetation Type Selection -->
+            <div class="property-group" id="stlGroundVegetationTypeGroup" style="display: none;">
+                <label>Ground Type:</label>
+                <select id="stlGroundVegetationType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Soil Type Selection for Ground -->
+            <div class="property-group" id="stlGroundSoilTypeGroup" style="display: none;">
+                <label>Soil Type:</label>
+                <select id="stlGroundSoilType">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Readonly Values Display for Ground -->
+            <div id="stlGroundReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="stlGroundReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="stlGroundReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="stlGroundReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="stlGroundReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="stlGroundReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="stlGroundReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="stlGroundReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="stlGroundReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="stlGroundReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="stlGroundReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="stlGroundReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlGroundReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlGroundReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlGroundReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="stlGroundReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Ground -->
+            <div id="stlGroundCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="stlGroundRootFractionLayer1" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="stlGroundRootFractionLayer2" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="stlGroundRootFractionLayer3" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="stlGroundRootFractionLayer4" step="0.01" min="0" max="1" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="stlGroundMinCanopyRes" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="stlGroundLeafAreaIndex" step="0.1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="stlGroundTallVegCorrFac" step="0.01" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="stlGroundMomentumRoughLength" step="0.001" min="0" value="0.005">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="stlGroundHeatRoughLength" step="0.00001" min="0" value="0.00005">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="stlGroundThermalCondStable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="stlGroundThermalCondUnstable" step="1" min="0" value="0">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlGroundAlbedo" step="0.01" min="0" max="1" value="0.17">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlGroundEmissivity" step="0.01" min="0" max="1" value="0.94">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlGroundDensity" step="1" min="0" value="1600">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="stlGroundHeatCapacity" step="1" min="0" value="1600">
+                </div>
+            </div>
+            <!-- Readonly Values Display for Tree -->
+            <div id="stlTreeReadonlyValuesGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="stlTreeReadonlyRootFractionLayer1" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="stlTreeReadonlyRootFractionLayer2" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="stlTreeReadonlyRootFractionLayer3" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="stlTreeReadonlyRootFractionLayer4" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="stlTreeReadonlyMinCanopyRes" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="stlTreeReadonlyLeafAreaIndex" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="stlTreeReadonlyTallVegCorrFac" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="stlTreeReadonlyMomentumRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="stlTreeReadonlyHeatRoughLength" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="stlTreeReadonlyThermalCondStable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="stlTreeReadonlyThermalCondUnstable" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlTreeReadonlyAlbedo" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlTreeReadonlyEmissivity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlTreeReadonlyDensity" readonly>
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="stlTreeReadonlyHeatCapacity" readonly>
+                </div>
+            </div>
+            <!-- Customize Fields for Tree -->
+            <div id="stlTreeCustomizeGroup" style="display: none;">
+                <div class="property-group">
+                    <label>Root Fraction Layer 1:</label>
+                    <input type="number" id="stlTreeRootFractionLayer1" step="0.01" min="0" max="1" value="0.26">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 2:</label>
+                    <input type="number" id="stlTreeRootFractionLayer2" step="0.01" min="0" max="1" value="0.39">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 3:</label>
+                    <input type="number" id="stlTreeRootFractionLayer3" step="0.01" min="0" max="1" value="0.29">
+                </div>
+                <div class="property-group">
+                    <label>Root Fraction Layer 4:</label>
+                    <input type="number" id="stlTreeRootFractionLayer4" step="0.01" min="0" max="1" value="0.06">
+                </div>
+                <div class="property-group">
+                    <label>Min Canopy Resistance:</label>
+                    <input type="number" id="stlTreeMinCanopyRes" step="1" min="0" value="500">
+                </div>
+                <div class="property-group">
+                    <label>Leaf Area Index:</label>
+                    <input type="number" id="stlTreeLeafAreaIndex" step="0.1" min="0" value="5">
+                </div>
+                <div class="property-group">
+                    <label>Tall Veg Correction Factor:</label>
+                    <input type="number" id="stlTreeTallVegCorrFac" step="0.01" min="0" value="0.03">
+                </div>
+                <div class="property-group">
+                    <label>Momentum Rough Length:</label>
+                    <input type="number" id="stlTreeMomentumRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Heat Rough Length:</label>
+                    <input type="number" id="stlTreeHeatRoughLength" step="0.001" min="0" value="2">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Stable:</label>
+                    <input type="number" id="stlTreeThermalCondStable" step="1" min="0" value="20">
+                </div>
+                <div class="property-group">
+                    <label>Thermal Conductivity Unstable:</label>
+                    <input type="number" id="stlTreeThermalCondUnstable" step="1" min="0" value="15">
+                </div>
+                <div class="property-group">
+                    <label>Albedo:</label>
+                    <input type="number" id="stlTreeAlbedo" step="0.01" min="0" max="1" value="0.12">
+                </div>
+                <div class="property-group">
+                    <label>Emissivity:</label>
+                    <input type="number" id="stlTreeEmissivity" step="0.01" min="0" max="1" value="0.97">
+                </div>
+                <div class="property-group">
+                    <label>Density:</label>
+                    <input type="number" id="stlTreeDensity" step="1" min="0" value="1200">
+                </div>
+                <div class="property-group">
+                    <label>Heat Capacity:</label>
+                    <input type="number" id="stlTreeHeatCapacity" step="1" min="0" value="2000">
+                </div>
+            </div>
+            <!-- Year of Construction (for buildings only) -->
+            <div class="property-group" id="stlBuildingYearOfConstructionGroup" style="display: none;">
+                <label>Year of Construction:</label>
+                <input type="number" id="stlBuildingYearOfConstruction" step="1" min="1" placeholder="Optional">
+            </div>
+            <!-- Building Envelope Properties Selection -->
+            <div class="property-group" id="stlBuildingEnvelopePropertiesGroup" style="display: none;">
+                <label>Envelope Properties:</label>
+                <select id="stlBuildingEnvelopeProperties">
+                    <option value="archytypes">Archytypes</option>
+                    <option value="groups">Groups</option>
+                    <option value="customSpec">Custom Spec</option>
+                </select>
+            </div>
+            <!-- Building Archytypes Selection for STL -->
+            <div class="property-group" id="stlBuildingArchytypesGroup" style="display: none;">
+                <label>Archytype:</label>
+                <select id="stlBuildingArchytype">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Archetype Period Selection for STL -->
+            <div class="property-group" id="stlBuildingArchetypePeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="stlBuildingArchetypePeriod">
+                    <!-- Will be populated dynamically based on selected archetype -->
+                </select>
+            </div>
+            <!-- Building Groups Selection for STL -->
+            <div class="property-group" id="stlBuildingGroupsGroup" style="display: none;">
+                <label>Group:</label>
+                <select id="stlBuildingGroup">
+                    <!-- Will be populated dynamically -->
+                </select>
+            </div>
+            <!-- Building Group Period Selection for STL -->
+            <div class="property-group" id="stlBuildingGroupPeriodGroup" style="display: none;">
+                <label>Period:</label>
+                <select id="stlBuildingGroupPeriod">
+                    <!-- Will be populated dynamically based on selected group -->
+                </select>
+            </div>
+            <!-- Building Envelope Properties Readonly Values for STL (for Archytypes and Groups) -->
+            <div id="stlBuildingEnvelopeReadonlyValuesGroup" style="display: none;">
+                <!-- Readonly fields will be populated dynamically similar to polygon popup -->
+            </div>
+            <!-- Building Custom Spec Fields for STL -->
+            <div id="stlBuildingCustomSpecGroup" style="display: none;">
+                <!-- Custom spec fields will be populated dynamically similar to polygon popup -->
             </div>
         </div>
         <div class="properties-footer">
@@ -868,6 +3932,336 @@
             <div class="transform-input-group">
                 <label for="transformZ">Z:</label>
                 <input type="number" id="transformZ" step="0.01" class="transform-input">
+            </div>
+        </div>
+    </div>
+
+    <!-- STL Import Dialog -->
+    <div id="stlImportDialog" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3>Import STL File</h3>
+                <button class="modal-close" id="stlImportDialogClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>How would you like to import the STL file?</label>
+                    <div class="radio-group" style="margin-top: 10px;">
+                        <label class="radio-label" style="display: block; margin-bottom: 10px;">
+                            <input type="radio" name="stlImportMode" value="new-scene" checked style="margin-right: 8px;">
+                            <span>Load in a new scene (clear current scene)</span>
+                        </label>
+                        <label class="radio-label" style="display: block;">
+                            <input type="radio" name="stlImportMode" value="add-to-scene" style="margin-right: 8px;">
+                            <span>Add to existing scene</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top: 20px;">
+                    <label for="stlImportAxisUp">STL File Axis Up:</label>
+                    <select id="stlImportAxisUp" class="form-control">
+                        <option value="z-up">Z-Up (STL standard)</option>
+                        <option value="y-up" selected>Y-Up (Babylon.js default)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-top: 20px;">
+                    <label class="radio-label" style="display: flex; align-items: center;">
+                        <input type="checkbox" id="stlImportFlipNormals" style="margin-right: 8px;">
+                        <span>Flip normals</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="stlImportDialogCancel">Cancel</button>
+                <button class="btn btn-primary" id="stlImportDialogConfirm">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- STL Import Loading Overlay -->
+    <div id="stlImportLoadingOverlay" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog" style="max-width: 400px;">
+            <div class="modal-body" style="text-align: center; padding: 40px;">
+                <div class="loading-spinner" style="width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+                <h3 style="margin: 0 0 10px 0;">Loading STL File...</h3>
+                <p id="stlImportLoadingStatus" style="color: #666; margin: 0;">Please wait while the file is being processed</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- STL Export Dialog -->
+    <div id="stlExportDialog" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3>Export STL Settings</h3>
+                <button class="modal-close" id="stlExportDialogClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="stlAxisUp">Axis Up:</label>
+                    <select id="stlAxisUp" class="form-control">
+                        <option value="y-up">Y-Up (Babylon.js default)</option>
+                        <option value="z-up" selected>Z-Up (STL standard)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="stlExportDialogCancel">Cancel</button>
+                <button class="btn btn-primary" id="stlExportDialogConfirm">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Scene Confirmation Dialog -->
+    <div id="saveSceneDialog" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3>Save Current Project?</h3>
+                <button class="modal-close" id="saveSceneDialogClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Do you want to save the current project before creating a new one?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="saveSceneDialogNo">No, Continue</button>
+                <button class="btn btn-primary" id="saveSceneDialogYes">Yes, Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Project Dialog -->
+    <div id="saveProjectDialog" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3>Save Project</h3>
+                <button class="modal-close" id="saveProjectDialogClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="saveProjectFilename">Project Name (without extension):</label>
+                    <input type="text" id="saveProjectFilename" class="form-control" placeholder="Enter project name" value="project">
+                </div>
+                <div class="form-group" style="margin-top: 15px;">
+                    <label>Save Location:</label>
+                    <button class="btn btn-secondary" id="saveProjectChooseLocation" style="width: 100%;">Choose Save Location</button>
+                    <div id="saveProjectLocationDisplay" style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px; font-size: 0.9em; color: #666;">
+                        No location selected
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="saveProjectDialogCancel">Cancel</button>
+                <button class="btn btn-primary" id="saveProjectDialogSave" disabled>Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Project Loading Overlay -->
+    <div id="saveProjectLoadingOverlay" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog" style="max-width: 400px;">
+            <div class="modal-body" style="text-align: center; padding: 40px;">
+                <div class="loading-spinner" style="width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+                <h3 style="margin: 0 0 10px 0;">Saving Project...</h3>
+                <p id="saveProjectLoadingStatus" style="color: #666; margin: 0;">Please wait while the project is being saved</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Project Loading Overlay -->
+    <div id="loadProjectLoadingOverlay" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog" style="max-width: 400px;">
+            <div class="modal-body" style="text-align: center; padding: 40px;">
+                <div class="loading-spinner" style="width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+                <h3 style="margin: 0 0 10px 0;">Loading Project...</h3>
+                <p id="loadProjectLoadingStatus" style="color: #666; margin: 0;">Please wait while the project is being loaded</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Surface Types Manager Dialog -->
+    <div id="surfaceTypesManagerDialog" class="modal-overlay" style="display: none;">
+        <div class="modal-dialog" style="max-width: 90%; width: 1200px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h3>Surface Types Manager</h3>
+                <button class="modal-close" id="surfaceTypesManagerDialogClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="surface-types-container">
+                    <div class="surface-types-tabs">
+                        <button class="tab-button active" data-tab="roadTypes">Road Types</button>
+                        <button class="tab-button" data-tab="soilTypes">Soil Types</button>
+                        <button class="tab-button" data-tab="waterTypes">Water Types</button>
+                        <button class="tab-button" data-tab="groundTypes">Ground Types</button>
+                        <button class="tab-button" data-tab="grassTypes">Grass Types</button>
+                        <button class="tab-button" data-tab="treeTypes">Tree Types</button>
+                        <button class="tab-button" data-tab="buildingArchyTypes">Building Archetypes</button>
+                        <button class="tab-button" data-tab="buildingGroups">Building Groups</button>
+                    </div>
+                    <div class="surface-types-content">
+                        <div id="roadTypesTab" class="tab-content active">
+                            <div class="surface-types-table-container">
+                                <table class="surface-types-table" id="roadTypesTable">
+                                    <thead id="roadTypesTableHead"></thead>
+                                    <tbody id="roadTypesTableBody"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-primary add-row-btn" data-category="roadTypes" style="margin-top: 10px;">Add New Row</button>
+                        </div>
+                        <div id="soilTypesTab" class="tab-content">
+                            <div class="surface-types-table-container">
+                                <table class="surface-types-table" id="soilTypesTable">
+                                    <thead id="soilTypesTableHead"></thead>
+                                    <tbody id="soilTypesTableBody"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-primary add-row-btn" data-category="soilTypes" style="margin-top: 10px;">Add New Row</button>
+                        </div>
+                        <div id="waterTypesTab" class="tab-content">
+                            <div class="surface-types-table-container">
+                                <table class="surface-types-table" id="waterTypesTable">
+                                    <thead id="waterTypesTableHead"></thead>
+                                    <tbody id="waterTypesTableBody"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-primary add-row-btn" data-category="waterTypes" style="margin-top: 10px;">Add New Row</button>
+                        </div>
+                        <div id="groundTypesTab" class="tab-content">
+                            <div class="surface-types-table-container">
+                                <table class="surface-types-table" id="groundTypesTable">
+                                    <thead id="groundTypesTableHead"></thead>
+                                    <tbody id="groundTypesTableBody"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-primary add-row-btn" data-category="groundTypes" style="margin-top: 10px;">Add New Row</button>
+                        </div>
+                        <div id="grassTypesTab" class="tab-content">
+                            <div class="surface-types-table-container">
+                                <table class="surface-types-table" id="grassTypesTable">
+                                    <thead id="grassTypesTableHead"></thead>
+                                    <tbody id="grassTypesTableBody"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-primary add-row-btn" data-category="grassTypes" style="margin-top: 10px;">Add New Row</button>
+                        </div>
+                        <div id="treeTypesTab" class="tab-content">
+                            <div class="surface-types-table-container">
+                                <table class="surface-types-table" id="treeTypesTable">
+                                    <thead id="treeTypesTableHead"></thead>
+                                    <tbody id="treeTypesTableBody"></tbody>
+                                </table>
+                            </div>
+                            <button class="btn btn-primary add-row-btn" data-category="treeTypes" style="margin-top: 10px;">Add New Row</button>
+                        </div>
+                        <div id="buildingArchyTypesTab" class="tab-content">
+                            <div class="building-archetype-manager">
+                                <!-- Archetype Selection and Configuration -->
+                                <div class="archetype-config-panel" style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+                                    <h4 style="margin-top: 0;">Archetype Configuration</h4>
+                                    
+                                    <!-- Select or Create Archetype -->
+                                    <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+                                        <label style="min-width: 200px;">Select Archetype:</label>
+                                        <select id="archetypeSelector" style="flex: 1; padding: 5px;">
+                                        </select>
+                                        <button id="createNewArchetypeBtn" class="btn btn-primary">Create New Archetype</button>
+                                        <button id="deleteArchetypeBtn" class="btn btn-secondary" style="display: none;">Delete Archetype</button>
+                                    </div>
+                                    
+                                    <!-- Archetype Form -->
+                                    <div id="archetypeForm" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px;">
+                                        <div>
+                                            <label>Usage Group Building Name:</label>
+                                            <input type="text" id="archetypeName" placeholder="e.g., office" style="width: 100%; padding: 5px;">
+                                        </div>
+                                        <div>
+                                            <label>Number of Wall Layers:</label>
+                                            <input type="number" id="wallLayers" min="1" max="10" value="1" style="width: 100%; padding: 5px;">
+                                        </div>
+                                        <div>
+                                            <label>Number of Roof Layers:</label>
+                                            <input type="number" id="roofLayers" min="1" max="10" value="1" style="width: 100%; padding: 5px;">
+                                        </div>
+                                        <div>
+                                            <label>Number of Floor Layers:</label>
+                                            <input type="number" id="floorLayers" min="1" max="10" value="1" style="width: 100%; padding: 5px;">
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="margin-top: 15px;">
+                                        <button id="saveArchetypeConfigBtn" class="btn btn-primary">Save Configuration</button>
+                                        <button id="resetArchetypeConfigBtn" class="btn btn-secondary" style="margin-left: 10px;">Reset</button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Dynamic Table for Period Data -->
+                                <div class="surface-types-table-container">
+                                    <h4 style="margin: 0 0 10px 0;">Period Data</h4>
+                                    <table class="surface-types-table" id="buildingArchyTypesTable">
+                                        <thead id="buildingArchyTypesTableHead"></thead>
+                                        <tbody id="buildingArchyTypesTableBody"></tbody>
+                                    </table>
+                                    <button id="addPeriodRowBtn" class="btn btn-primary" disabled style="margin-top: 10px;">Add Period Row</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="buildingGroupsTab" class="tab-content">
+                            <div class="building-archetype-manager">
+                                <!-- Group Selection and Configuration -->
+                                <div class="archetype-config-panel" style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+                                    <h4 style="margin-top: 0;">Group Configuration</h4>
+                                    
+                                    <!-- Select or Create Group -->
+                                    <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+                                        <label style="min-width: 200px;">Select Group:</label>
+                                        <select id="groupSelector" style="flex: 1; padding: 5px;">
+                                        </select>
+                                        <button id="createNewGroupBtn" class="btn btn-primary">Create New Group</button>
+                                        <button id="deleteGroupBtn" class="btn btn-secondary" style="display: none;">Delete Group</button>
+                                    </div>
+                                    
+                                    <!-- Group Form -->
+                                    <div id="groupForm" style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px;">
+                                        <div>
+                                            <label>Group Name:</label>
+                                            <input type="text" id="groupName" placeholder="e.g., group1" style="width: 100%; padding: 5px;">
+                                        </div>
+                                        <div>
+                                            <label>Number of Wall Layers:</label>
+                                            <input type="number" id="groupWallLayers" min="1" max="10" value="1" style="width: 100%; padding: 5px;">
+                                        </div>
+                                        <div>
+                                            <label>Number of Roof Layers:</label>
+                                            <input type="number" id="groupRoofLayers" min="1" max="10" value="1" style="width: 100%; padding: 5px;">
+                                        </div>
+                                        <div>
+                                            <label>Number of Floor Layers:</label>
+                                            <input type="number" id="groupFloorLayers" min="1" max="10" value="1" style="width: 100%; padding: 5px;">
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="margin-top: 15px;">
+                                        <button id="saveGroupConfigBtn" class="btn btn-primary">Save Configuration</button>
+                                        <button id="resetGroupConfigBtn" class="btn btn-secondary" style="margin-left: 10px;">Reset</button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Dynamic Table for Period Data -->
+                                <div class="surface-types-table-container">
+                                    <h4 style="margin: 0 0 10px 0;">Period Data</h4>
+                                    <table class="surface-types-table" id="buildingGroupsTable">
+                                        <thead id="buildingGroupsTableHead"></thead>
+                                        <tbody id="buildingGroupsTableBody"></tbody>
+                                    </table>
+                                    <button id="addGroupPeriodRowBtn" class="btn btn-primary" disabled style="margin-top: 10px;">Add Period Row</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="surfaceTypesManagerDialogCancel">Close</button>
+                <button class="btn btn-primary" id="surfaceTypesManagerDialogSave">Save</button>
             </div>
         </div>
     </div>

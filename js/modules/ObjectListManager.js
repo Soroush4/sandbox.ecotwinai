@@ -12,7 +12,7 @@ class ObjectListManager {
             building: { name: 'Building', objects: [], expanded: false },
             highway: { name: 'Highway', objects: [], expanded: false },
             waterway: { name: 'Waterway', objects: [], expanded: false },
-            green: { name: 'Green', objects: [], expanded: false },
+            grass: { name: 'Grass', objects: [], expanded: false },
             tree: { name: 'Tree', objects: [], expanded: false },
             ground: { name: 'Ground', objects: [], expanded: false },
             wireframe: { name: 'Wireframe', objects: [], expanded: false } // Hidden category for wireframes
@@ -150,16 +150,22 @@ class ObjectListManager {
 
         // Get buildings from SceneManager (to avoid duplicates)
         const buildings = this.sceneManager.getBuildings();
-        const buildingMeshes = buildings.map(building => building.mesh);
+        const buildingMeshes = buildings
+            .map(building => building.mesh)
+            .filter(mesh => mesh && !mesh.isDisposed());
 
         // Get trees from TreeManager
+        // Filter out trees that have been disposed or have no valid parent
         const trees = this.treeManager ? this.treeManager.trees : [];
-        const treeParents = trees.map(tree => tree.parent);
+        const treeParents = trees
+            .filter(tree => tree && tree.parent && !tree.parent.isDisposed())
+            .map(tree => tree.parent)
+            .filter(parent => parent && !parent.isDisposed());
 
         // Get other meshes (shapes, etc.) from scene
         const otherMeshes = scene.meshes.filter(mesh => {
-            // Filter out system meshes, grid, default earth, trees, buildings, and disabled meshes
-            if (!mesh.name || !mesh.isEnabled()) return false;
+            // Filter out system meshes, grid, default earth, trees, buildings, disabled meshes, and disposed meshes
+            if (!mesh || !mesh.name || !mesh.isEnabled() || mesh.isDisposed()) return false;
             
             // Exclude system meshes
             if (mesh.name.includes('__root__') || 
@@ -180,12 +186,15 @@ class ObjectListManager {
                                       mesh.userData.type === 'tree';
             
             if (isImportedSTLTree) {
-                // Include imported STL trees
-                return true;
+                // Include imported STL trees (only if not disposed)
+                return !mesh.isDisposed();
             }
             
             // Exclude regular tree meshes (from TreeManager)
-            if (mesh.name.startsWith('tree_') || mesh.name.includes('_tree_')) {
+            // Check both old format (tree_1) and new format (tree1)
+            if (mesh.name.startsWith('tree_') || 
+                mesh.name.includes('_tree_') ||
+                (mesh.name.startsWith('tree') && /^\d+$/.test(mesh.name.substring(4)))) {
                 return false;
             }
             
@@ -194,7 +203,10 @@ class ObjectListManager {
 
         // Combine building meshes, tree parents, and other meshes (remove duplicates)
         const allMeshes = [...buildingMeshes, ...treeParents, ...otherMeshes];
-        const meshes = [...new Set(allMeshes)]; // Remove duplicates using Set
+        // Remove duplicates and filter out disposed meshes
+        const meshes = [...new Set(allMeshes)].filter(mesh => 
+            mesh && !mesh.isDisposed()
+        );
 
         // Categorize objects and track which categories have new objects
         const categoriesWithObjects = new Set();
@@ -212,7 +224,7 @@ class ObjectListManager {
         });
 
         // Create category sections in specific order (exclude wireframe category from display)
-        const categoryOrder = ['building', 'highway', 'waterway', 'green', 'tree', 'ground'];
+        const categoryOrder = ['building', 'highway', 'waterway', 'grass', 'tree', 'ground'];
         categoryOrder.forEach(categoryKey => {
             const category = this.categories[categoryKey];
             // Always show category sections, even if empty
@@ -243,6 +255,27 @@ class ObjectListManager {
             }
         }
 
+        // Check if this is a TransformNode that's a tree parent
+        // This should be checked early, before name-based checks
+        if (mesh instanceof BABYLON.TransformNode) {
+            const nodeName = mesh.name.toLowerCase();
+            // Check for new naming convention: tree1, tree2, tree3, ...
+            if (/^tree\d+$/.test(nodeName)) {
+                return 'tree';
+            }
+            // Check for old naming conventions: tree_1, _tree_1, etc.
+            if (nodeName.includes('tree_') || nodeName.includes('_tree_')) {
+                return 'tree';
+            }
+            // Also check TreeManager to see if this TransformNode is a tree parent
+            if (this.treeManager && this.treeManager.trees) {
+                const treeData = this.treeManager.trees.find(t => t.parent === mesh);
+                if (treeData) {
+                    return 'tree';
+                }
+            }
+        }
+
         // Check mesh name for category hints
         const name = mesh.name.toLowerCase();
         
@@ -259,13 +292,20 @@ class ObjectListManager {
             return 'building';
         }
         
-        // Check for trees - this should come before green to prioritize tree category
+        // Check for trees - this should come before grass to prioritize tree category
+        // Check for new naming convention: tree1, tree2, tree3, ... (starts with "tree" followed by digits)
+        if (/^tree\d+$/.test(name)) {
+            return 'tree';
+        }
+        // Check for old naming conventions: tree_1, _tree_1, etc.
         if (name.includes('tree_') || name.includes('_tree_')) {
             return 'tree';
         }
         
-        if (name.includes('tree') || name.includes('plant') || name.includes('vegetation')) {
-            return 'green';
+        // Only check for "tree" in name if it's not already identified as a tree
+        // This prevents trees from being categorized as grass
+        if (name.includes('plant') || name.includes('vegetation')) {
+            return 'grass';
         }
         
         if (name.includes('road') || name.includes('street') || name.includes('highway') || name.includes('path')) {
@@ -431,7 +471,7 @@ class ObjectListManager {
                 return '🛣️';
             case 'waterway':
                 return '💧';
-            case 'green':
+            case 'grass':
                 return '🌿';
             case 'tree':
                 return '🌳';
@@ -457,7 +497,7 @@ class ObjectListManager {
                 return 'Road';
             case 'waterway':
                 return 'Water';
-            case 'green':
+            case 'grass':
                 return 'Vegetation';
             case 'tree':
                 return 'Tree';

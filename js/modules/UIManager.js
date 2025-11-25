@@ -2,7 +2,9 @@
  * UIManager - Manages user interface interactions
  */
 class UIManager {
-    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager, treeManager, polygonManager, rectangleManager, circleManager) {
+    constructor(sceneManager, buildingGenerator, lightingManager, cameraController, gridManager, selectionManager, moveManager, rotateManager, scaleManager, shape2DManager, treeManager, polygonManager, rectangleManager, circleManager, postProcessingManager) {
+        // ToolManager will be set after initialization
+        this.toolManager = null;
         this.sceneManager = sceneManager;
         this.buildingGenerator = buildingGenerator;
         this.lightingManager = lightingManager;
@@ -18,15 +20,38 @@ class UIManager {
         this.rectangleManager = rectangleManager;
         this.circleManager = circleManager;
         this.objectListManager = null;
+        this.postProcessingManager = postProcessingManager;
         
         this.isInitialized = false;
         this.statsInterval = null;
         this.isGlobalMode = false; // Default to local mode
         this.preferencesListenersSetup = false; // Track if preferences listeners are setup
+        this.postProcessingListenersSetup = false; // Track if post processing listeners are setup
         this.cameraControlsDisabled = false; // Initialize camera control state
         
-        // STL Import settings
-        this.smoothingAngleThreshold = 100; // Default: 100 degrees
+        // STLManager reference (set by app.js after initialization)
+        this.stlManager = null;
+        
+        // SceneOperationsManager reference (set by app.js after initialization)
+        this.sceneOperationsManager = null;
+        
+        // PropertiesPopupManager reference (set by app.js after initialization)
+        this.propertiesPopupManager = null;
+        
+        // SurfaceTypesManager reference (set by app.js after initialization)
+        this.surfaceTypesManager = null;
+        
+        // ToolManager reference (set by app.js after initialization)
+        this.toolManager = null;
+        
+        // TransformInputManager reference (set by app.js after initialization)
+        this.transformInputManager = null;
+        
+        // Current shape/polygon/tree/STL mesh references (used by properties popups)
+        this.currentShape = null;
+        this.currentTree = null;
+        this.currentPolygon = null;
+        this.currentSTLMesh = null;
         
         this.init();
     }
@@ -43,7 +68,42 @@ class UIManager {
         this.initializeObjectListManager();
         this.setupObjectListVisibilityListener();
         this.setupHierarchyButton();
+        // Apply 2-sided materials to all existing meshes
+        this.apply2SidedMaterialsToAll();
         this.isInitialized = true;
+    }
+
+    /**
+     * Apply 2-sided materials to all meshes in the scene
+     */
+    apply2SidedMaterialsToAll() {
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            return;
+        }
+
+        // Apply to all meshes
+        scene.meshes.forEach(mesh => {
+            if (mesh.material && mesh.material instanceof BABYLON.StandardMaterial) {
+                mesh.material.backFaceCulling = false; // 2-sided
+                mesh.material.twoSidedLighting = true; // Enable lighting on both sides
+            }
+        });
+
+        // Also apply to TransformNodes (for trees)
+        scene.transformNodes.forEach(node => {
+            if (node.getChildMeshes) {
+                const childMeshes = node.getChildMeshes();
+                childMeshes.forEach(childMesh => {
+                    if (childMesh.material && childMesh.material instanceof BABYLON.StandardMaterial) {
+                        childMesh.material.backFaceCulling = false; // 2-sided
+                        childMesh.material.twoSidedLighting = true; // Enable lighting on both sides
+                    }
+                });
+            }
+        });
+
+        console.log('Applied 2-sided materials to all meshes in the scene');
     }
 
     /**
@@ -66,41 +126,13 @@ class UIManager {
             }
         }, true); // Capture phase to catch early
 
-        // Tool selection shortcuts: Q=Select, W=Move, E=Rotate, R=Scale
-        document.addEventListener('keydown', (event) => {
-            // Only handle if not typing in an input field
-            const activeElement = document.activeElement;
-            if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
-                return; // Don't activate tools when typing
-            }
-
-            // Check for modifier keys - only activate if no modifiers are pressed
-            if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) {
-                return; // Don't interfere with other shortcuts
-            }
-
-            let toolName = null;
-            if (event.code === 'KeyQ') {
-                toolName = 'select';
-            } else if (event.code === 'KeyW') {
-                toolName = 'move';
-            } else if (event.code === 'KeyE') {
-                toolName = 'rotate';
-            } else if (event.code === 'KeyR') {
-                toolName = 'scale';
-            }
-
-            if (toolName) {
-                event.preventDefault();
-                event.stopPropagation();
-                console.log(`Tool shortcut pressed: ${toolName}`);
-                this.selectTransformTool(toolName);
-            }
-        }, true); // Capture phase to catch early
+        // Tool selection shortcuts are now handled by ToolManager
+        // They will be set up when ToolManager is initialized
         
         this.setupMenuListeners();
-        this.setupTransformToolsListeners();
-        this.setupDrawingToolsListeners();
+        // Transform and drawing tools listeners are now handled by ToolManager
+        // Transform input fields are now handled by TransformInputManager
+        // They will be set up when ToolManager and TransformInputManager are initialized
         this.setupDrawingEventListeners();
 
         // Grid toggle
@@ -126,8 +158,8 @@ class UIManager {
         // Selection events
         this.setupSelectionEvents();
         
-        // Transform input fields
-        this.setupTransformInputFields();
+        // Transform input fields are now handled by TransformInputManager
+        // They will be set up when TransformInputManager is initialized
     }
 
     /**
@@ -175,28 +207,56 @@ class UIManager {
                 // Check if this is an imported STL mesh first
                 if (selectedObject.userData && selectedObject.userData.isImportedSTL) {
                     console.log('Showing STL properties popup');
-                    this.showSTLPropertiesPopup(selectedObject);
+                    if (this.propertiesPopupManager) {
+                        this.propertiesPopupManager.showSTLPropertiesPopup(selectedObject);
+                    } else {
+                        this.showSTLPropertiesPopup(selectedObject);
+                    }
                 } else if (this.isTree(selectedObject)) {
                     console.log('Showing tree properties popup');
-                    this.showTreePropertiesPopup(selectedObject);
+                    if (this.propertiesPopupManager) {
+                        this.propertiesPopupManager.showTreePropertiesPopup(selectedObject);
+                    } else {
+                        this.showTreePropertiesPopup(selectedObject);
+                    }
                 } else if (isCircle || isBuildingFromCircle) {
                     console.log('Showing circle properties popup');
-                    this.showCirclePropertiesPopup(selectedObject);
+                    if (this.propertiesPopupManager) {
+                        this.propertiesPopupManager.showCirclePropertiesPopup(selectedObject);
+                    } else {
+                        this.showCirclePropertiesPopup(selectedObject);
+                    }
                 } else if (shapeType === 'polygon') {
                     console.log('Showing polygon properties popup');
-                    this.showPolygonPropertiesPopup(selectedObject);
+                    if (this.propertiesPopupManager) {
+                        this.propertiesPopupManager.showPolygonPropertiesPopup(selectedObject);
+                    } else {
+                        this.showPolygonPropertiesPopup(selectedObject);
+                    }
                 } else if (this.is2DShape(selectedObject) || shapeType === 'rectangle' || shapeType === 'building') {
                     console.log('Showing regular properties popup');
-                    this.showPropertiesPopup(selectedObject);
+                    if (this.propertiesPopupManager) {
+                        this.propertiesPopupManager.showPropertiesPopup(selectedObject);
+                    } else {
+                        this.showPropertiesPopup(selectedObject);
+                    }
                 }
             } else if (count > 1) {
                 // Hide properties popup when multiple objects are selected
                 console.log(`Multiple objects selected (${count}), hiding properties popup`);
-                this.hidePropertiesPopup();
+                if (this.propertiesPopupManager) {
+                    this.propertiesPopupManager.hidePropertiesPopup();
+                } else {
+                    this.hidePropertiesPopup();
+                }
             }
         } else {
             this.hideSelectionInfo();
-            this.hidePropertiesPopup();
+            if (this.propertiesPopupManager) {
+                this.propertiesPopupManager.hidePropertiesPopup();
+            } else {
+                this.hidePropertiesPopup();
+            }
         }
         
         // Update transform input fields when selection changes
@@ -221,106 +281,38 @@ class UIManager {
      * Setup transform tools event listeners
      */
     setupTransformToolsListeners() {
-        const transformTools = document.querySelectorAll('#transformPanel .tool-item');
-        transformTools.forEach(tool => {
-            tool.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const toolName = tool.getAttribute('data-tool');
-                this.selectTransformTool(toolName);
-                
-                // Don't hide properties popup when switching between transform tools
-                // Properties popup will be managed by selection changes
-            });
-        });
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            // ToolManager handles this
+            return;
+        }
+        // Fallback if ToolManager not available (should not happen)
+        console.warn('ToolManager not available, transform tools listeners not set up');
     }
 
     /**
      * Select transform tool
      */
     selectTransformTool(toolName) {
-        // Skip coordinate toggle - it's not a transform tool
-        if (toolName === 'coordinate-toggle') {
-            this.handleTransformToolSelection(toolName);
-            return;
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.selectTransformTool(toolName);
         }
-
-        // If any drawing tool is active, stop all drawing operations
-        if (this.isDrawingModeActive()) {
-            console.log('Exiting drawing mode - stopping all drawing operations');
-            this.stopAllDrawingOperations();
-        }
-
-        // Deactivate tree placement when switching to transform tools
-        this.deactivateTreePlacement();
-        
-        // Re-enable camera controls when switching to transform tools
-        this.enableCameraControls();
-        
-        // Deactivate polygon drawing when switching to transform tools
-        this.stopPolygonDrawing();
-
-        // Remove active class from all transform tools (except coordinate toggle)
-        const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
-        allTransformTools.forEach(tool => tool.classList.remove('active'));
-
-        // Remove active class from all drawing tools and reset their styles
-        const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
-        allDrawingTools.forEach(tool => {
-            tool.classList.remove('active');
-            // Reset inline styles
-            tool.style.background = '';
-            tool.style.borderColor = '';
-            tool.style.boxShadow = '';
-            const icon = tool.querySelector('.tool-icon');
-            if (icon) {
-                icon.style.filter = '';
-            }
-        });
-
-        // Add active class to selected tool
-        const selectedTool = document.querySelector(`#transformPanel [data-tool="${toolName}"]`);
-        if (selectedTool) {
-            selectedTool.classList.add('active');
-        }
-
-        // Don't hide properties popup when switching between transform tools
-        // Properties popup will be managed by selection changes
-
-        // If switching to a transform tool (not select), ensure extrusions are selected
-        if (toolName !== 'select' && this.selectionManager) {
-            this.ensureExtrusionsSelected();
-        }
-
-        // Handle tool selection
-        this.handleTransformToolSelection(toolName);
-        
-        // Show/hide transform input fields based on tool selection
-        this.updateTransformInputFieldsVisibility();
-        
-        // Update values when tool changes (only for editing tools)
-        if (this.isTransformEditingToolActive()) {
-            this.updateTransformInputFieldsValues();
-        }
+        // Fallback if ToolManager not available (should not happen)
+        console.warn('ToolManager not available, cannot select transform tool');
     }
 
     /**
      * Setup drawing tools event listeners
      */
     setupDrawingToolsListeners() {
-        const drawingTools = document.querySelectorAll('#drawingPanel .tool-item');
-        drawingTools.forEach(tool => {
-            tool.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const toolName = tool.getAttribute('data-tool');
-                
-                // Skip tree tool - it has its own specific handler
-                if (toolName === 'tree') {
-                    return;
-                }
-                
-                this.selectDrawingTool(toolName);
-            });
-        });
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            // ToolManager handles this
+            return;
+        }
+        // Fallback if ToolManager not available (should not happen)
+        console.warn('ToolManager not available, drawing tools listeners not set up');
     }
 
     /**
@@ -432,56 +424,12 @@ class UIManager {
      * Select drawing tool
      */
     selectDrawingTool(toolName) {
-        // Clear any existing selection when switching to drawing tools
-        if (this.selectionManager) {
-            this.selectionManager.clearSelection();
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.selectDrawingTool(toolName);
         }
-
-        // Deactivate tree placement when switching to other drawing tools
-        if (toolName !== 'tree') {
-            this.deactivateTreePlacement();
-            // Re-enable camera controls when switching away from tree tool
-            this.enableCameraControls();
-        }
-        
-        // Deactivate polygon drawing when switching to other drawing tools
-        if (toolName !== 'polygon') {
-            this.stopPolygonDrawing();
-            this.hidePolygonDrawingInstructions();
-        }
-
-        // Remove active class from all drawing tools
-        const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
-        allDrawingTools.forEach(tool => tool.classList.remove('active'));
-
-        // Remove active class from all transform tools (except coordinate toggle) and reset their styles
-        const allTransformTools = document.querySelectorAll('#transformPanel .tool-item:not([data-tool="coordinate-toggle"])');
-        allTransformTools.forEach(tool => {
-            tool.classList.remove('active');
-            // Reset inline styles
-            tool.style.background = '';
-            tool.style.borderColor = '';
-            tool.style.boxShadow = '';
-            const icon = tool.querySelector('.tool-icon');
-            if (icon) {
-                icon.style.filter = '';
-            }
-        });
-
-        // Add active class to selected tool
-        const selectedTool = document.querySelector(`#drawingPanel [data-tool="${toolName}"]`);
-        if (selectedTool) {
-            selectedTool.classList.add('active');
-        }
-
-        // Automatically activate select tool when drawing tool is selected
-        this.activateSelectToolOnly();
-
-        // Handle tool selection
-        this.handleDrawingToolSelection(toolName);
-        
-        // Hide transform input fields when drawing tool is selected
-        this.updateTransformInputFieldsVisibility();
+        // Fallback if ToolManager not available (should not happen)
+        console.warn('ToolManager not available, cannot select drawing tool');
     }
 
     /**
@@ -529,22 +477,26 @@ class UIManager {
      * Handle drawing tool selection logic
      */
     handleDrawingToolSelection(toolName) {
-
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.handleDrawingToolSelection(toolName);
+        }
+        // Fallback if ToolManager not available
         switch (toolName) {
             case 'rectangle':
-                this.createRectangle();
+                if (this.createRectangle) this.createRectangle();
                 break;
             case 'circle':
-                this.createCircle();
+                if (this.createCircle) this.createCircle();
                 break;
             case 'polygon':
-                this.startPolygonDrawing();
+                if (this.startPolygonDrawing) this.startPolygonDrawing();
                 break;
             case 'tree':
                 // Tree tool is handled separately in tree event listeners
                 break;
             case 'clear-drawings':
-                this.clear2DShapes();
+                if (this.clear2DShapes) this.clear2DShapes();
                 break;
         }
     }
@@ -1017,22 +969,26 @@ class UIManager {
      * Handle transform tool selection logic
      */
     handleTransformToolSelection(toolName) {
-
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.handleTransformToolSelection(toolName);
+        }
+        // Fallback if ToolManager not available
         switch (toolName) {
             case 'select':
-                this.setTransformMode('select');
+                if (this.setTransformMode) this.setTransformMode('select');
                 break;
             case 'move':
-                this.setTransformMode('move');
+                if (this.setTransformMode) this.setTransformMode('move');
                 break;
             case 'rotate':
-                this.setTransformMode('rotate');
+                if (this.setTransformMode) this.setTransformMode('rotate');
                 break;
             case 'scale':
-                this.setTransformMode('scale');
+                if (this.setTransformMode) this.setTransformMode('scale');
                 break;
             case 'coordinate-toggle':
-                this.toggleCoordinateMode();
+                if (this.toggleCoordinateMode) this.toggleCoordinateMode();
                 break;
         }
     }
@@ -1201,16 +1157,16 @@ class UIManager {
     handleMenuAction(action) {
         switch (action) {
             case 'empty-scene':
-                this.createEmptyScene();
+                this.showSaveSceneDialog('empty');
                 break;
             case 'default-scene':
-                this.createDefaultScene();
+                this.showSaveSceneDialog('default');
                 break;
             case 'save-scene':
                 this.saveScene();
                 break;
             case 'load-scene':
-                this.loadScene();
+                this.loadProject();
                 break;
             case 'export-stl':
                 this.exportSTL();
@@ -1239,11 +1195,17 @@ class UIManager {
             case 'preferences':
                 this.openPreferences();
                 break;
+            case 'post-processing':
+                this.openPostProcessing();
+                break;
             case 'about':
                 this.showAbout();
                 break;
             case 'toggle-object-list':
                 this.toggleObjectList();
+                break;
+            case 'surface-types-manager':
+                this.openSurfaceTypesManager();
                 break;
             default:
         }
@@ -1253,18 +1215,2094 @@ class UIManager {
      * Menu action implementations
      */
     // Note: The following methods were removed as they only contained placeholder alerts:
-    // saveScene, loadScene, exportSTL, exportOBJ, undo, redo, selectAll, 
+    // loadScene, exportOBJ, undo, redo, selectAll, 
     // clearSelection, deleteSelected, openSceneSettings, openRenderSettings, openCameraSettings
+
+    /**
+     * Save current scene
+     * Note: Currently uses STL export as save mechanism
+     * In the future, this could save to a custom scene format
+     */
+    async saveScene() {
+        // Show save project dialog
+        this.showSaveProjectDialog();
+    }
+
+    /**
+     * Show save project dialog
+     */
+    showSaveProjectDialog() {
+        const dialog = document.getElementById('saveProjectDialog');
+        if (!dialog) {
+            console.error('Save project dialog not found');
+            return;
+        }
+
+        // Check if JSZip is available
+        if (typeof JSZip === 'undefined') {
+            alert('JSZip library is not loaded. Please refresh the page.');
+            return;
+        }
+
+        // Check if File System Access API is supported
+        if (!('showSaveFilePicker' in window)) {
+            alert('File System Access API is not supported in this browser. Please use a modern browser like Chrome or Edge.');
+            return;
+        }
+
+        // Reset dialog state
+        const filenameInput = document.getElementById('saveProjectFilename');
+        const locationDisplay = document.getElementById('saveProjectLocationDisplay');
+        const saveBtn = document.getElementById('saveProjectDialogSave');
+        const chooseLocationBtn = document.getElementById('saveProjectChooseLocation');
+        
+        if (filenameInput) {
+            filenameInput.value = 'project';
+        }
+        if (locationDisplay) {
+            locationDisplay.textContent = 'No location selected';
+        }
+        if (saveBtn) {
+            saveBtn.disabled = true;
+        }
+
+        // Store file handle
+        this.saveProjectFileHandle = null;
+
+        // Show dialog
+        dialog.style.display = 'flex';
+
+        // Setup event listeners
+        this.setupSaveProjectDialogListeners();
+    }
+
+    /**
+     * Setup save project dialog event listeners
+     */
+    setupSaveProjectDialogListeners() {
+        const dialog = document.getElementById('saveProjectDialog');
+        const closeBtn = document.getElementById('saveProjectDialogClose');
+        const cancelBtn = document.getElementById('saveProjectDialogCancel');
+        const saveBtn = document.getElementById('saveProjectDialogSave');
+        const chooseLocationBtn = document.getElementById('saveProjectChooseLocation');
+        const filenameInput = document.getElementById('saveProjectFilename');
+        const locationDisplay = document.getElementById('saveProjectLocationDisplay');
+
+        // Close dialog
+        const closeDialog = () => {
+            dialog.style.display = 'none';
+            this.saveProjectFileHandle = null;
+        };
+
+        if (closeBtn) {
+            closeBtn.onclick = closeDialog;
+        }
+        if (cancelBtn) {
+            cancelBtn.onclick = closeDialog;
+        }
+
+        // Choose location button
+        if (chooseLocationBtn) {
+            chooseLocationBtn.onclick = async () => {
+                try {
+                    const filenameInput = document.getElementById('saveProjectFilename');
+                    const filename = filenameInput ? filenameInput.value.trim() || 'project' : 'project';
+                    
+                    const fileHandle = await window.showSaveFilePicker({
+                        suggestedName: `${filename}.cdt`,
+                        types: [{
+                            description: 'CDT Files',
+                            accept: {
+                                'application/zip': ['.cdt'],
+                                'application/x-zip-compressed': ['.cdt']
+                            }
+                        }]
+                    });
+
+                    this.saveProjectFileHandle = fileHandle;
+                    
+                    if (locationDisplay) {
+                        // Get directory path if possible
+                        const fileName = fileHandle.name;
+                        locationDisplay.textContent = `File: ${fileName}`;
+                    }
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                    }
+                } catch (error) {
+                    if (error.name !== 'AbortError') {
+                        console.error('Error choosing save location:', error);
+                        alert('Error choosing save location: ' + error.message);
+                    }
+                }
+            };
+        }
+
+        // Update location when filename changes (reset location)
+        if (filenameInput) {
+            filenameInput.addEventListener('input', () => {
+                if (this.saveProjectFileHandle) {
+                    // Reset location when filename changes
+                    this.saveProjectFileHandle = null;
+                    if (locationDisplay) {
+                        locationDisplay.textContent = 'No location selected (please choose again)';
+                    }
+                    if (saveBtn) {
+                        saveBtn.disabled = true;
+                    }
+                }
+            });
+        }
+
+        // Save button
+        if (saveBtn) {
+            saveBtn.onclick = async () => {
+                if (!this.saveProjectFileHandle) {
+                    alert('Please choose a save location first.');
+                    return;
+                }
+
+                const filename = filenameInput ? filenameInput.value.trim() : 'project';
+                if (!filename) {
+                    alert('Please enter a project name.');
+                    return;
+                }
+
+                // Close dialog and show loading
+                dialog.style.display = 'none';
+                this.showSaveProjectLoading('Preparing to save...');
+
+                try {
+                    await this.performSaveProject(filename, this.saveProjectFileHandle);
+                    
+                    // Hide loading
+                    this.hideSaveProjectLoading();
+                    this.saveProjectFileHandle = null;
+                    
+                    alert(`Project saved successfully: ${filename}.cdt`);
+                } catch (error) {
+                    console.error('Error saving project:', error);
+                    this.hideSaveProjectLoading();
+                    alert('Error saving project: ' + error.message);
+                }
+            };
+        }
+    }
+
+    /**
+     * Perform the actual save operation
+     * @param {string} filename - Project filename (without extension)
+     * @param {FileSystemFileHandle} fileHandle - File handle for saving
+     */
+    async performSaveProject(filename, fileHandle) {
+        console.log('Saving scene...');
+        this.updateSaveProjectLoadingStatus('Creating project archive...');
+        
+        // Create a new JSZip instance
+        const zip = new JSZip();
+        
+        // Export STL and add to zip
+        if (this.stlManager && this.stlManager.generateSTLContentForZip) {
+            this.updateSaveProjectLoadingStatus('Generating STL geometry...');
+            const stlContent = await this.stlManager.generateSTLContentForZip('y-up');
+            if (stlContent) {
+                zip.file('geometry.stl', stlContent);
+                console.log('STL file added to zip: geometry.stl');
+            }
+        }
+        
+        // Save CSV files to zip
+        if (this.surfaceTypesManager) {
+            this.updateSaveProjectLoadingStatus('Generating CSV files...');
+            await this.saveCSVFilesToZip(zip);
+        }
+        
+        // Generate zip file
+        this.updateSaveProjectLoadingStatus('Compressing files...');
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        
+        // Save zip file with .cdt extension
+        this.updateSaveProjectLoadingStatus('Writing to disk...');
+        const writable = await fileHandle.createWritable();
+        await writable.write(zipBlob);
+        await writable.close();
+        
+        console.log(`Project saved successfully: ${filename}.cdt`);
+    }
+
+    /**
+     * Show save project loading overlay
+     * @param {string} status - Loading status message
+     */
+    showSaveProjectLoading(status = 'Saving project...') {
+        const loadingOverlay = document.getElementById('saveProjectLoadingOverlay');
+        const statusElement = document.getElementById('saveProjectLoadingStatus');
+        
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
+        
+        if (statusElement) {
+            statusElement.textContent = status;
+        }
+    }
+
+    /**
+     * Update save project loading status
+     * @param {string} status - New status message
+     */
+    updateSaveProjectLoadingStatus(status) {
+        const statusElement = document.getElementById('saveProjectLoadingStatus');
+        if (statusElement) {
+            statusElement.textContent = status;
+        }
+    }
+
+    /**
+     * Hide save project loading overlay
+     */
+    hideSaveProjectLoading() {
+        const loadingOverlay = document.getElementById('saveProjectLoadingOverlay');
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
+    }
+
+    /**
+     * Show load project loading overlay
+     * @param {string} status - Loading status message
+     */
+    showLoadProjectLoading(status = 'Loading project...') {
+        const loadingOverlay = document.getElementById('loadProjectLoadingOverlay');
+        const statusElement = document.getElementById('loadProjectLoadingStatus');
+        
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'flex';
+        }
+        
+        if (statusElement) {
+            statusElement.textContent = status;
+        }
+    }
+
+    /**
+     * Update load project loading status
+     * @param {string} status - New status message
+     */
+    updateLoadProjectLoadingStatus(status) {
+        const statusElement = document.getElementById('loadProjectLoadingStatus');
+        if (statusElement) {
+            statusElement.textContent = status;
+        }
+    }
+
+    /**
+     * Hide load project loading overlay
+     */
+    hideLoadProjectLoading() {
+        const loadingOverlay = document.getElementById('loadProjectLoadingOverlay');
+        if (loadingOverlay) {
+            loadingOverlay.style.display = 'none';
+        }
+    }
+    
+    
+    /**
+     * Save CSV files to zip
+     * @param {JSZip} zip - JSZip instance
+     */
+    async saveCSVFilesToZip(zip) {
+        if (!this.surfaceTypesManager) {
+            throw new Error('SurfaceTypesManager not available');
+        }
+        
+        // CSV files to save based on Samples folder structure
+        const csvFiles = [
+            { category: 'roadTypes', filename: 'roadTypes.csv' },
+            { category: 'soilTypes', filename: 'soilTypes.csv' },
+            { category: 'waterTypes', filename: 'waterTypes.csv' }
+        ];
+        
+        this.updateSaveProjectLoadingStatus('Saving surface types (road, soil, water)...');
+        for (const file of csvFiles) {
+            try {
+                const csvContent = this.surfaceTypesManager.exportToCSV(file.category);
+                if (csvContent) {
+                    zip.file(file.filename, csvContent);
+                    console.log(`CSV file added to zip: ${file.filename}`);
+        } else {
+                    console.warn(`No data to export for ${file.category}`);
+                }
+            } catch (error) {
+                console.error(`Error adding ${file.filename} to zip:`, error);
+            }
+        }
+        
+        // Save building_archetype_envelope_property.csv
+        this.updateSaveProjectLoadingStatus('Saving building archetype envelope properties...');
+        try {
+            const envelopePropertyContent = this.generateBuildingArchetypeEnvelopePropertyCSV();
+            if (envelopePropertyContent) {
+                zip.file('building_archetype_envelope_property.csv', envelopePropertyContent);
+                console.log('CSV file added to zip: building_archetype_envelope_property.csv');
+            }
+        } catch (error) {
+            console.error('Error adding building_archetype_envelope_property.csv to zip:', error);
+        }
+        
+        // Save solidWaterSubcategories.csv
+        this.updateSaveProjectLoadingStatus('Saving waterway objects...');
+        try {
+            const solidWaterContent = this.generateSolidWaterSubcategoriesCSV();
+            if (solidWaterContent) {
+                zip.file('solidWaterSubcategories.csv', solidWaterContent);
+                console.log('CSV file added to zip: solidWaterSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error adding solidWaterSubcategories.csv to zip:', error);
+        }
+        
+        // Save solidVegetationSoilSubcategories.csv
+        this.updateSaveProjectLoadingStatus('Saving vegetation and ground objects...');
+        try {
+            const solidVegetationContent = this.generateSolidVegetationSoilSubcategoriesCSV();
+            if (solidVegetationContent) {
+                zip.file('solidVegetationSoilSubcategories.csv', solidVegetationContent);
+                console.log('CSV file added to zip: solidVegetationSoilSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error adding solidVegetationSoilSubcategories.csv to zip:', error);
+        }
+        
+        // Save solidRoadSubcategories.csv
+        this.updateSaveProjectLoadingStatus('Saving road objects...');
+        try {
+            const solidRoadContent = this.generateSolidRoadSubcategoriesCSV();
+            if (solidRoadContent) {
+                zip.file('solidRoadSubcategories.csv', solidRoadContent);
+                console.log('CSV file added to zip: solidRoadSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error adding solidRoadSubcategories.csv to zip:', error);
+        }
+        
+        // Save vegetationTypes.csv
+        this.updateSaveProjectLoadingStatus('Saving vegetation types...');
+        try {
+            const vegetationTypesContent = this.generateVegetationTypesCSV();
+            if (vegetationTypesContent) {
+                zip.file('vegetationTypes.csv', vegetationTypesContent);
+                console.log('CSV file added to zip: vegetationTypes.csv');
+            }
+        } catch (error) {
+            console.error('Error adding vegetationTypes.csv to zip:', error);
+        }
+        
+        // Save solidBuildingSubcategories.csv
+        this.updateSaveProjectLoadingStatus('Saving building objects...');
+        try {
+            const solidBuildingContent = this.generateSolidBuildingSubcategoriesCSV();
+            if (solidBuildingContent) {
+                zip.file('solidBuildingSubcategories.csv', solidBuildingContent);
+                console.log('CSV file added to zip: solidBuildingSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error adding solidBuildingSubcategories.csv to zip:', error);
+        }
+    }
+    
+    /**
+     * Save CSV files to directory (kept for backward compatibility)
+     * @param {FileSystemDirectoryHandle} directoryHandle - Directory handle
+     */
+    async saveCSVFilesToDirectory(directoryHandle) {
+        if (!this.surfaceTypesManager) {
+            throw new Error('SurfaceTypesManager not available');
+        }
+        
+        // CSV files to save based on Samples folder structure
+        const csvFiles = [
+            { category: 'roadTypes', filename: 'roadTypes.csv' },
+            { category: 'soilTypes', filename: 'soilTypes.csv' },
+            { category: 'waterTypes', filename: 'waterTypes.csv' }
+        ];
+        
+        for (const file of csvFiles) {
+            try {
+                const csvContent = this.surfaceTypesManager.exportToCSV(file.category);
+                if (csvContent) {
+                    const fileHandle = await directoryHandle.getFileHandle(file.filename, { create: true });
+                    const writable = await fileHandle.createWritable();
+                    await writable.write(csvContent);
+                    await writable.close();
+                    console.log(`CSV file saved: ${file.filename}`);
+                } else {
+                    console.warn(`No data to export for ${file.category}`);
+                }
+            } catch (error) {
+                console.error(`Error saving ${file.filename}:`, error);
+            }
+        }
+        
+        // Save building_archetype_envelope_property.csv
+        try {
+            const envelopePropertyContent = this.generateBuildingArchetypeEnvelopePropertyCSV();
+            if (envelopePropertyContent) {
+                const fileHandle = await directoryHandle.getFileHandle('building_archetype_envelope_property.csv', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(envelopePropertyContent);
+                await writable.close();
+                console.log('CSV file saved: building_archetype_envelope_property.csv');
+            }
+        } catch (error) {
+            console.error('Error saving building_archetype_envelope_property.csv:', error);
+        }
+        
+        // Save solidWaterSubcategories.csv
+        try {
+            const solidWaterContent = this.generateSolidWaterSubcategoriesCSV();
+            if (solidWaterContent) {
+                const fileHandle = await directoryHandle.getFileHandle('solidWaterSubcategories.csv', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(solidWaterContent);
+                await writable.close();
+                console.log('CSV file saved: solidWaterSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error saving solidWaterSubcategories.csv:', error);
+        }
+        
+        // Save solidVegetationSoilSubcategories.csv
+        try {
+            const solidVegetationContent = this.generateSolidVegetationSoilSubcategoriesCSV();
+            if (solidVegetationContent) {
+                const fileHandle = await directoryHandle.getFileHandle('solidVegetationSoilSubcategories.csv', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(solidVegetationContent);
+                await writable.close();
+                console.log('CSV file saved: solidVegetationSoilSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error saving solidVegetationSoilSubcategories.csv:', error);
+        }
+        
+        // Save solidRoadSubcategories.csv
+        try {
+            const solidRoadContent = this.generateSolidRoadSubcategoriesCSV();
+            if (solidRoadContent) {
+                const fileHandle = await directoryHandle.getFileHandle('solidRoadSubcategories.csv', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(solidRoadContent);
+                await writable.close();
+                console.log('CSV file saved: solidRoadSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error saving solidRoadSubcategories.csv:', error);
+        }
+        
+        // Save vegetationTypes.csv
+        try {
+            const vegetationTypesContent = this.generateVegetationTypesCSV();
+            if (vegetationTypesContent) {
+                const fileHandle = await directoryHandle.getFileHandle('vegetationTypes.csv', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(vegetationTypesContent);
+                await writable.close();
+                console.log('CSV file saved: vegetationTypes.csv');
+            }
+        } catch (error) {
+            console.error('Error saving vegetationTypes.csv:', error);
+        }
+        
+        // Save solidBuildingSubcategories.csv
+        try {
+            const solidBuildingContent = this.generateSolidBuildingSubcategoriesCSV();
+            if (solidBuildingContent) {
+                const fileHandle = await directoryHandle.getFileHandle('solidBuildingSubcategories.csv', { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(solidBuildingContent);
+                await writable.close();
+                console.log('CSV file saved: solidBuildingSubcategories.csv');
+            }
+        } catch (error) {
+            console.error('Error saving solidBuildingSubcategories.csv:', error);
+        }
+    }
+    
+    /**
+     * Generate solidRoadSubcategories.csv content from highway objects in scene
+     * @returns {string} CSV content
+     */
+    generateSolidRoadSubcategoriesCSV() {
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            return '';
+        }
+        
+        const lines = [];
+        
+        // Header row
+        lines.push('solidName,roadType');
+        
+        // Get all highway objects
+        const highwayObjects = [];
+        scene.meshes.forEach(mesh => {
+            if (mesh.userData) {
+                const isHighway = mesh.userData.type === 'highway' || 
+                                  mesh.userData.shapeType === 'highway' ||
+                                  (mesh.name && mesh.name.toLowerCase().startsWith('highway'));
+                if (isHighway) {
+                    highwayObjects.push(mesh);
+                }
+            }
+        });
+        
+        // Sort by name to ensure consistent order
+        highwayObjects.sort((a, b) => {
+            const nameA = a.name || '';
+            const nameB = b.name || '';
+            return nameA.localeCompare(nameB);
+        });
+        
+        // Add rows for each highway object
+        highwayObjects.forEach(mesh => {
+            const name = mesh.name || '';
+            // Get roadType from userData, or use default if not set
+            let roadType = mesh.userData?.highwayRoadType || '';
+            
+            // If still empty, use default value
+            if (!roadType) {
+                roadType = 'default';
+            }
+            
+            lines.push(`${name},${roadType}`);
+        });
+        
+        return lines.join('\n');
+    }
+    
+    /**
+     * Generate vegetationTypes.csv content from Ground Types, Grass Types, and Tree Types
+     * @returns {string} CSV content
+     */
+    generateVegetationTypesCSV() {
+        if (!this.surfaceTypesManager) {
+            return '';
+        }
+        
+        const lines = [];
+        
+        // Get data from SurfaceTypesManager
+        const groundTypes = this.surfaceTypesManager.getSurfaceTypes('groundTypes') || [];
+        const grassTypes = this.surfaceTypesManager.getSurfaceTypes('grassTypes') || [];
+        const treeTypes = this.surfaceTypesManager.getSurfaceTypes('treeTypes') || [];
+        
+        // Combine all types with their source information
+        const allVegetationTypes = [];
+        
+        // Add ground types with solidType = 'ground'
+        groundTypes.forEach(type => {
+            allVegetationTypes.push({
+                ...type,
+                _source: 'ground'
+            });
+        });
+        
+        // Add grass types with solidType = 'grass'
+        grassTypes.forEach(type => {
+            allVegetationTypes.push({
+                ...type,
+                _source: 'grass'
+            });
+        });
+        
+        // Add tree types with solidType = 'tree'
+        treeTypes.forEach(type => {
+            allVegetationTypes.push({
+                ...type,
+                _source: 'tree'
+            });
+        });
+        
+        if (allVegetationTypes.length === 0) {
+            return '';
+        }
+        
+        // Define the expected header order based on sample file
+        const expectedHeaders = [
+            'vegetationType',
+            'solidType',
+            'root_fraction_layer_1',
+            'root_fraction_layer_2',
+            'root_fraction_layer_3',
+            'root_fraction_layer_4',
+            'minCanopyRes',
+            'leafAreaIndex',
+            'tallVegCorrFac',
+            'momentumRoughLength',
+            'heatRoughLength',
+            'thermalCondStable',
+            'thermalCondUnstable',
+            'albedo',
+            'emissivity',
+            'density',
+            'heatCapacity'
+        ];
+        
+        // Use expected headers
+        const headers = expectedHeaders;
+        lines.push(headers.join(','));
+        
+        // Add data rows
+        allVegetationTypes.forEach(type => {
+            const row = headers.map(header => {
+                // Special handling for solidType column
+                if (header === 'solidType') {
+                    return type._source || '';
+                }
+                
+                // Get value from type object
+                let value = type[header];
+                
+                // If value is undefined/null, try alternative key names
+                if (value === undefined || value === null) {
+                    // Try with different casing
+                    const lowerHeader = header.toLowerCase();
+                    
+                    // Try to find value in type object
+                    for (const key in type) {
+                        if (key.toLowerCase() === lowerHeader || key === header) {
+                            value = type[key];
+                            break;
+                        }
+                    }
+                }
+                
+                // Handle numbers in scientific notation (e.g., 3.00E-04)
+                if (typeof value === 'number') {
+                    // For very small numbers, use scientific notation
+                    if (Math.abs(value) < 0.001 && value !== 0) {
+                        return value.toExponential(2);
+                    }
+                    return value.toString();
+                }
+                
+                // Return empty string if still undefined/null
+                return value !== undefined && value !== null ? value.toString() : '';
+            });
+            lines.push(row.join(','));
+        });
+        
+        return lines.join('\n');
+    }
+    
+    /**
+     * Generate solidBuildingSubcategories.csv content from building objects in scene
+     * @returns {string} CSV content
+     */
+    generateSolidBuildingSubcategoriesCSV() {
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            return '';
+        }
+        
+        // Ensure building archetypes and groups are loaded
+        if (!this.buildingArchetypes || this.buildingArchetypes.length === 0) {
+            this.loadBuildingArchetypesData();
+        }
+        if (!this.buildingGroups || this.buildingGroups.length === 0) {
+            this.loadBuildingGroupsData();
+        }
+        
+        const lines = [];
+        
+        // Header row
+        lines.push('buildingName,constructionYear,envelopePropertyType,usageType_groupName');
+        
+        // Get all building objects (both meshes and TransformNodes)
+        const buildingObjects = [];
+        
+        // Check meshes
+        scene.meshes.forEach(mesh => {
+            // Skip wireframe, edge, helper, and gizmo meshes (these are UI elements, not actual buildings)
+            if (mesh.name && (
+                mesh.name.includes('_wireframe') || 
+                mesh.name.includes('_edge') ||
+                mesh.name.includes('_helper') ||
+                mesh.name.includes('_gizmo') ||
+                mesh.name.includes('wireframe') ||
+                mesh.name.includes('edge') ||
+                mesh.name.endsWith('_wireframe') ||
+                mesh.name.endsWith('_edge')
+            )) {
+                return; // Skip this mesh
+            }
+            
+            // Check by userData first
+            if (mesh.userData) {
+                const isBuilding = mesh.userData.type === 'building' || 
+                                   mesh.userData.shapeType === 'building';
+                if (isBuilding) {
+                    buildingObjects.push(mesh);
+                }
+            }
+            // Also check by name (buildings usually have names starting with "building")
+            else if (mesh.name && mesh.name.toLowerCase().startsWith('building')) {
+                buildingObjects.push(mesh);
+            }
+        });
+        
+        // Check TransformNodes (buildings can be TransformNodes)
+        if (scene.transformNodes) {
+            scene.transformNodes.forEach(transformNode => {
+                // Check by userData first
+                if (transformNode.userData) {
+                    const isBuilding = transformNode.userData.type === 'building' || 
+                                       transformNode.userData.shapeType === 'building';
+                    if (isBuilding) {
+                        buildingObjects.push(transformNode);
+                    }
+                }
+                // Also check by name
+                else if (transformNode.name && transformNode.name.toLowerCase().startsWith('building')) {
+                    buildingObjects.push(transformNode);
+                }
+            });
+        }
+        
+        // Sort by name to ensure consistent order
+        buildingObjects.sort((a, b) => {
+            const nameA = a.name || '';
+            const nameB = b.name || '';
+            return nameA.localeCompare(nameB);
+        });
+        
+        // Add rows for each building object
+        buildingObjects.forEach(buildingObj => {
+            const name = buildingObj.name || '';
+            
+            // Get userData - ALWAYS start with buildingObj.userData (this is the source of truth)
+            // Deep copy to avoid reference issues
+            let userData = {};
+            if (buildingObj.userData && Object.keys(buildingObj.userData).length > 0) {
+                // Deep copy userData to avoid reference sharing issues
+                userData = JSON.parse(JSON.stringify(buildingObj.userData));
+            }
+            
+            // If buildingObj is a Mesh, use its userData directly (this is the primary source)
+            if (buildingObj instanceof BABYLON.Mesh) {
+                if (buildingObj.userData && Object.keys(buildingObj.userData).length > 0) {
+                    // Deep copy to avoid reference issues
+                    userData = JSON.parse(JSON.stringify(buildingObj.userData));
+                }
+            }
+            
+            // Only if buildingObj is a TransformNode AND has no userData, check child meshes
+            // But only check child meshes that belong to THIS building (by name matching)
+            if (buildingObj instanceof BABYLON.TransformNode && 
+                (!userData || Object.keys(userData).length === 0) && 
+                buildingObj.getChildMeshes) {
+                const childMeshes = buildingObj.getChildMeshes();
+                if (childMeshes && childMeshes.length > 0) {
+                    // Only check child meshes that match this building's name pattern
+                    for (const childMesh of childMeshes) {
+                        // Make sure child mesh belongs to this building (name should match or be related)
+                        const childName = childMesh.name || '';
+                        const buildingName = name.toLowerCase();
+                        if (childName.toLowerCase().includes(buildingName) || 
+                            buildingName.includes(childName.toLowerCase().replace('_edge', '').replace('_wireframe', ''))) {
+                            if (childMesh.userData && Object.keys(childMesh.userData).length > 0) {
+                                // Deep copy to avoid reference issues
+                                const childUserData = JSON.parse(JSON.stringify(childMesh.userData));
+                                // Merge child mesh userData (child data takes precedence)
+                                userData = { ...userData, ...childUserData };
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Final fallback: if still no userData, use empty object
+            if (!userData || Object.keys(userData).length === 0) {
+                userData = {};
+            }
+            
+            // Get Year of Construction from userData
+            const yearOfConstruction = userData.yearOfConstruction || '';
+            
+            // Get envelope properties type (try different possible keys)
+            let envelopeType = userData.buildingEnvelopeProperties || 
+                              userData.buildingEnvelopePropertyType || 
+                              '';
+            
+            // If no envelope properties set, use default: 'archytypes'
+            // This ensures all buildings have envelope properties data
+            if (!envelopeType || envelopeType === '') {
+                envelopeType = 'archytypes'; // Default value
+            }
+            
+            let usageTypeGroupName = '';
+            let envelopePropertyType = '';
+            
+            if (envelopeType === 'archetype' || envelopeType === 'archytypes') {
+                envelopePropertyType = 'archetype';
+                // Get archetype index (try different possible keys)
+                let archetypeIndex = userData.buildingArchytype || 
+                                    userData.buildingArchetype ||
+                                    userData.buildingArchytypeIndex;
+                
+                // If no archetype index set, use default: first archetype (index 0)
+                if (archetypeIndex === undefined || archetypeIndex === null || archetypeIndex === '') {
+                    archetypeIndex = 0; // Default to first archetype
+                }
+                
+                // Ensure buildingArchetypes is loaded
+                if (!this.buildingArchetypes || this.buildingArchetypes.length === 0) {
+                    this.loadBuildingArchetypesData();
+                }
+                
+                if (this.buildingArchetypes && this.buildingArchetypes.length > 0) {
+                    const archetype = this.buildingArchetypes[parseInt(archetypeIndex)];
+                    if (archetype) {
+                        usageTypeGroupName = archetype.usage_group_building_name || '';
+                    } else if (this.buildingArchetypes.length > 0) {
+                        // Fallback to first archetype if index is out of range
+                        usageTypeGroupName = this.buildingArchetypes[0].usage_group_building_name || '';
+                    }
+                }
+            } else if (envelopeType === 'group' || envelopeType === 'groups') {
+                envelopePropertyType = 'buildings_group';
+                // Get group index (try different possible keys)
+                let groupIndex = userData.buildingGroup || 
+                               userData.buildingGroupIndex;
+                
+                // If no group index set, use default: first group (index 0)
+                if (groupIndex === undefined || groupIndex === null || groupIndex === '') {
+                    groupIndex = 0; // Default to first group
+                }
+                
+                // Ensure buildingGroups is loaded
+                if (!this.buildingGroups || this.buildingGroups.length === 0) {
+                    this.loadBuildingGroupsData();
+                }
+                
+                if (this.buildingGroups && this.buildingGroups.length > 0) {
+                    const group = this.buildingGroups[parseInt(groupIndex)];
+                    if (group) {
+                        usageTypeGroupName = group.group_name || group.usage_group_building_name || '';
+                    } else if (this.buildingGroups.length > 0) {
+                        // Fallback to first group if index is out of range
+                        usageTypeGroupName = this.buildingGroups[0].group_name || this.buildingGroups[0].usage_group_building_name || '';
+                    }
+                }
+            } else if (envelopeType === 'customSpec' || envelopeType === 'customSpec') {
+                envelopePropertyType = 'specific_building';
+                // usageTypeGroupName should be empty (just a comma)
+                usageTypeGroupName = '';
+            } else {
+                // No envelope properties set (should not happen due to default above, but just in case)
+                envelopePropertyType = '';
+                usageTypeGroupName = '';
+            }
+            
+            // Format the row: name, yearOfConstruction (empty if not set), envelopePropertyType, usageTypeGroupName
+            // If yearOfConstruction is empty, just put a comma
+            const constructionYear = yearOfConstruction !== '' ? yearOfConstruction : '';
+            lines.push(`${name},${constructionYear},${envelopePropertyType},${usageTypeGroupName}`);
+        });
+        
+        return lines.join('\n');
+    }
+    
+    /**
+     * Generate building_archetype_envelope_property.csv content
+     * @returns {string} CSV content
+     */
+    generateBuildingArchetypeEnvelopePropertyCSV() {
+        const lines = [];
+        
+        // Part 1: Building Archetypes
+        if (this.buildingArchetypes && this.buildingArchetypes.length > 0) {
+            this.buildingArchetypes.forEach((archetype, archetypeIndex) => {
+                // Row 1: envelope_property_type
+                const row1 = ['envelope_property_type', 'archetype'];
+                lines.push(this.formatCSVRow(row1));
+                
+                // Row 2: usage_group_building_name
+                const row2 = ['usage_group_building_name', archetype.usage_group_building_name || ''];
+                lines.push(this.formatCSVRow(row2));
+                
+                // Row 3: number_of_wall_layers
+                const row3 = ['number_of_wall_layers', archetype.number_of_wall_layers || 1];
+                lines.push(this.formatCSVRow(row3));
+                
+                // Row 4: number_of_roof_layers
+                const row4 = ['number_of_roof_layers', archetype.number_of_roof_layers || 1];
+                lines.push(this.formatCSVRow(row4));
+                
+                // Row 5: number_of_floor_layers
+                const row5 = ['number_of_floor_layers', archetype.number_of_floor_layers || 1];
+                lines.push(this.formatCSVRow(row5));
+                
+                // Row 6: Header row
+                const wallLayers = archetype.number_of_wall_layers || 1;
+                const roofLayers = archetype.number_of_roof_layers || 1;
+                const floorLayers = archetype.number_of_floor_layers || 1;
+                const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+                lines.push(this.formatCSVRow(headers));
+                
+                // Rows 7+: Period data rows
+                archetype.periods.forEach(period => {
+                    const periodRow = headers.map(header => {
+                        const value = period[header];
+                        return value !== null && value !== undefined ? value.toString() : '';
+                    });
+                    lines.push(this.formatCSVRow(periodRow));
+                });
+                
+                // Add empty row between archetypes (except for the last one)
+                if (archetypeIndex < this.buildingArchetypes.length - 1) {
+                    lines.push(this.formatCSVRow(['']));
+                }
+            });
+        }
+        
+        // Add empty row between parts
+        if (this.buildingArchetypes && this.buildingArchetypes.length > 0) {
+            lines.push(this.formatCSVRow(['']));
+        }
+        
+        // Part 2: Building Groups
+        if (this.buildingGroups && this.buildingGroups.length > 0) {
+            this.buildingGroups.forEach((group, groupIndex) => {
+                // Row 1: envelope_property_type
+                const row1 = ['envelope_property_type', 'buildings_group'];
+                lines.push(this.formatCSVRow(row1));
+                
+                // Row 2: usage_group_building_name
+                const row2 = ['usage_group_building_name', group.group_name || ''];
+                lines.push(this.formatCSVRow(row2));
+                
+                // Row 3: number_of_wall_layers
+                const row3 = ['number_of_wall_layers', group.number_of_wall_layers || 1];
+                lines.push(this.formatCSVRow(row3));
+                
+                // Row 4: number_of_roof_layers
+                const row4 = ['number_of_roof_layers', group.number_of_roof_layers || 1];
+                lines.push(this.formatCSVRow(row4));
+                
+                // Row 5: number_of_floor_layers
+                const row5 = ['number_of_floor_layers', group.number_of_floor_layers || 1];
+                lines.push(this.formatCSVRow(row5));
+                
+                // Row 6: Header row
+                const wallLayers = group.number_of_wall_layers || 1;
+                const roofLayers = group.number_of_roof_layers || 1;
+                const floorLayers = group.number_of_floor_layers || 1;
+                const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+                lines.push(this.formatCSVRow(headers));
+                
+                // Rows 7+: Period data rows
+                group.periods.forEach(period => {
+                    const periodRow = headers.map(header => {
+                        const value = period[header];
+                        return value !== null && value !== undefined ? value.toString() : '';
+                    });
+                    lines.push(this.formatCSVRow(periodRow));
+                });
+                
+                // Add empty row between groups (except for the last one)
+                if (groupIndex < this.buildingGroups.length - 1) {
+                    lines.push(this.formatCSVRow(['']));
+                }
+            });
+        }
+        
+        // Add empty row between parts
+        if (this.buildingGroups && this.buildingGroups.length > 0) {
+            lines.push(this.formatCSVRow(['']));
+        }
+        
+        // Part 3: Specific Buildings (Custom Spec)
+        const specificBuildings = this.getCustomSpecBuildings();
+        if (specificBuildings.length > 0) {
+            specificBuildings.forEach((building, buildingIndex) => {
+                const customSpec = building.userData.buildingCustomSpec || {};
+                
+                // Row 1: envelope_property_type
+                const row1 = ['envelope_property_type', 'specific_building'];
+                lines.push(this.formatCSVRow(row1));
+                
+                // Row 2: usage_group_building_name (building name)
+                const buildingName = building.name || building.userData.name || `building${buildingIndex + 1}`;
+                const row2 = ['usage_group_building_name', buildingName];
+                lines.push(this.formatCSVRow(row2));
+                
+                // Row 3: number_of_wall_layers
+                const row3 = ['number_of_wall_layers', customSpec.number_of_wall_layers || 1];
+                lines.push(this.formatCSVRow(row3));
+                
+                // Row 4: number_of_roof_layers
+                const row4 = ['number_of_roof_layers', customSpec.number_of_roof_layers || 1];
+                lines.push(this.formatCSVRow(row4));
+                
+                // Row 5: number_of_floor_layers
+                const row5 = ['number_of_floor_layers', customSpec.number_of_floor_layers || 1];
+                lines.push(this.formatCSVRow(row5));
+                
+                // Row 6: Header row
+                const wallLayers = customSpec.number_of_wall_layers || 1;
+                const roofLayers = customSpec.number_of_roof_layers || 1;
+                const floorLayers = customSpec.number_of_floor_layers || 1;
+                const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+                lines.push(this.formatCSVRow(headers));
+                
+                // Row 7: Period data row (single row for custom spec)
+                const periodRow = headers.map(header => {
+                    // Map custom spec keys to headers
+                    let value = customSpec[header];
+                    
+                    // If not found, try to find in custom spec with different key format
+                    if (value === null || value === undefined || value === '') {
+                        // Handle layer-specific properties (e.g., ThermalConductivity_wall1[Wm-1K-1])
+                        const layerMatch = header.match(/^(.+)_(wall|roof|floor)(\d+)\[/);
+                        if (layerMatch) {
+                            const prop = layerMatch[1];
+                            const layerType = layerMatch[2];
+                            const layerNum = layerMatch[3];
+                            const unit = header.split('[')[1]; // Get unit part
+                            
+                            // Try different key formats
+                            // Format 1: ThermalConductivity_wall1[Wm-1K-1] (as stored in userData)
+                            const key1 = `${prop}_${layerType}${layerNum}[${unit}`;
+                            // Format 2: buildingCustomThermalConductivityWall1 (alternative format)
+                            const propName = prop.charAt(0).toUpperCase() + prop.slice(1);
+                            const layerTypeName = layerType.charAt(0).toUpperCase() + layerType.slice(1);
+                            const key2 = `buildingCustom${propName}${layerTypeName}${layerNum}`;
+                            
+                            value = customSpec[key1] || customSpec[key2];
+                        }
+                    }
+                    
+                    // Special handling for startPeriod and endPeriod
+                    if (header === 'startPeriod') {
+                        value = customSpec.startPeriod || customSpec.buildingCustomStartPeriod || 'NA';
+                    } else if (header === 'endPeriod') {
+                        value = customSpec.endPeriod || customSpec.buildingCustomEndPeriod || 'NA';
+                    } else if (header === 'Uvalue_window(W/m2/K)') {
+                        value = value || customSpec.buildingCustomUvalueWindow || '';
+                    } else if (header === 'windowSHGC(-)') {
+                        value = value || customSpec.buildingCustomWindowSHGC || '';
+                    } else if (header === 'windowEmissivity(-)') {
+                        value = value || customSpec.buildingCustomWindowEmissivity || '';
+                    } else if (header === 'wallAlbedo(-)') {
+                        value = value || customSpec.buildingCustomWallAlbedo || '';
+                    } else if (header === 'roofAlbedo(-)') {
+                        value = value || customSpec.buildingCustomRoofAlbedo || '';
+                    } else if (header === 'floorAlbedo(-)') {
+                        value = value || customSpec.buildingCustomFloorAlbedo || '';
+                    } else if (header === 'wallEmissivity(-)') {
+                        value = value || customSpec.buildingCustomWallEmissivity || '';
+                    } else if (header === 'roofEmissivity(-)') {
+                        value = value || customSpec.buildingCustomRoofEmissivity || '';
+                    } else if (header === 'floorEmissivity(-)') {
+                        value = value || customSpec.buildingCustomFloorEmissivity || '';
+                    }
+                    
+                    return value !== null && value !== undefined ? value.toString() : '';
+                });
+                lines.push(this.formatCSVRow(periodRow));
+                
+                // Add empty row between buildings (except for the last one)
+                if (buildingIndex < specificBuildings.length - 1) {
+                    lines.push(this.formatCSVRow(['']));
+                }
+            });
+        }
+        
+        return lines.join('\n');
+    }
+    
+    /**
+     * Format CSV row (handle empty values and add commas)
+     * @param {Array} values - Array of values
+     * @returns {string} Formatted CSV row
+     */
+    formatCSVRow(values) {
+        // Ensure we have at least 25 columns (based on sample file structure)
+        const minColumns = 25;
+        const formattedValues = [];
+        
+        values.forEach((value, index) => {
+            formattedValues.push(value || '');
+        });
+        
+        // Fill remaining columns with empty values
+        while (formattedValues.length < minColumns) {
+            formattedValues.push('');
+        }
+        
+        return formattedValues.join(',');
+    }
+    
+    /**
+     * Get all buildings with custom spec envelope properties
+     * @returns {Array} Array of building meshes
+     */
+    getCustomSpecBuildings() {
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            return [];
+        }
+        
+        const customSpecBuildings = [];
+        
+        // Get all meshes with building type (check both type and shapeType)
+        scene.meshes.forEach(mesh => {
+            if (mesh.userData) {
+                const isBuilding = mesh.userData.type === 'building' || mesh.userData.shapeType === 'building';
+                if (isBuilding) {
+                    const envelopeProperties = mesh.userData.buildingEnvelopeProperties;
+                    if (envelopeProperties === 'customSpec') {
+                        customSpecBuildings.push(mesh);
+                    }
+                }
+            }
+        });
+        
+        return customSpecBuildings;
+    }
+    
+    /**
+     * Generate solidWaterSubcategories.csv content from waterway objects in scene
+     * @returns {string} CSV content
+     */
+    generateSolidWaterSubcategoriesCSV() {
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            return '';
+        }
+        
+        const lines = [];
+        
+        // Header row
+        lines.push('solidName,waterType');
+        
+        // Get all waterway objects
+        const waterwayObjects = [];
+        scene.meshes.forEach(mesh => {
+            if (mesh.userData) {
+                const isWaterway = mesh.userData.type === 'waterway' || 
+                                  mesh.userData.shapeType === 'waterway' ||
+                                  (mesh.name && mesh.name.toLowerCase().startsWith('waterway'));
+                if (isWaterway) {
+                    waterwayObjects.push(mesh);
+                }
+            }
+        });
+        
+        // Sort by name to ensure consistent order
+        waterwayObjects.sort((a, b) => {
+            const nameA = a.name || '';
+            const nameB = b.name || '';
+            return nameA.localeCompare(nameB);
+        });
+        
+        // Add rows for each waterway object
+        waterwayObjects.forEach(mesh => {
+            const name = mesh.name || '';
+            const waterType = mesh.userData?.waterwayWaterType || 'default';
+            lines.push(`${name},${waterType}`);
+        });
+        
+        return lines.join('\n');
+    }
+    
+    /**
+     * Generate solidVegetationSoilSubcategories.csv content from tree, grass, and ground objects in scene
+     * @returns {string} CSV content
+     */
+    generateSolidVegetationSoilSubcategoriesCSV() {
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            return '';
+        }
+        
+        const lines = [];
+        
+        // Header row
+        lines.push('solidName,vegetationType,soilType');
+        
+        // Get all tree, grass, and ground objects
+        const vegetationObjects = [];
+        const treeIndexMap = new Map(); // Track tree indices to ensure consistent naming
+        
+        // 1. Get trees from TreeManager
+        if (this.treeManager && this.treeManager.trees) {
+            this.treeManager.trees.forEach((tree, index) => {
+                if (tree.parent) {
+                    const treeName = `tree${index + 1}`;
+                    treeIndexMap.set(tree.parent, treeName);
+                    
+                    // Initialize userData if it doesn't exist
+                    if (!tree.parent.userData) {
+                        tree.parent.userData = {};
+                    }
+                    
+                    // Try to get userData from parent first
+                    let userData = tree.parent.userData || {};
+                    
+                    // If parent doesn't have the data, try child meshes
+                    if ((!userData.treeVegetationType && !userData.treeSoilType) && tree.meshes && tree.meshes.length > 0) {
+                        // Try to get userData from child meshes
+                        for (const mesh of tree.meshes) {
+                            if (mesh && mesh.userData) {
+                                // Merge userData from child meshes
+                                userData = { ...userData, ...mesh.userData };
+                                // If we found the data, break
+                                if (userData.treeVegetationType || userData.treeSoilType) {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    vegetationObjects.push({
+                        name: treeName,
+                        type: 'tree',
+                        mesh: tree.parent,
+                        treeObject: tree, // Store tree object for later access
+                        userData: userData
+                    });
+                }
+            });
+        }
+        
+        // 2. Get grass and ground meshes from scene, and also check for STL imported trees
+        scene.meshes.forEach(mesh => {
+            if (mesh.userData) {
+                const type = mesh.userData.type || mesh.userData.shapeType;
+                
+                if (type === 'tree') {
+                    // Check if this tree is already added from TreeManager
+                    if (!treeIndexMap.has(mesh)) {
+                        // This is likely an STL imported tree or a tree not tracked by TreeManager
+                        const treeName = mesh.name || `tree${vegetationObjects.filter(o => o.type === 'tree').length + 1}`;
+                        vegetationObjects.push({
+                            name: treeName,
+                            type: 'tree',
+                            mesh: mesh,
+                            userData: mesh.userData
+                        });
+                    }
+                } else if (type === 'grass' || type === 'ground') {
+                    vegetationObjects.push({
+                        name: mesh.name || '',
+                        type: type,
+                        mesh: mesh,
+                        userData: mesh.userData
+                    });
+                }
+            }
+        });
+        
+        // Sort by type first (tree, grass, ground), then by name
+        vegetationObjects.sort((a, b) => {
+            const typeOrder = { 'tree': 0, 'grass': 1, 'ground': 2 };
+            const orderA = typeOrder[a.type] !== undefined ? typeOrder[a.type] : 999;
+            const orderB = typeOrder[b.type] !== undefined ? typeOrder[b.type] : 999;
+            
+            if (orderA !== orderB) {
+                return orderA - orderB;
+            }
+            
+            return (a.name || '').localeCompare(b.name || '');
+        });
+        
+        // Add rows for each vegetation object
+        vegetationObjects.forEach(obj => {
+            const name = obj.name || '';
+            let typeValue = ''; // This will be tree type, vegetation type, or ground type
+            let soilType = '';
+            
+            if (obj.type === 'tree') {
+                // For trees: use treeVegetationType as "tree type"
+                // Try to get from userData, or from tree object's child meshes
+                typeValue = obj.userData.treeVegetationType || '';
+                soilType = obj.userData.treeSoilType || obj.userData.soilType || '';
+                
+                // If still empty, try to get from tree object's child meshes
+                if ((!typeValue || !soilType) && obj.treeObject && obj.treeObject.meshes) {
+                    for (const mesh of obj.treeObject.meshes) {
+                        if (mesh && mesh.userData) {
+                            if (!typeValue && mesh.userData.treeVegetationType) {
+                                typeValue = mesh.userData.treeVegetationType;
+                            }
+                            if (!soilType) {
+                                soilType = mesh.userData.treeSoilType || mesh.userData.soilType || '';
+                            }
+                            // If we found both, break
+                            if (typeValue && soilType) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // If still empty, use default values based on tree properties
+                if (!typeValue) {
+                    // Try to get tree type from name and convert to vegetation type
+                    const treeName = obj.mesh ? obj.mesh.name : name;
+                    const treeType = this.getTreeTypeFromName(treeName);
+                    // Default to tree_default if we can't determine
+                    typeValue = 'tree_default';
+                }
+                if (!soilType) {
+                    soilType = 'default';
+                }
+            } else if (obj.type === 'grass') {
+                // For grass: use grassVegetationType as "vegetation type"
+                typeValue = obj.userData.grassVegetationType || '';
+                // Try different possible keys for soil type
+                soilType = obj.userData.grassSoilType || 
+                          obj.userData.soilType || 
+                          '';
+                
+                // If still empty, use default values
+                if (!typeValue) {
+                    typeValue = 'grass_default';
+                }
+                if (!soilType) {
+                    soilType = 'default';
+                }
+            } else if (obj.type === 'ground') {
+                // For ground: use groundVegetationType as "ground type"
+                typeValue = obj.userData.groundVegetationType || '';
+                // Try different possible keys for soil type
+                soilType = obj.userData.groundSoilType || 
+                          obj.userData.soilType || 
+                          '';
+                
+                // If still empty, use default values
+                if (!typeValue) {
+                    typeValue = 'ground_default';
+                }
+                if (!soilType) {
+                    soilType = 'default';
+                }
+            }
+            
+            lines.push(`${name},${typeValue},${soilType}`);
+        });
+        
+        return lines.join('\n');
+    }
+
+    /**
+     * Load scene
+     * Placeholder for future implementation
+     */
+    /**
+     * Load project from .cdt file
+     */
+    async loadProject() {
+        try {
+            // Check if JSZip is available
+            if (typeof JSZip === 'undefined') {
+                alert('JSZip library is not loaded. Please refresh the page.');
+                return;
+            }
+
+            // Check if File System Access API is supported
+            if (!('showOpenFilePicker' in window)) {
+                alert('File System Access API is not supported in this browser. Please use a modern browser like Chrome or Edge.');
+                return;
+            }
+
+            // Show file picker first (before showing loading overlay, as file picker is blocking)
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'Eco Digital Twin Project',
+                    accept: {
+                        'application/zip': ['.cdt']
+                    }
+                }],
+                multiple: false
+            });
+
+            // Get file
+            const file = await fileHandle.getFile();
+            
+            // Show loading overlay after file is selected
+            this.showLoadProjectLoading('Loading project file...');
+
+            // Read file as array buffer
+            this.updateLoadProjectLoadingStatus('Reading project file...');
+            const arrayBuffer = await file.arrayBuffer();
+
+            // Load zip from array buffer
+            this.updateLoadProjectLoadingStatus('Extracting project archive...');
+            const zip = await JSZip.loadAsync(arrayBuffer);
+
+            // Clear current scene completely first
+            this.updateLoadProjectLoadingStatus('Clearing current scene...');
+            if (this.sceneOperationsManager) {
+                // Select all objects first to ensure everything is included
+                if (this.selectionManager && this.selectionManager.selectAll) {
+                    this.selectionManager.selectAll();
+                }
+                // Then clear the scene completely
+                this.sceneOperationsManager.createEmptyScene();
+            } else {
+                // Fallback: use createEmptyScene from UIManager
+                this.createEmptyScene();
+            }
+
+            // Load CSV files into SurfaceTypesManager
+            this.updateLoadProjectLoadingStatus('Loading surface types...');
+            await this.loadCSVFilesFromZip(zip);
+
+            // Import STL file
+            this.updateLoadProjectLoadingStatus('Importing geometry...');
+            await this.loadSTLFromZip(zip);
+
+            // Apply CSV data to object properties
+            this.updateLoadProjectLoadingStatus('Applying properties to objects...');
+            await this.applyCSVDataToObjects(zip);
+
+            // Reload building archetypes data to populate dropdowns
+            this.loadBuildingArchetypesData();
+
+            // Hide loading overlay
+            this.hideLoadProjectLoading();
+
+            console.log('Project loaded successfully');
+        } catch (error) {
+            console.error('Error loading project:', error);
+            this.hideLoadProjectLoading();
+            
+            if (error.name === 'AbortError') {
+                // User cancelled file picker
+                return;
+            }
+            
+            alert(`Error loading project: ${error.message}`);
+        }
+    }
+
+    /**
+     * Load CSV files from zip into SurfaceTypesManager
+     * @param {JSZip} zip - JSZip instance
+     */
+    async loadCSVFilesFromZip(zip) {
+        if (!this.surfaceTypesManager) {
+            throw new Error('SurfaceTypesManager not available');
+        }
+
+        // CSV files to load
+        const csvFiles = [
+            { category: 'roadTypes', filename: 'roadTypes.csv' },
+            { category: 'soilTypes', filename: 'soilTypes.csv' },
+            { category: 'waterTypes', filename: 'waterTypes.csv' }
+        ];
+
+        // Load basic surface types
+        for (const file of csvFiles) {
+            try {
+                const zipFile = zip.file(file.filename);
+                if (zipFile) {
+                    const csvContent = await zipFile.async('string');
+                    this.surfaceTypesManager.importFromCSV(file.category, csvContent);
+                    console.log(`Loaded ${file.filename} into ${file.category}`);
+                } else {
+                    console.warn(`File ${file.filename} not found in zip`);
+                }
+            } catch (error) {
+                console.error(`Error loading ${file.filename}:`, error);
+            }
+        }
+
+        // Load vegetationTypes.csv and split into groundTypes, grassTypes, treeTypes
+        try {
+            const vegetationTypesFile = zip.file('vegetationTypes.csv');
+            if (vegetationTypesFile) {
+                const csvContent = await vegetationTypesFile.async('string');
+                this.surfaceTypesManager.importFromCSV('vegetationTypes', csvContent);
+                // Split vegetation types into ground, grass, tree types
+                this.surfaceTypesManager.splitVegetationTypes();
+                console.log('Loaded vegetationTypes.csv and split into ground, grass, tree types');
+            }
+        } catch (error) {
+            console.error('Error loading vegetationTypes.csv:', error);
+        }
+
+        // Load building_archetype_envelope_property.csv
+        try {
+            const buildingArchetypeFile = zip.file('building_archetype_envelope_property.csv');
+            if (buildingArchetypeFile) {
+                const csvContent = await buildingArchetypeFile.async('string');
+                // Parse and load building archetypes and groups
+                this.parseAndLoadBuildingArchetypesFromCSV(csvContent);
+                console.log('Loaded building_archetype_envelope_property.csv');
+            }
+        } catch (error) {
+            console.error('Error loading building_archetype_envelope_property.csv:', error);
+        }
+    }
+
+    /**
+     * Parse and load building archetypes from CSV content
+     * @param {string} csvContent - CSV file content
+     */
+    parseAndLoadBuildingArchetypesFromCSV(csvContent) {
+        if (!this.surfaceTypesManager) {
+            return;
+        }
+
+        const lines = csvContent.trim().split('\n');
+        const archetypes = [];
+        const groups = [];
+        let currentArchetype = null;
+        let currentGroup = null;
+        let inArchetypeSection = false;
+        let inGroupSection = false;
+        let inCustomSpecSection = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) {
+                // Empty line - end of section
+                if (inArchetypeSection && currentArchetype) {
+                    archetypes.push(currentArchetype);
+                    currentArchetype = null;
+                    inArchetypeSection = false;
+                } else if (inGroupSection && currentGroup) {
+                    groups.push(currentGroup);
+                    currentGroup = null;
+                    inGroupSection = false;
+                }
+                continue;
+            }
+
+            const values = this.surfaceTypesManager.parseCSVLine(line);
+            if (values.length === 0) continue;
+
+            // Check for section markers
+            // Archetype section starts with: envelope_property_type,archetype
+            if (values[0] === 'envelope_property_type' && values.length > 1 && values[1] === 'archetype') {
+                // If we were already in an archetype section, save the previous one
+                if (inArchetypeSection && currentArchetype) {
+                    archetypes.push(currentArchetype);
+                }
+                // Start new archetype section
+                inArchetypeSection = true;
+                inGroupSection = false;
+                inCustomSpecSection = false;
+                currentArchetype = { periods: [] };
+                continue;
+            } 
+            // Group section starts with: envelope_property_type,buildings_group
+            else if (values[0] === 'envelope_property_type' && values.length > 1 && (values[1] === 'buildings_group' || values[1] === 'group')) {
+                inGroupSection = true;
+                inArchetypeSection = false;
+                inCustomSpecSection = false;
+                if (currentGroup) {
+                    groups.push(currentGroup);
+                }
+                currentGroup = { periods: [] };
+                continue;
+            } 
+            // Custom Spec section starts with: envelope_property_type,specific_building
+            else if (values[0] === 'envelope_property_type' && values.length > 1 && values[1] === 'specific_building') {
+                inCustomSpecSection = true;
+                inArchetypeSection = false;
+                inGroupSection = false;
+                continue;
+            }
+            // Also check for buildingName,constructionYear header (alternative custom spec marker)
+            else if (values[0] === 'buildingName' && values.length > 1 && values[1] === 'constructionYear') {
+                inCustomSpecSection = true;
+                inArchetypeSection = false;
+                inGroupSection = false;
+                continue;
+            }
+
+            // Parse archetype/group configuration
+            if (inArchetypeSection && currentArchetype) {
+                if (values[0] === 'usage_group_building_name') {
+                    currentArchetype.usage_group_building_name = values[1] || '';
+                } else if (values[0] === 'number_of_wall_layers') {
+                    currentArchetype.number_of_wall_layers = parseInt(values[1]) || 1;
+                } else if (values[0] === 'number_of_roof_layers') {
+                    currentArchetype.number_of_roof_layers = parseInt(values[1]) || 1;
+                } else if (values[0] === 'number_of_floor_layers') {
+                    currentArchetype.number_of_floor_layers = parseInt(values[1]) || 1;
+                } else if (values[0] === 'startPeriod') {
+                    // Header row for period data
+                    currentArchetype.headers = values;
+                } else if (values[0] && !isNaN(parseFloat(values[0]))) {
+                    // Period data row
+                    const period = {};
+                    currentArchetype.headers.forEach((header, index) => {
+                        period[header] = values[index] || '';
+                    });
+                    currentArchetype.periods.push(period);
+                }
+            } else if (inGroupSection && currentGroup) {
+                if (values[0] === 'usage_group_building_name') {
+                    currentGroup.usage_group_building_name = values[1] || '';
+                } else if (values[0] === 'number_of_wall_layers') {
+                    currentGroup.number_of_wall_layers = parseInt(values[1]) || 1;
+                } else if (values[0] === 'number_of_roof_layers') {
+                    currentGroup.number_of_roof_layers = parseInt(values[1]) || 1;
+                } else if (values[0] === 'number_of_floor_layers') {
+                    currentGroup.number_of_floor_layers = parseInt(values[1]) || 1;
+                } else if (values[0] === 'startPeriod') {
+                    // Header row for period data
+                    currentGroup.headers = values;
+                } else if (values[0] && !isNaN(parseFloat(values[0]))) {
+                    // Period data row
+                    const period = {};
+                    currentGroup.headers.forEach((header, index) => {
+                        period[header] = values[index] || '';
+                    });
+                    currentGroup.periods.push(period);
+                }
+            }
+        }
+
+        // Add last archetype/group if exists
+        if (currentArchetype) {
+            archetypes.push(currentArchetype);
+        }
+        if (currentGroup) {
+            groups.push(currentGroup);
+        }
+
+        // Store in SurfaceTypesManager
+        // Merge with existing archetypes and groups (don't replace, add to existing)
+        const existingArchetypes = this.surfaceTypesManager.getSurfaceTypes('buildingArchyTypes') || [];
+        const existingGroups = this.surfaceTypesManager.getSurfaceTypes('buildingGroups') || [];
+        
+        // Add new archetypes to existing ones (avoid duplicates by name)
+        archetypes.forEach(newArchetype => {
+            const existingIndex = existingArchetypes.findIndex(a => 
+                a.usage_group_building_name === newArchetype.usage_group_building_name
+            );
+            if (existingIndex >= 0) {
+                // Replace existing archetype with same name
+                existingArchetypes[existingIndex] = newArchetype;
+            } else {
+                // Add new archetype
+                existingArchetypes.push(newArchetype);
+            }
+        });
+        
+        // Add new groups to existing ones (avoid duplicates by name)
+        groups.forEach(newGroup => {
+            const existingIndex = existingGroups.findIndex(g => 
+                g.usage_group_building_name === newGroup.usage_group_building_name
+            );
+            if (existingIndex >= 0) {
+                // Replace existing group with same name
+                existingGroups[existingIndex] = newGroup;
+            } else {
+                // Add new group
+                existingGroups.push(newGroup);
+            }
+        });
+        
+        this.surfaceTypesManager.surfaceTypes.buildingArchyTypes = existingArchetypes;
+        this.surfaceTypesManager.surfaceTypes.buildingGroups = existingGroups;
+        
+        // Save to localStorage
+        this.surfaceTypesManager.saveToLocalStorage();
+    }
+
+    /**
+     * Load default building archetypes from building_archetype_envelope_property.csv
+     * This should be called after surfaceTypesManager is initialized
+     */
+    async loadDefaultBuildingArchetypes() {
+        if (!this.surfaceTypesManager) {
+            console.warn('SurfaceTypesManager not available, skipping default building archetypes load');
+            return;
+        }
+
+        const buildingArchyTypes = this.surfaceTypesManager.getSurfaceTypes('buildingArchyTypes');
+        const buildingGroups = this.surfaceTypesManager.getSurfaceTypes('buildingGroups');
+        
+        // Only load if both are empty (no data from localStorage)
+        if ((!buildingArchyTypes || buildingArchyTypes.length === 0) && 
+            (!buildingGroups || buildingGroups.length === 0)) {
+            try {
+                const response = await fetch('Samples/building_archetype_envelope_property.csv');
+                if (response.ok) {
+                    const csvContent = await response.text();
+                    this.parseAndLoadBuildingArchetypesFromCSV(csvContent);
+                    console.log('Loaded default building archetypes from building_archetype_envelope_property.csv');
+                    // Reload building archetypes data to populate dropdowns
+                    this.loadBuildingArchetypesData();
+                } else {
+                    console.warn('Could not load building_archetype_envelope_property.csv:', response.statusText);
+                }
+            } catch (error) {
+                console.error('Error loading building_archetype_envelope_property.csv:', error);
+            }
+        } else {
+            // If data exists, still reload to populate dropdowns
+            this.loadBuildingArchetypesData();
+        }
+    }
+
+    /**
+     * Load STL file from zip
+     * @param {JSZip} zip - JSZip instance
+     */
+    async loadSTLFromZip(zip) {
+        if (!this.stlManager) {
+            throw new Error('STLManager not available');
+        }
+
+        const stlFile = zip.file('geometry.stl');
+        if (!stlFile) {
+            throw new Error('geometry.stl not found in project file');
+        }
+
+        const stlContent = await stlFile.async('string');
+        
+        // Import STL with default settings (y-up, no flip normals, clear scene is already done)
+        this.stlManager.parseSTLFile(stlContent, false, 'y-up', false);
+        
+        // Remove period properties from all non-building STL objects
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (scene) {
+            // Check all meshes
+            scene.meshes.forEach(mesh => {
+                if (mesh && mesh.userData && mesh.userData.isImportedSTL) {
+                    const type = mesh.userData.type;
+                    if (type && type !== 'building') {
+                        delete mesh.userData.startPeriod;
+                        delete mesh.userData.endPeriod;
+                        delete mesh.userData.buildingArchetypePeriod;
+                        delete mesh.userData.buildingGroupPeriod;
+                    }
+                }
+            });
+            
+            // Check all TransformNodes (for trees)
+            scene.transformNodes.forEach(transformNode => {
+                if (transformNode && transformNode.userData && transformNode.userData.isImportedSTL) {
+                    const type = transformNode.userData.type;
+                    if (type && type !== 'building') {
+                        delete transformNode.userData.startPeriod;
+                        delete transformNode.userData.endPeriod;
+                        delete transformNode.userData.buildingArchetypePeriod;
+                        delete transformNode.userData.buildingGroupPeriod;
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * Apply CSV data to object properties
+     * @param {JSZip} zip - JSZip instance
+     */
+    async applyCSVDataToObjects(zip) {
+        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+        if (!scene) {
+            return;
+        }
+
+        // Load solidBuildingSubcategories.csv
+        try {
+            const buildingFile = zip.file('solidBuildingSubcategories.csv');
+            if (buildingFile) {
+                const csvContent = await buildingFile.async('string');
+                this.applyBuildingPropertiesFromCSV(csvContent, scene);
+            }
+        } catch (error) {
+            console.error('Error applying building properties:', error);
+        }
+
+        // Load solidWaterSubcategories.csv
+        try {
+            const waterFile = zip.file('solidWaterSubcategories.csv');
+            if (waterFile) {
+                const csvContent = await waterFile.async('string');
+                this.applyWaterPropertiesFromCSV(csvContent, scene);
+            }
+        } catch (error) {
+            console.error('Error applying water properties:', error);
+        }
+
+        // Load solidRoadSubcategories.csv
+        try {
+            const roadFile = zip.file('solidRoadSubcategories.csv');
+            if (roadFile) {
+                const csvContent = await roadFile.async('string');
+                this.applyRoadPropertiesFromCSV(csvContent, scene);
+            }
+        } catch (error) {
+            console.error('Error applying road properties:', error);
+        }
+
+        // Load solidVegetationSoilSubcategories.csv
+        try {
+            const vegetationFile = zip.file('solidVegetationSoilSubcategories.csv');
+            if (vegetationFile) {
+                const csvContent = await vegetationFile.async('string');
+                this.applyVegetationPropertiesFromCSV(csvContent, scene);
+            }
+        } catch (error) {
+            console.error('Error applying vegetation properties:', error);
+        }
+    }
+
+    /**
+     * Apply building properties from CSV
+     * @param {string} csvContent - CSV file content
+     * @param {BABYLON.Scene} scene - Babylon.js scene
+     */
+    applyBuildingPropertiesFromCSV(csvContent, scene) {
+        const lines = csvContent.trim().split('\n');
+        if (lines.length < 2) return; // No data rows
+
+        const headers = this.surfaceTypesManager.parseCSVLine(lines[0]);
+        const buildingNameIndex = headers.indexOf('buildingName');
+        const constructionYearIndex = headers.indexOf('constructionYear');
+        const envelopePropertyTypeIndex = headers.indexOf('envelopePropertyType');
+        const usageTypeGroupNameIndex = headers.indexOf('usageType_groupName');
+
+        for (let i = 1; i < lines.length; i++) {
+            const values = this.surfaceTypesManager.parseCSVLine(lines[i]);
+            if (values.length < headers.length) continue;
+
+            const buildingName = values[buildingNameIndex];
+            const constructionYear = values[constructionYearIndex];
+            const envelopePropertyType = values[envelopePropertyTypeIndex];
+            const usageTypeGroupName = values[usageTypeGroupNameIndex];
+
+            // Find building mesh by name
+            const building = scene.getMeshByName(buildingName);
+            if (building && building.userData) {
+                if (constructionYear && constructionYear.trim()) {
+                    building.userData.yearOfConstruction = constructionYear.trim();
+                }
+                if (envelopePropertyType) {
+                    building.userData.buildingEnvelopeProperties = envelopePropertyType.trim();
+                }
+                if (usageTypeGroupName && usageTypeGroupName.trim()) {
+                    if (envelopePropertyType === 'archetype') {
+                        building.userData.buildingArchetype = usageTypeGroupName.trim();
+                    } else if (envelopePropertyType === 'group') {
+                        building.userData.buildingGroup = usageTypeGroupName.trim();
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Apply water properties from CSV
+     * @param {string} csvContent - CSV file content
+     * @param {BABYLON.Scene} scene - Babylon.js scene
+     */
+    applyWaterPropertiesFromCSV(csvContent, scene) {
+        const lines = csvContent.trim().split('\n');
+        if (lines.length < 2) return;
+
+        const headers = this.surfaceTypesManager.parseCSVLine(lines[0]);
+        const nameIndex = headers.indexOf('name');
+        const waterTypeIndex = headers.indexOf('waterType');
+
+        for (let i = 1; i < lines.length; i++) {
+            const values = this.surfaceTypesManager.parseCSVLine(lines[i]);
+            if (values.length < headers.length) continue;
+
+            const name = values[nameIndex];
+            const waterType = values[waterTypeIndex];
+
+            const mesh = scene.getMeshByName(name);
+            if (mesh && mesh.userData) {
+                if (waterType) {
+                    mesh.userData.waterwayWaterType = waterType.trim();
+                }
+                // Ensure no period properties for waterway
+                delete mesh.userData.startPeriod;
+                delete mesh.userData.endPeriod;
+                delete mesh.userData.buildingArchetypePeriod;
+                delete mesh.userData.buildingGroupPeriod;
+            }
+        }
+    }
+
+    /**
+     * Apply road properties from CSV
+     * @param {string} csvContent - CSV file content
+     * @param {BABYLON.Scene} scene - Babylon.js scene
+     */
+    applyRoadPropertiesFromCSV(csvContent, scene) {
+        const lines = csvContent.trim().split('\n');
+        if (lines.length < 2) return;
+
+        const headers = this.surfaceTypesManager.parseCSVLine(lines[0]);
+        const nameIndex = headers.indexOf('name');
+        const roadTypeIndex = headers.indexOf('roadType');
+
+        for (let i = 1; i < lines.length; i++) {
+            const values = this.surfaceTypesManager.parseCSVLine(lines[i]);
+            if (values.length < headers.length) continue;
+
+            const name = values[nameIndex];
+            const roadType = values[roadTypeIndex];
+
+            const mesh = scene.getMeshByName(name);
+            if (mesh && mesh.userData) {
+                if (roadType) {
+                    mesh.userData.highwayRoadType = roadType.trim();
+                }
+                // Ensure no period properties for highway
+                delete mesh.userData.startPeriod;
+                delete mesh.userData.endPeriod;
+                delete mesh.userData.buildingArchetypePeriod;
+                delete mesh.userData.buildingGroupPeriod;
+            }
+        }
+    }
+
+    /**
+     * Apply vegetation properties from CSV
+     * @param {string} csvContent - CSV file content
+     * @param {BABYLON.Scene} scene - Babylon.js scene
+     */
+    applyVegetationPropertiesFromCSV(csvContent, scene) {
+        const lines = csvContent.trim().split('\n');
+        if (lines.length < 2) return;
+
+        const headers = this.surfaceTypesManager.parseCSVLine(lines[0]);
+        const nameIndex = headers.indexOf('name');
+        const typeIndex = headers.indexOf('type');
+        const vegetationTypeIndex = headers.indexOf('vegetationType');
+        const soilTypeIndex = headers.indexOf('soilType');
+
+        for (let i = 1; i < lines.length; i++) {
+            const values = this.surfaceTypesManager.parseCSVLine(lines[i]);
+            if (values.length < headers.length) continue;
+
+            const name = values[nameIndex];
+            const type = values[typeIndex];
+            const vegetationType = values[vegetationTypeIndex];
+            const soilType = values[soilTypeIndex];
+
+            // Find mesh by name
+            let mesh = scene.getMeshByName(name);
+            
+            // Also check TransformNodes for trees
+            if (!mesh && type === 'tree') {
+                const transformNodes = scene.transformNodes.filter(tn => tn.name === name);
+                if (transformNodes.length > 0) {
+                    mesh = transformNodes[0];
+                }
+            }
+
+            if (mesh && mesh.userData) {
+                if (type === 'tree' && vegetationType) {
+                    mesh.userData.treeVegetationType = vegetationType.trim();
+                } else if (type === 'grass' && vegetationType) {
+                    mesh.userData.grassVegetationType = vegetationType.trim();
+                } else if (type === 'ground' && vegetationType) {
+                    mesh.userData.groundVegetationType = vegetationType.trim();
+                }
+                
+                if (soilType) {
+                    if (type === 'tree') {
+                        mesh.userData.treeSoilType = soilType.trim();
+                    } else if (type === 'grass') {
+                        mesh.userData.grassSoilType = soilType.trim();
+                    } else if (type === 'ground') {
+                        mesh.userData.groundSoilType = soilType.trim();
+                    }
+                }
+                
+                // Ensure no period properties for tree, grass, ground
+                delete mesh.userData.startPeriod;
+                delete mesh.userData.endPeriod;
+                delete mesh.userData.buildingArchetypePeriod;
+                delete mesh.userData.buildingGroupPeriod;
+            }
+        }
+    }
 
     /**
      * Export all 3D models to STL format (ASCII)
      */
     exportSTL() {
-        if (!this.sceneManager) {
-            console.error('SceneManager not available');
+        if (this.stlManager) {
+            this.stlManager.exportSTL();
+        } else {
+            console.error('STLManager not available');
+        }
+    }
+
+    /**
+     * Show STL export settings dialog
+     */
+    showSTLExportDialog() {
+        const dialog = document.getElementById('stlExportDialog');
+        if (!dialog) {
+            console.error('STL export dialog not found');
             return;
         }
 
+        // Reset to default values
+        const axisUpSelect = document.getElementById('stlAxisUp');
+        if (axisUpSelect) {
+            axisUpSelect.value = 'z-up';
+        }
+
+        // Show dialog
+        dialog.style.display = 'flex';
+
+        // Setup event listeners
+        const closeBtn = document.getElementById('stlExportDialogClose');
+        const cancelBtn = document.getElementById('stlExportDialogCancel');
+        const confirmBtn = document.getElementById('stlExportDialogConfirm');
+
+        const closeDialog = () => {
+            dialog.style.display = 'none';
+        };
+
+        const handleConfirm = () => {
+            const axisUp = axisUpSelect ? axisUpSelect.value : 'z-up';
+            closeDialog();
+            this.proceedWithSTLExport(axisUp);
+        };
+
+        // Remove old listeners and add new ones
+        if (closeBtn) {
+            closeBtn.onclick = closeDialog;
+        }
+        if (cancelBtn) {
+            cancelBtn.onclick = closeDialog;
+        }
+        if (confirmBtn) {
+            confirmBtn.onclick = handleConfirm;
+        }
+
+        // Close on overlay click
+        dialog.onclick = (e) => {
+            if (e.target === dialog) {
+                closeDialog();
+            }
+        };
+    }
+
+    /**
+     * Proceed with STL export after user confirms settings
+     */
+    async proceedWithSTLExport(axisUp) {
         const scene = this.sceneManager.getScene();
         if (!scene) {
             console.error('Scene not available');
@@ -1276,8 +3314,8 @@ class UIManager {
         // Collect all meshes to export
         const meshesToExport = [];
 
-        // 1. Get all meshes with valid types (building, highway, ground, green, waterway)
-        const validTypes = ['building', 'highway', 'ground', 'green', 'waterway'];
+        // 1. Get all meshes with valid types (building, highway, ground, grass, waterway)
+        const validTypes = ['building', 'highway', 'ground', 'grass', 'waterway'];
         const typedMeshes = scene.meshes.filter(mesh => {
             if (!mesh || !mesh.isEnabled() || !mesh.isVisible) return false;
             if (!mesh.userData || !mesh.userData.type) return false;
@@ -1301,13 +3339,13 @@ class UIManager {
             meshesByType[type].forEach((mesh, index) => {
                 let exportName;
                 
-                // For waterway, green, and ground, use simple type name (or type_1, type_2, etc. if multiple)
-                if (type === 'waterway' || type === 'green' || type === 'ground') {
-                    exportName = meshesByType[type].length === 1 ? type : `${type}_${index + 1}`;
+                // For waterway, grass, and ground, use simple type name (or type1, type2, etc. if multiple)
+                if (type === 'waterway' || type === 'grass' || type === 'ground') {
+                    exportName = meshesByType[type].length === 1 ? type : `${type}${index + 1}`;
                 }
-                // For other types, use type_name format
+                // For other types, use type name format
                 else {
-                    exportName = meshesByType[type].length === 1 ? type : `${type}_${index + 1}`;
+                    exportName = meshesByType[type].length === 1 ? type : `${type}${index + 1}`;
                 }
                 
                 meshesToExport.push({
@@ -1329,7 +3367,7 @@ class UIManager {
                     meshesToExport.push({
                         mesh: tree.parent, // Use parent TransformNode for transform info
                         childMeshes: tree.meshes, // All child meshes
-                        name: `tree_${index + 1}`, // Name: tree_1, tree_2, ...
+                        name: `tree${index + 1}`, // Name: tree1, tree2, ...
                         type: 'tree'
                     });
                 }
@@ -1344,16 +3382,18 @@ class UIManager {
         console.log(`Total objects to export: ${meshesToExport.length}`);
 
         // Generate STL content
-        const stlContent = this.generateSTLContent(meshesToExport);
+        const stlContent = this.generateSTLContent(meshesToExport, axisUp);
 
-        // Download the file
-        this.downloadSTLFile(stlContent, 'scene_export.stl');
+        // Ask user for file location and name
+        await this.saveSTLFile(stlContent);
     }
 
     /**
      * Generate STL ASCII content from meshes
+     * @param {Array} meshesToExport - Array of meshes to export
+     * @param {string} axisUp - 'y-up' or 'z-up'
      */
-    generateSTLContent(meshesToExport) {
+    generateSTLContent(meshesToExport, axisUp = 'z-up') {
         let stlContent = '';
 
         meshesToExport.forEach((obj, index) => {
@@ -1367,7 +3407,7 @@ class UIManager {
                     obj.childMeshes.forEach(childMesh => {
                         const triangles = this.meshToTriangles(childMesh);
                         triangles.forEach(triangle => {
-                            stlContent += this.triangleToSTL(triangle);
+                            stlContent += this.triangleToSTL(triangle, axisUp);
                         });
                     });
                 }
@@ -1375,7 +3415,7 @@ class UIManager {
                 // Handle regular meshes
                 const triangles = this.meshToTriangles(obj.mesh);
                 triangles.forEach(triangle => {
-                    stlContent += this.triangleToSTL(triangle);
+                    stlContent += this.triangleToSTL(triangle, axisUp);
                 });
             }
 
@@ -1460,11 +3500,10 @@ class UIManager {
 
     /**
      * Convert a triangle to STL format
-     * Note: STL format uses (X, Y, Z) where Y is vertical (up)
-     * Babylon.js uses (X, Y, Z) where Y is vertical (up)
-     * But we need to swap Y and Z for STL compatibility: (X, Z, Y)
+     * @param {Object} triangle - Triangle with normal and vertices
+     * @param {string} axisUp - 'y-up' or 'z-up'
      */
-    triangleToSTL(triangle) {
+    triangleToSTL(triangle, axisUp = 'z-up') {
         const normal = triangle.normal;
         const v0 = triangle.vertices[0];
         const v1 = triangle.vertices[1];
@@ -1488,21 +3527,31 @@ class UIManager {
             return str;
         };
 
-        // Convert from Babylon.js coordinate system (X, Y, Z) to STL coordinate system (X, Z, Y)
-        // Babylon: X=right, Y=up, Z=forward
-        // STL: X=right, Y=forward, Z=up
-        // So we swap Y and Z: (x, y, z) -> (x, z, y)
-        const convertNormal = (n) => {
-            return { x: n.x, y: n.z, z: n.y };
-        };
-        const convertVertex = (v) => {
-            return { x: v.x, y: v.z, z: v.y };
-        };
+        let stlNormal, stlV0, stlV1, stlV2;
 
-        const stlNormal = convertNormal(normal);
-        const stlV0 = convertVertex(v0);
-        const stlV1 = convertVertex(v1);
-        const stlV2 = convertVertex(v2);
+        if (axisUp === 'z-up') {
+            // Convert from Babylon.js coordinate system (X, Y, Z) to STL coordinate system (X, Z, Y)
+            // Babylon: X=right, Y=up, Z=forward
+            // STL: X=right, Y=forward, Z=up
+            // So we swap Y and Z: (x, y, z) -> (x, z, y)
+            const convertNormal = (n) => {
+                return { x: n.x, y: n.z, z: n.y };
+            };
+            const convertVertex = (v) => {
+                return { x: v.x, y: v.z, z: v.y };
+            };
+
+            stlNormal = convertNormal(normal);
+            stlV0 = convertVertex(v0);
+            stlV1 = convertVertex(v1);
+            stlV2 = convertVertex(v2);
+        } else {
+            // Y-up: Keep Babylon.js coordinate system as is
+            stlNormal = { x: normal.x, y: normal.y, z: normal.z };
+            stlV0 = { x: v0.x, y: v0.y, z: v0.z };
+            stlV1 = { x: v1.x, y: v1.y, z: v1.z };
+            stlV2 = { x: v2.x, y: v2.y, z: v2.z };
+        }
 
         let stl = `  facet normal ${formatFloat(stlNormal.x)} ${formatFloat(stlNormal.y)} ${formatFloat(stlNormal.z)}\n`;
         stl += `    outer loop\n`;
@@ -1516,7 +3565,49 @@ class UIManager {
     }
 
     /**
-     * Download STL file
+     * Save STL file using File System Access API (if available) or fallback to download
+     * @param {string} content - STL file content
+     */
+    async saveSTLFile(content) {
+        // Check if File System Access API is supported
+        if ('showSaveFilePicker' in window) {
+            try {
+                const fileHandle = await window.showSaveFilePicker({
+                    suggestedName: 'scene_export.stl',
+                    types: [{
+                        description: 'STL Files',
+                        accept: {
+                            'application/octet-stream': ['.stl'],
+                            'text/plain': ['.stl']
+                        }
+                    }]
+                });
+
+                // Create a writable stream
+                const writable = await fileHandle.createWritable();
+                await writable.write(content);
+                await writable.close();
+
+                console.log(`STL file saved: ${fileHandle.name}`);
+                alert(`File saved successfully: ${fileHandle.name}`);
+            } catch (error) {
+                // User cancelled or error occurred
+                if (error.name !== 'AbortError') {
+                    console.error('Error saving file:', error);
+                    // Fallback to download
+                    this.downloadSTLFile(content, 'scene_export.stl');
+                }
+            }
+        } else {
+            // Fallback to download method for browsers that don't support File System Access API
+            this.downloadSTLFile(content, 'scene_export.stl');
+        }
+    }
+
+    /**
+     * Download STL file (fallback method)
+     * @param {string} content - STL file content
+     * @param {string} filename - Default filename
      */
     downloadSTLFile(content, filename) {
         const blob = new Blob([content], { type: 'text/plain' });
@@ -1533,6 +3624,3283 @@ class UIManager {
 
     openPreferences() {
         this.showPreferencesWindow();
+    }
+
+    /**
+     * Open Post Processing Settings
+     */
+    openPostProcessing() {
+        this.showPostProcessingWindow();
+    }
+
+    /**
+     * Show Post Processing Window
+     */
+    showPostProcessingWindow() {
+        const window = document.getElementById('postProcessingWindow');
+        const overlay = document.getElementById('postProcessingOverlay');
+        
+        if (!window || !overlay) {
+            console.error('Post Processing window elements not found');
+            return;
+        }
+        
+        window.classList.add('show');
+        overlay.style.display = 'block';
+        
+        // Setup listeners if not already done
+        if (!this.postProcessingListenersSetup) {
+            this.setupPostProcessingListeners();
+            this.postProcessingListenersSetup = true;
+        }
+        
+        // Update UI with current settings
+        this.updatePostProcessingUI();
+    }
+
+    /**
+     * Hide Post Processing Window
+     */
+    hidePostProcessingWindow() {
+        const window = document.getElementById('postProcessingWindow');
+        const overlay = document.getElementById('postProcessingOverlay');
+        
+        if (window) {
+            window.classList.remove('show');
+        }
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+    }
+
+    /**
+     * Setup Post Processing Listeners
+     */
+    setupPostProcessingListeners() {
+        if (!this.postProcessingManager) {
+            console.error('PostProcessingManager not available');
+            return;
+        }
+
+        // Close button
+        const closeBtn = document.getElementById('closePostProcessing');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.hidePostProcessingWindow();
+            });
+        }
+
+        // Overlay click to close
+        const overlay = document.getElementById('postProcessingOverlay');
+        if (overlay) {
+            overlay.addEventListener('click', () => {
+                this.hidePostProcessingWindow();
+            });
+        }
+
+        // FXAA
+        const fxaaEnabled = document.getElementById('fxaaEnabled');
+        if (fxaaEnabled) {
+            fxaaEnabled.addEventListener('click', () => {
+                const isActive = fxaaEnabled.classList.contains('active');
+                fxaaEnabled.classList.toggle('active');
+                this.postProcessingManager.setFXAAEnabled(!isActive);
+            });
+        }
+
+        // Bloom
+        const bloomEnabled = document.getElementById('bloomEnabled');
+        if (bloomEnabled) {
+            bloomEnabled.addEventListener('click', () => {
+                const isActive = bloomEnabled.classList.contains('active');
+                bloomEnabled.classList.toggle('active');
+                this.postProcessingManager.setBloomEnabled(!isActive);
+            });
+        }
+
+        const bloomThreshold = document.getElementById('bloomThreshold');
+        const bloomThresholdValue = document.getElementById('bloomThresholdValue');
+        if (bloomThreshold && bloomThresholdValue) {
+            bloomThreshold.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                bloomThresholdValue.textContent = value.toFixed(2);
+                this.postProcessingManager.setBloomSettings(
+                    value,
+                    parseFloat(document.getElementById('bloomWeight').value),
+                    parseInt(document.getElementById('bloomKernelSize').value),
+                    parseFloat(document.getElementById('bloomScale').value)
+                );
+            });
+        }
+
+        const bloomWeight = document.getElementById('bloomWeight');
+        const bloomWeightValue = document.getElementById('bloomWeightValue');
+        if (bloomWeight && bloomWeightValue) {
+            bloomWeight.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                bloomWeightValue.textContent = value.toFixed(2);
+                this.postProcessingManager.setBloomSettings(
+                    parseFloat(document.getElementById('bloomThreshold').value),
+                    value,
+                    parseInt(document.getElementById('bloomKernelSize').value),
+                    parseFloat(document.getElementById('bloomScale').value)
+                );
+            });
+        }
+
+        const bloomKernelSize = document.getElementById('bloomKernelSize');
+        const bloomKernelSizeValue = document.getElementById('bloomKernelSizeValue');
+        if (bloomKernelSize && bloomKernelSizeValue) {
+            bloomKernelSize.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                bloomKernelSizeValue.textContent = value;
+                this.postProcessingManager.setBloomSettings(
+                    parseFloat(document.getElementById('bloomThreshold').value),
+                    parseFloat(document.getElementById('bloomWeight').value),
+                    value,
+                    parseFloat(document.getElementById('bloomScale').value)
+                );
+            });
+        }
+
+        const bloomScale = document.getElementById('bloomScale');
+        const bloomScaleValue = document.getElementById('bloomScaleValue');
+        if (bloomScale && bloomScaleValue) {
+            bloomScale.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                bloomScaleValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setBloomSettings(
+                    parseFloat(document.getElementById('bloomThreshold').value),
+                    parseFloat(document.getElementById('bloomWeight').value),
+                    parseInt(document.getElementById('bloomKernelSize').value),
+                    value
+                );
+            });
+        }
+
+        // Color Correction
+        const colorExposure = document.getElementById('colorExposure');
+        const colorExposureValue = document.getElementById('colorExposureValue');
+        if (colorExposure && colorExposureValue) {
+            colorExposure.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                colorExposureValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setColorCorrectionSettings(
+                    value,
+                    parseFloat(document.getElementById('colorContrast').value),
+                    parseFloat(document.getElementById('colorSaturation').value)
+                );
+            });
+        }
+
+        const colorContrast = document.getElementById('colorContrast');
+        const colorContrastValue = document.getElementById('colorContrastValue');
+        if (colorContrast && colorContrastValue) {
+            colorContrast.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                colorContrastValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setColorCorrectionSettings(
+                    parseFloat(document.getElementById('colorExposure').value),
+                    value,
+                    parseFloat(document.getElementById('colorSaturation').value)
+                );
+            });
+        }
+
+        const colorSaturation = document.getElementById('colorSaturation');
+        const colorSaturationValue = document.getElementById('colorSaturationValue');
+        if (colorSaturation && colorSaturationValue) {
+            colorSaturation.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                colorSaturationValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setColorCorrectionSettings(
+                    parseFloat(document.getElementById('colorExposure').value),
+                    parseFloat(document.getElementById('colorContrast').value),
+                    value
+                );
+            });
+        }
+
+        // Chromatic Aberration
+        const chromaticEnabled = document.getElementById('chromaticEnabled');
+        if (chromaticEnabled) {
+            chromaticEnabled.addEventListener('click', () => {
+                const isActive = chromaticEnabled.classList.contains('active');
+                chromaticEnabled.classList.toggle('active');
+                this.postProcessingManager.setChromaticAberrationEnabled(!isActive);
+            });
+        }
+
+        const chromaticAmount = document.getElementById('chromaticAmount');
+        const chromaticAmountValue = document.getElementById('chromaticAmountValue');
+        if (chromaticAmount && chromaticAmountValue) {
+            chromaticAmount.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                chromaticAmountValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setChromaticAberrationSettings(
+                    value,
+                    parseFloat(document.getElementById('chromaticRadial').value)
+                );
+            });
+        }
+
+        const chromaticRadial = document.getElementById('chromaticRadial');
+        const chromaticRadialValue = document.getElementById('chromaticRadialValue');
+        if (chromaticRadial && chromaticRadialValue) {
+            chromaticRadial.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                chromaticRadialValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setChromaticAberrationSettings(
+                    parseFloat(document.getElementById('chromaticAmount').value),
+                    value
+                );
+            });
+        }
+
+        // Depth of Field
+        const dofEnabled = document.getElementById('dofEnabled');
+        if (dofEnabled) {
+            dofEnabled.addEventListener('click', () => {
+                const isActive = dofEnabled.classList.contains('active');
+                dofEnabled.classList.toggle('active');
+                this.postProcessingManager.setDepthOfFieldEnabled(!isActive);
+            });
+        }
+
+        const dofFocusDistance = document.getElementById('dofFocusDistance');
+        const dofFocusDistanceValue = document.getElementById('dofFocusDistanceValue');
+        if (dofFocusDistance && dofFocusDistanceValue) {
+            dofFocusDistance.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                dofFocusDistanceValue.textContent = value;
+                this.postProcessingManager.setDepthOfFieldSettings(
+                    value,
+                    parseFloat(document.getElementById('dofLensSize').value),
+                    parseFloat(document.getElementById('dofFStop').value)
+                );
+            });
+        }
+
+        const dofLensSize = document.getElementById('dofLensSize');
+        const dofLensSizeValue = document.getElementById('dofLensSizeValue');
+        if (dofLensSize && dofLensSizeValue) {
+            dofLensSize.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                dofLensSizeValue.textContent = value.toFixed(2);
+                this.postProcessingManager.setDepthOfFieldSettings(
+                    parseFloat(document.getElementById('dofFocusDistance').value),
+                    value,
+                    parseFloat(document.getElementById('dofFStop').value)
+                );
+            });
+        }
+
+        const dofFStop = document.getElementById('dofFStop');
+        const dofFStopValue = document.getElementById('dofFStopValue');
+        if (dofFStop && dofFStopValue) {
+            dofFStop.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                dofFStopValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setDepthOfFieldSettings(
+                    parseFloat(document.getElementById('dofFocusDistance').value),
+                    parseFloat(document.getElementById('dofLensSize').value),
+                    value
+                );
+            });
+        }
+
+        // Grain
+        const grainEnabled = document.getElementById('grainEnabled');
+        if (grainEnabled) {
+            grainEnabled.addEventListener('click', () => {
+                const isActive = grainEnabled.classList.contains('active');
+                grainEnabled.classList.toggle('active');
+                this.postProcessingManager.setGrainEnabled(!isActive);
+            });
+        }
+
+        const grainIntensity = document.getElementById('grainIntensity');
+        const grainIntensityValue = document.getElementById('grainIntensityValue');
+        if (grainIntensity && grainIntensityValue) {
+            grainIntensity.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                grainIntensityValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setGrainSettings(
+                    value,
+                    document.getElementById('grainAnimated').classList.contains('active')
+                );
+            });
+        }
+
+        const grainAnimated = document.getElementById('grainAnimated');
+        if (grainAnimated) {
+            grainAnimated.addEventListener('click', () => {
+                grainAnimated.classList.toggle('active');
+                this.postProcessingManager.setGrainSettings(
+                    parseFloat(document.getElementById('grainIntensity').value),
+                    grainAnimated.classList.contains('active')
+                );
+            });
+        }
+
+        // Sharpen
+        const sharpenEnabled = document.getElementById('sharpenEnabled');
+        if (sharpenEnabled) {
+            sharpenEnabled.addEventListener('click', () => {
+                const isActive = sharpenEnabled.classList.contains('active');
+                sharpenEnabled.classList.toggle('active');
+                this.postProcessingManager.setSharpenEnabled(!isActive);
+            });
+        }
+
+        const sharpenEdgeAmount = document.getElementById('sharpenEdgeAmount');
+        const sharpenEdgeAmountValue = document.getElementById('sharpenEdgeAmountValue');
+        if (sharpenEdgeAmount && sharpenEdgeAmountValue) {
+            sharpenEdgeAmount.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                sharpenEdgeAmountValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setSharpenSettings(value);
+            });
+        }
+
+        // Vignette
+        const vignetteEnabled = document.getElementById('vignetteEnabled');
+        if (vignetteEnabled) {
+            vignetteEnabled.addEventListener('click', () => {
+                const isActive = vignetteEnabled.classList.contains('active');
+                vignetteEnabled.classList.toggle('active');
+                this.postProcessingManager.setVignetteEnabled(!isActive);
+            });
+        }
+
+        const vignetteScale = document.getElementById('vignetteScale');
+        const vignetteScaleValue = document.getElementById('vignetteScaleValue');
+        if (vignetteScale && vignetteScaleValue) {
+            vignetteScale.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                vignetteScaleValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setVignetteSettings(
+                    value,
+                    parseFloat(document.getElementById('vignettePower').value),
+                    null
+                );
+            });
+        }
+
+        const vignettePower = document.getElementById('vignettePower');
+        const vignettePowerValue = document.getElementById('vignettePowerValue');
+        if (vignettePower && vignettePowerValue) {
+            vignettePower.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                vignettePowerValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setVignetteSettings(
+                    parseFloat(document.getElementById('vignetteScale').value),
+                    value,
+                    null
+                );
+            });
+        }
+
+        // SSAO
+        const ssaoEnabled = document.getElementById('ssaoEnabled');
+        const ssaoWarning = document.getElementById('ssaoWarning');
+        if (ssaoEnabled) {
+            // Check if SSAO is available
+            if (!this.postProcessingManager.isSSAOAvailable()) {
+                ssaoEnabled.disabled = true;
+                ssaoEnabled.title = 'SSAO is not available in this version of Babylon.js';
+                if (ssaoWarning) {
+                    ssaoWarning.style.display = 'block';
+                }
+            } else {
+                if (ssaoWarning) {
+                    ssaoWarning.style.display = 'none';
+                }
+                ssaoEnabled.addEventListener('click', () => {
+                    const isActive = ssaoEnabled.classList.contains('active');
+                    ssaoEnabled.classList.toggle('active');
+                    this.postProcessingManager.setSSAOEnabled(!isActive);
+                });
+            }
+        }
+
+        const ssaoRadius = document.getElementById('ssaoRadius');
+        const ssaoRadiusValue = document.getElementById('ssaoRadiusValue');
+        if (ssaoRadius && ssaoRadiusValue) {
+            ssaoRadius.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                ssaoRadiusValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setSSAOSettings(
+                    value,
+                    parseInt(document.getElementById('ssaoSamples').value),
+                    parseFloat(document.getElementById('ssaoStrength').value)
+                );
+            });
+        }
+
+        const ssaoSamples = document.getElementById('ssaoSamples');
+        const ssaoSamplesValue = document.getElementById('ssaoSamplesValue');
+        if (ssaoSamples && ssaoSamplesValue) {
+            ssaoSamples.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                ssaoSamplesValue.textContent = value;
+                this.postProcessingManager.setSSAOSettings(
+                    parseFloat(document.getElementById('ssaoRadius').value),
+                    value,
+                    parseFloat(document.getElementById('ssaoStrength').value)
+                );
+            });
+        }
+
+        const ssaoStrength = document.getElementById('ssaoStrength');
+        const ssaoStrengthValue = document.getElementById('ssaoStrengthValue');
+        if (ssaoStrength && ssaoStrengthValue) {
+            ssaoStrength.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                ssaoStrengthValue.textContent = value.toFixed(1);
+                this.postProcessingManager.setSSAOSettings(
+                    parseFloat(document.getElementById('ssaoRadius').value),
+                    parseInt(document.getElementById('ssaoSamples').value),
+                    value
+                );
+            });
+        }
+
+        // Reset button
+        const resetBtn = document.getElementById('resetPostProcessing');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => {
+                this.resetPostProcessingToDefaults();
+            });
+        }
+    }
+
+    /**
+     * Update Post Processing UI with current settings
+     */
+    updatePostProcessingUI() {
+        if (!this.postProcessingManager) return;
+
+        const settings = this.postProcessingManager.getSettings();
+
+        // FXAA
+        const fxaaEnabled = document.getElementById('fxaaEnabled');
+        if (fxaaEnabled) {
+            if (settings.fxaa.enabled) {
+                fxaaEnabled.classList.add('active');
+            } else {
+                fxaaEnabled.classList.remove('active');
+            }
+        }
+
+        // Bloom
+        const bloomEnabled = document.getElementById('bloomEnabled');
+        if (bloomEnabled) {
+            if (settings.bloom.enabled) {
+                bloomEnabled.classList.add('active');
+            } else {
+                bloomEnabled.classList.remove('active');
+            }
+        }
+        this.updateRangeInput('bloomThreshold', settings.bloom.threshold, 'bloomThresholdValue', 2);
+        this.updateRangeInput('bloomWeight', settings.bloom.weight, 'bloomWeightValue', 2);
+        this.updateRangeInput('bloomKernelSize', settings.bloom.kernelSize, 'bloomKernelSizeValue', 0);
+        this.updateRangeInput('bloomScale', settings.bloom.scale, 'bloomScaleValue', 1);
+
+        // Color Correction
+        this.updateRangeInput('colorExposure', settings.colorCorrection.exposure, 'colorExposureValue', 1);
+        this.updateRangeInput('colorContrast', settings.colorCorrection.contrast, 'colorContrastValue', 1);
+        this.updateRangeInput('colorSaturation', settings.colorCorrection.saturation, 'colorSaturationValue', 1);
+
+        // Chromatic Aberration
+        const chromaticEnabled = document.getElementById('chromaticEnabled');
+        if (chromaticEnabled) {
+            if (settings.chromaticAberration.enabled) {
+                chromaticEnabled.classList.add('active');
+            } else {
+                chromaticEnabled.classList.remove('active');
+            }
+        }
+        this.updateRangeInput('chromaticAmount', settings.chromaticAberration.aberrationAmount, 'chromaticAmountValue', 1);
+        this.updateRangeInput('chromaticRadial', settings.chromaticAberration.radialIntensity, 'chromaticRadialValue', 1);
+
+        // Depth of Field
+        const dofEnabled = document.getElementById('dofEnabled');
+        if (dofEnabled) {
+            if (settings.depthOfField.enabled) {
+                dofEnabled.classList.add('active');
+            } else {
+                dofEnabled.classList.remove('active');
+            }
+        }
+        this.updateRangeInput('dofFocusDistance', settings.depthOfField.focusDistance, 'dofFocusDistanceValue', 0);
+        this.updateRangeInput('dofLensSize', settings.depthOfField.lensSize, 'dofLensSizeValue', 2);
+        this.updateRangeInput('dofFStop', settings.depthOfField.fStop, 'dofFStopValue', 1);
+
+        // Grain
+        const grainEnabled = document.getElementById('grainEnabled');
+        if (grainEnabled) {
+            if (settings.grain.enabled) {
+                grainEnabled.classList.add('active');
+            } else {
+                grainEnabled.classList.remove('active');
+            }
+        }
+        this.updateRangeInput('grainIntensity', settings.grain.intensity, 'grainIntensityValue', 1);
+        const grainAnimated = document.getElementById('grainAnimated');
+        if (grainAnimated) {
+            if (settings.grain.animated) {
+                grainAnimated.classList.add('active');
+            } else {
+                grainAnimated.classList.remove('active');
+            }
+        }
+
+        // Sharpen
+        const sharpenEnabled = document.getElementById('sharpenEnabled');
+        if (sharpenEnabled) {
+            if (settings.sharpen.enabled) {
+                sharpenEnabled.classList.add('active');
+            } else {
+                sharpenEnabled.classList.remove('active');
+            }
+        }
+        this.updateRangeInput('sharpenEdgeAmount', settings.sharpen.edgeAmount, 'sharpenEdgeAmountValue', 1);
+
+        // Vignette
+        const vignetteEnabled = document.getElementById('vignetteEnabled');
+        if (vignetteEnabled) {
+            if (settings.vignette.enabled) {
+                vignetteEnabled.classList.add('active');
+            } else {
+                vignetteEnabled.classList.remove('active');
+            }
+        }
+        this.updateRangeInput('vignetteScale', settings.vignette.scale, 'vignetteScaleValue', 1);
+        this.updateRangeInput('vignettePower', settings.vignette.power, 'vignettePowerValue', 1);
+
+        // SSAO
+        const ssaoEnabled = document.getElementById('ssaoEnabled');
+        if (ssaoEnabled) {
+            if (settings.ssao.enabled) {
+                ssaoEnabled.classList.add('active');
+            } else {
+                ssaoEnabled.classList.remove('active');
+            }
+        }
+        this.updateRangeInput('ssaoRadius', settings.ssao.radius, 'ssaoRadiusValue', 1);
+        this.updateRangeInput('ssaoSamples', settings.ssao.samples, 'ssaoSamplesValue', 0);
+        this.updateRangeInput('ssaoStrength', settings.ssao.strength, 'ssaoStrengthValue', 1);
+    }
+
+    /**
+     * Helper to update range input and value display
+     */
+    updateRangeInput(inputId, value, valueId, decimals) {
+        const input = document.getElementById(inputId);
+        const valueDisplay = document.getElementById(valueId);
+        if (input) {
+            input.value = value;
+        }
+        if (valueDisplay) {
+            valueDisplay.textContent = decimals === 0 ? value : value.toFixed(decimals);
+        }
+    }
+
+    /**
+     * Reset Post Processing to defaults
+     */
+    resetPostProcessingToDefaults() {
+        if (!this.postProcessingManager) return;
+
+        // Reset all settings to defaults
+        const defaultSettings = {
+            bloom: { enabled: false, threshold: 0.9, weight: 0.3, kernelSize: 64, scale: 0.5 },
+            blur: { enabled: false, kernel: 32 },
+            chromaticAberration: { enabled: false, aberrationAmount: 0.5, radialIntensity: 0.5, direction: { x: 1.0, y: 1.0 } },
+            colorCorrection: { enabled: false, exposure: 1.0, contrast: 1.0, saturation: 1.0 },
+            depthOfField: { enabled: false, focusDistance: 10.0, lensSize: 0.1, fStop: 1.4 },
+            fxaa: { enabled: false },
+            grain: { enabled: false, intensity: 0.5, animated: true },
+            sharpen: { enabled: false, edgeAmount: 0.3 },
+            vignette: { enabled: false, color: { r: 0, g: 0, b: 0, a: 1 }, scale: 0.5, power: 0.5 },
+            ssao: { enabled: false, radius: 2.0, samples: 16, strength: 1.0 }
+        };
+
+        this.postProcessingManager.applySettings(defaultSettings);
+        this.updatePostProcessingUI();
+    }
+
+    /**
+     * Open Surface Types Manager
+     */
+    openSurfaceTypesManager() {
+        if (!this.surfaceTypesManager) {
+            console.error('SurfaceTypesManager not available');
+            alert('Surface Types Manager is not initialized');
+            return;
+        }
+
+        const dialog = document.getElementById('surfaceTypesManagerDialog');
+        if (!dialog) {
+            console.error('Surface Types Manager dialog not found');
+            return;
+        }
+
+        // Store original data for cancel functionality
+        this.surfaceTypesOriginalData = {};
+        const categories = ['roadTypes', 'soilTypes', 'waterTypes', 'groundTypes', 'grassTypes', 'treeTypes', 'buildingArchyTypes', 'buildingGroups'];
+        categories.forEach(category => {
+            const types = this.surfaceTypesManager.getSurfaceTypes(category);
+            // Deep copy the data
+            this.surfaceTypesOriginalData[category] = JSON.parse(JSON.stringify(types));
+        });
+
+        // Reset tabs setup flag when opening dialog
+        this.surfaceTypesTabsSetup = false;
+
+        // Show dialog
+        dialog.style.display = 'flex';
+        
+        // Setup tabs
+        this.setupSurfaceTypesTabs();
+        
+        // Setup dialog event listeners
+        this.setupSurfaceTypesDialogListeners();
+        
+        // Load and display data
+        this.loadSurfaceTypesData();
+        
+        // Disable Save button initially
+        this.updateSaveButtonState(false);
+    }
+
+    /**
+     * Setup event listeners for Surface Types Manager dialog
+     */
+    setupSurfaceTypesDialogListeners() {
+        const dialog = document.getElementById('surfaceTypesManagerDialog');
+        const closeBtn = document.getElementById('surfaceTypesManagerDialogClose');
+        const cancelBtn = document.getElementById('surfaceTypesManagerDialogCancel');
+        const saveBtn = document.getElementById('surfaceTypesManagerDialogSave');
+
+        const closeDialog = () => {
+            if (dialog) {
+                dialog.style.display = 'none';
+            }
+        };
+
+        const cancelDialog = () => {
+            // Restore original data
+            if (this.surfaceTypesOriginalData && this.surfaceTypesManager) {
+                const categories = ['roadTypes', 'soilTypes', 'waterTypes', 'groundTypes', 'grassTypes', 'treeTypes', 'buildingArchyTypes', 'buildingGroups'];
+                categories.forEach(category => {
+                    if (this.surfaceTypesOriginalData[category]) {
+                        // Deep copy back
+                        this.surfaceTypesManager.surfaceTypes[category] = JSON.parse(JSON.stringify(this.surfaceTypesOriginalData[category]));
+                    }
+                });
+                // Reload data to reflect restored values
+                this.loadSurfaceTypesData();
+            }
+            // Disable Save button when canceling
+            this.updateSaveButtonState(false);
+            closeDialog();
+        };
+
+        const saveDialog = () => {
+            // Save to localStorage
+            if (this.surfaceTypesManager) {
+                // Validate and filter building archetypes before saving
+                if (this.buildingArchetypes && this.buildingArchetypes.length > 0) {
+                    // Validate all periods
+                    const validationResult = this.validateAllBuildingArchetypes();
+                    if (!validationResult.isValid) {
+                        alert(validationResult.message);
+                        // Highlight invalid fields
+                        this.highlightInvalidPeriodFields(validationResult.invalidFields);
+                        return; // Don't save if validation fails
+                    }
+
+                    // Filter out empty periods and archetypes without periods
+                    this.buildingArchetypes = this.buildingArchetypes.filter(archetype => {
+                        // Remove empty periods
+                        archetype.periods = archetype.periods.filter(period => {
+                            return Object.values(period).some(value => {
+                                if (value === null || value === undefined) return false;
+                                const strValue = value.toString().trim();
+                                return strValue !== '';
+                            });
+                        });
+                        // Keep only archetypes with at least one period
+                        return archetype.periods.length > 0;
+                    });
+
+                    // Convert to CSV format
+                    if (this.buildingArchetypes.length > 0) {
+                        const csvData = this.convertBuildingArchetypesToCSV(this.buildingArchetypes);
+                        this.surfaceTypesManager.surfaceTypes.buildingArchyTypes = csvData;
+                    } else {
+                        this.surfaceTypesManager.surfaceTypes.buildingArchyTypes = [];
+                    }
+                }
+
+                // Validate and filter building groups before saving
+                if (this.buildingGroups && this.buildingGroups.length > 0) {
+                    // Validate all periods
+                    const validationResult = this.validateAllBuildingGroups();
+                    if (!validationResult.isValid) {
+                        alert(validationResult.message);
+                        // Highlight invalid fields
+                        this.highlightInvalidGroupPeriodFields(validationResult.invalidFields);
+                        return; // Don't save if validation fails
+                    }
+
+                    // Filter out empty periods and groups without periods
+                    this.buildingGroups = this.buildingGroups.filter(group => {
+                        // Remove empty periods
+                        group.periods = group.periods.filter(period => {
+                            return Object.values(period).some(value => {
+                                if (value === null || value === undefined) return false;
+                                const strValue = value.toString().trim();
+                                return strValue !== '';
+                            });
+                        });
+                        // Keep only groups with at least one period
+                        return group.periods.length > 0;
+                    });
+
+                    // Convert to CSV format
+                    if (this.buildingGroups.length > 0) {
+                        const csvData = this.convertBuildingGroupsToCSV(this.buildingGroups);
+                        this.surfaceTypesManager.surfaceTypes.buildingGroups = csvData;
+                    } else {
+                        this.surfaceTypesManager.surfaceTypes.buildingGroups = [];
+                    }
+                }
+
+                // Filter out empty rows before saving
+                const categories = ['roadTypes', 'soilTypes', 'waterTypes', 'groundTypes', 'grassTypes', 'treeTypes', 'buildingArchyTypes', 'buildingGroups'];
+                categories.forEach(category => {
+                    const types = this.surfaceTypesManager.getSurfaceTypes(category);
+                    // Filter out rows where all values are empty
+                    const filteredTypes = types.filter(row => {
+                        // Check if at least one field has a value
+                        return Object.values(row).some(value => {
+                            if (value === null || value === undefined) return false;
+                            const strValue = value.toString().trim();
+                            return strValue !== '';
+                        });
+                    });
+                    // Update the types array with filtered data
+                    this.surfaceTypesManager.surfaceTypes[category] = filteredTypes;
+                });
+                
+                this.surfaceTypesManager.saveToLocalStorage();
+                
+                // Update original data to match saved data
+                categories.forEach(category => {
+                    const types = this.surfaceTypesManager.getSurfaceTypes(category);
+                    this.surfaceTypesOriginalData[category] = JSON.parse(JSON.stringify(types));
+                });
+                
+                // Disable Save button after saving
+                this.updateSaveButtonState(false);
+                
+                alert('Surface types saved successfully! (Empty rows and invalid data were removed)');
+            }
+            closeDialog();
+        };
+
+        if (closeBtn) {
+            closeBtn.onclick = cancelDialog;
+        }
+        if (cancelBtn) {
+            cancelBtn.onclick = cancelDialog;
+        }
+        if (saveBtn) {
+            saveBtn.onclick = saveDialog;
+        }
+
+        // Close on overlay click (cancel)
+        if (dialog) {
+            dialog.onclick = (e) => {
+                if (e.target === dialog) {
+                    cancelDialog();
+                }
+            };
+        }
+    }
+
+    /**
+     * Setup tab switching for Surface Types Manager
+     * Uses event delegation to prevent multiple event listeners
+     */
+    setupSurfaceTypesTabs() {
+        // Check if already set up
+        if (this.surfaceTypesTabsSetup) {
+            return; // Already set up, don't add listeners again
+        }
+
+        const dialog = document.getElementById('surfaceTypesManagerDialog');
+        if (!dialog) return;
+
+        // Use event delegation for tab buttons
+        dialog.addEventListener('click', (e) => {
+            // Handle tab button clicks
+            if (e.target.classList.contains('tab-button')) {
+                e.stopPropagation();
+                const targetTab = e.target.getAttribute('data-tab');
+                if (!targetTab) return;
+                
+                // Remove active class from all tabs and contents
+                document.querySelectorAll('#surfaceTypesManagerDialog .tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('#surfaceTypesManagerDialog .tab-content').forEach(content => content.classList.remove('active'));
+                
+                // Add active class to clicked tab and corresponding content
+                e.target.classList.add('active');
+                const targetContent = document.getElementById(`${targetTab}Tab`);
+                if (targetContent) {
+                    targetContent.classList.add('active');
+                }
+                
+                // Reload data for the selected tab
+                this.loadSurfaceTypesDataForCategory(targetTab);
+                return;
+            }
+            
+            // Handle Add Row button clicks
+            if (e.target.classList.contains('add-row-btn')) {
+                e.stopPropagation();
+                e.preventDefault();
+                const category = e.target.getAttribute('data-category');
+                if (category) {
+                    // Prevent multiple calls by checking if already processing
+                    if (e.target.dataset.processing === 'true') {
+                        return;
+                    }
+                    e.target.dataset.processing = 'true';
+                    this.addNewRow(category);
+                    // Reset after a short delay
+                    setTimeout(() => {
+                        e.target.dataset.processing = 'false';
+                    }, 500);
+                }
+                return;
+            }
+        });
+
+        // Mark as set up
+        this.surfaceTypesTabsSetup = true;
+    }
+
+    /**
+     * Load and display all surface types data
+     */
+    loadSurfaceTypesData() {
+        const categories = ['roadTypes', 'soilTypes', 'waterTypes', 'groundTypes', 'grassTypes', 'treeTypes', 'buildingArchyTypes', 'buildingGroups'];
+        categories.forEach(category => {
+            this.loadSurfaceTypesDataForCategory(category);
+        });
+    }
+
+    /**
+     * Load and display surface types data for a specific category
+     * @param {string} category - Category name (roadTypes, soilTypes, waterTypes, groundTypes, grassTypes, treeTypes, buildingArchyTypes, buildingGroups)
+     */
+    loadSurfaceTypesDataForCategory(category) {
+        if (!this.surfaceTypesManager) return;
+
+        // Special handling for buildingArchyTypes
+        if (category === 'buildingArchyTypes') {
+            this.loadBuildingArchetypesData();
+            return;
+        }
+
+        // Special handling for buildingGroups
+        if (category === 'buildingGroups') {
+            this.loadBuildingGroupsData();
+            return;
+        }
+
+        const types = this.surfaceTypesManager.getSurfaceTypes(category);
+        
+        // Get table elements
+        const tableHead = document.getElementById(`${category}TableHead`);
+        const tableBody = document.getElementById(`${category}TableBody`);
+        
+        if (!tableHead || !tableBody) {
+            console.error(`Table elements not found for ${category}`);
+            console.error(`Looking for: ${category}TableHead and ${category}TableBody`);
+            return;
+        }
+
+        // Clear existing content
+        tableHead.innerHTML = '';
+        tableBody.innerHTML = '';
+
+        // Get headers - if no data, use headers from original data or create empty row
+        let headers = [];
+        if (types.length > 0) {
+            headers = Object.keys(types[0]);
+        } else {
+            // If no data, try to get headers from original data
+            if (this.surfaceTypesOriginalData && this.surfaceTypesOriginalData[category] && this.surfaceTypesOriginalData[category].length > 0) {
+                headers = Object.keys(this.surfaceTypesOriginalData[category][0]);
+            } else {
+                // If still no headers, we can't create a table
+                console.warn(`No data and no headers found for ${category}`);
+                return;
+            }
+        }
+
+        // Create header row
+        const headerRow = document.createElement('tr');
+        headers.forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            headerRow.appendChild(th);
+        });
+        // Add Delete column header
+        const deleteHeader = document.createElement('th');
+        deleteHeader.textContent = 'Actions';
+        deleteHeader.style.width = '80px';
+        headerRow.appendChild(deleteHeader);
+        tableHead.appendChild(headerRow);
+
+        // Create data rows with editable inputs
+        types.forEach((type, rowIndex) => {
+            const row = document.createElement('tr');
+            headers.forEach((header, colIndex) => {
+                const td = document.createElement('td');
+                const value = type[header];
+                
+                // Create input field for editing
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'surface-type-input';
+                input.value = value !== null && value !== undefined ? value.toString() : '';
+                input.dataset.category = category;
+                input.dataset.rowIndex = rowIndex;
+                input.dataset.header = header;
+                
+                // Add event listener for changes
+                input.addEventListener('blur', () => {
+                    this.handleSurfaceTypeChange(category, rowIndex, header, input.value);
+                });
+                
+                // Also save on Enter key
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        input.blur();
+                    }
+                });
+                
+                td.appendChild(input);
+                row.appendChild(td);
+            });
+            
+            // Add Delete button cell
+            const deleteCell = document.createElement('td');
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn btn-secondary delete-row-btn';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.dataset.category = category;
+            deleteBtn.dataset.rowIndex = rowIndex;
+            deleteBtn.addEventListener('click', () => {
+                this.deleteRow(category, rowIndex);
+            });
+            deleteCell.appendChild(deleteBtn);
+            row.appendChild(deleteCell);
+            
+            tableBody.appendChild(row);
+        });
+    }
+
+    /**
+     * Handle surface type value change
+     * @param {string} category - Category name
+     * @param {number} rowIndex - Row index
+     * @param {string} header - Column header
+     * @param {string} newValue - New value
+     */
+    handleSurfaceTypeChange(category, rowIndex, header, newValue) {
+        if (!this.surfaceTypesManager) return;
+
+        const types = this.surfaceTypesManager.getSurfaceTypes(category);
+        if (rowIndex >= types.length) return;
+
+        const type = types[rowIndex];
+        const oldValue = type[header];
+        
+        // Try to parse as number if it's a number field
+        const numValue = parseFloat(newValue);
+        if (!isNaN(numValue) && newValue.trim() !== '') {
+            type[header] = numValue;
+        } else {
+            type[header] = newValue;
+        }
+
+        // Don't save to localStorage here - only save when Save button is clicked
+        // Changes are kept in memory until Save is clicked
+        
+        // Enable Save button when changes are made
+        this.updateSaveButtonState(true);
+        
+        console.log(`Updated ${category}[${rowIndex}].${header}: ${oldValue} -> ${type[header]} (not saved yet)`);
+    }
+
+    /**
+     * Add a new row to a surface type category
+     * @param {string} category - Category name (roadTypes, soilTypes, waterTypes, groundTypes, grassTypes, treeTypes)
+     */
+    addNewRow(category) {
+        if (!this.surfaceTypesManager) return;
+
+        const types = this.surfaceTypesManager.getSurfaceTypes(category);
+        
+        // Get headers from existing data or original data
+        let headers = [];
+        if (types.length > 0) {
+            headers = Object.keys(types[0]);
+        } else if (this.surfaceTypesOriginalData && this.surfaceTypesOriginalData[category] && this.surfaceTypesOriginalData[category].length > 0) {
+            headers = Object.keys(this.surfaceTypesOriginalData[category][0]);
+        } else {
+            alert('Cannot add row: No existing data structure found');
+            return;
+        }
+
+        // Create new empty object with all headers
+        const newRow = {};
+        headers.forEach(header => {
+            newRow[header] = '';
+        });
+
+        // Add to types array
+        types.push(newRow);
+        const newRowIndex = types.length - 1;
+
+        // Reload the table to show the new row
+        this.loadSurfaceTypesDataForCategory(category);
+        
+        // Enable Save button when a new row is added
+        this.updateSaveButtonState(true);
+        
+        // Scroll to the new row after a short delay to ensure DOM is updated
+        setTimeout(() => {
+            this.scrollToRow(category, newRowIndex);
+        }, 100);
+        
+        console.log(`Added new row to ${category}`);
+    }
+
+    /**
+     * Scroll to a specific row in the table
+     * @param {string} category - Category name
+     * @param {number} rowIndex - Index of the row to scroll to
+     */
+    scrollToRow(category, rowIndex) {
+        const tableBody = document.getElementById(`${category}TableBody`);
+        const tableContainer = tableBody ? tableBody.closest('.surface-types-table-container') : null;
+        
+        if (!tableBody || !tableContainer) {
+            console.warn(`Table elements not found for scrolling to row ${rowIndex} in ${category}`);
+            return;
+        }
+
+        // Get all rows
+        const rows = tableBody.querySelectorAll('tr');
+        if (rowIndex >= 0 && rowIndex < rows.length) {
+            const targetRow = rows[rowIndex];
+            
+            // Scroll the container to show the target row
+            const containerRect = tableContainer.getBoundingClientRect();
+            const rowRect = targetRow.getBoundingClientRect();
+            
+            // Calculate scroll position
+            const scrollTop = tableContainer.scrollTop;
+            const rowOffset = rowRect.top - containerRect.top + scrollTop;
+            
+            // Scroll to the row (with some padding at the top)
+            tableContainer.scrollTo({
+                top: rowOffset - 20, // 20px padding from top
+                behavior: 'smooth'
+            });
+            
+            // Also focus on the first input field of the new row
+            const firstInput = targetRow.querySelector('.surface-type-input');
+            if (firstInput) {
+                setTimeout(() => {
+                    firstInput.focus();
+                }, 200);
+            }
+        }
+    }
+
+    /**
+     * Delete a row from a surface type category
+     * @param {string} category - Category name (roadTypes, soilTypes, waterTypes, groundTypes, grassTypes, treeTypes)
+     * @param {number} rowIndex - Index of the row to delete
+     */
+    deleteRow(category, rowIndex) {
+        if (!this.surfaceTypesManager) return;
+
+        const types = this.surfaceTypesManager.getSurfaceTypes(category);
+        if (rowIndex < 0 || rowIndex >= types.length) {
+            console.error(`Invalid row index: ${rowIndex}`);
+            return;
+        }
+
+        // Confirm deletion
+        if (!confirm('Are you sure you want to delete this row?')) {
+            return;
+        }
+
+        // Remove the row from the array
+        types.splice(rowIndex, 1);
+
+        // Reload the table to reflect the deletion
+        this.loadSurfaceTypesDataForCategory(category);
+        
+        // Enable Save button when a row is deleted
+        this.updateSaveButtonState(true);
+        
+        console.log(`Deleted row ${rowIndex} from ${category}`);
+    }
+
+    /**
+     * Update Save button state (enabled/disabled)
+     * @param {boolean} enabled - Whether to enable the button
+     */
+    updateSaveButtonState(enabled) {
+        const saveBtn = document.getElementById('surfaceTypesManagerDialogSave');
+        if (saveBtn) {
+            saveBtn.disabled = !enabled;
+            if (enabled) {
+                saveBtn.classList.remove('btn-disabled');
+                saveBtn.style.opacity = '1';
+                saveBtn.style.cursor = 'pointer';
+            } else {
+                saveBtn.classList.add('btn-disabled');
+                saveBtn.style.opacity = '0.5';
+                saveBtn.style.cursor = 'not-allowed';
+            }
+        }
+    }
+
+    /**
+     * Import Surface Types from file
+     */
+    importSurfaceTypes() {
+        if (!this.surfaceTypesManager) {
+            console.error('SurfaceTypesManager not available');
+            alert('Surface Types Manager is not initialized');
+            return;
+        }
+
+        // Create file input
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const csvContent = event.target.result;
+                
+                // Ask user which category to import into
+                const category = prompt('Enter category (roadTypes, soilTypes, waterTypes, groundTypes, grassTypes, treeTypes, buildingArchyTypes, buildingGroups):');
+                if (!category || !['roadTypes', 'soilTypes', 'waterTypes', 'groundTypes', 'grassTypes', 'treeTypes', 'buildingArchyTypes', 'buildingGroups'].includes(category)) {
+                    alert('Invalid category');
+                    return;
+                }
+
+                try {
+                    this.surfaceTypesManager.importFromCSV(category, csvContent);
+                    alert(`Successfully imported ${category}`);
+                    console.log(`Imported ${category} from ${file.name}`);
+                } catch (error) {
+                    console.error('Error importing CSV:', error);
+                    alert('Error importing CSV file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    /**
+     * Export Surface Types to file
+     */
+    exportSurfaceTypes() {
+        if (!this.surfaceTypesManager) {
+            console.error('SurfaceTypesManager not available');
+            alert('Surface Types Manager is not initialized');
+            return;
+        }
+
+        // Ask user which category to export
+        const category = prompt('Enter category to export (roadTypes, soilTypes, waterTypes, groundTypes, grassTypes, treeTypes, buildingArchyTypes, buildingGroups) or "all" for all categories:');
+        if (!category) return;
+
+        if (category === 'all') {
+            // Export all categories
+            const categories = ['roadTypes', 'soilTypes', 'waterTypes', 'groundTypes', 'grassTypes', 'treeTypes', 'buildingArchyTypes', 'buildingGroups'];
+            categories.forEach(cat => {
+                this.surfaceTypesManager.downloadCSV(cat, `${cat}.csv`);
+            });
+            alert('All categories exported successfully');
+        } else if (['roadTypes', 'soilTypes', 'waterTypes', 'groundTypes', 'grassTypes', 'treeTypes', 'buildingArchyTypes', 'buildingGroups'].includes(category)) {
+            this.surfaceTypesManager.downloadCSV(category, `${category}.csv`);
+            alert(`${category} exported successfully`);
+        } else {
+            alert('Invalid category');
+        }
+    }
+
+    /**
+     * Load and display Building Archetypes data
+     */
+    loadBuildingArchetypesData() {
+        if (!this.surfaceTypesManager) return;
+
+        // Parse building archetypes from CSV structure
+        const rawData = this.surfaceTypesManager.getSurfaceTypes('buildingArchyTypes');
+        const archetypes = this.parseBuildingArchetypes(rawData);
+
+        // Store parsed archetypes
+        this.buildingArchetypes = archetypes;
+
+        // Populate archetype selector
+        this.populateArchetypeSelector(archetypes);
+
+        // Setup event listeners if not already set up
+        if (!this.buildingArchetypesListenersSetup) {
+            this.setupBuildingArchetypesListeners();
+            this.buildingArchetypesListenersSetup = true;
+        }
+
+        // If an archetype is selected, load it
+        const selector = document.getElementById('archetypeSelector');
+        if (selector && selector.value) {
+            this.loadArchetype(selector.value);
+        }
+    }
+
+    /**
+     * Parse building archetypes from raw CSV data
+     * @param {Array} rawData - Raw CSV data
+     * @returns {Array} Parsed archetypes array
+     */
+    parseBuildingArchetypes(rawData) {
+        const archetypes = [];
+        let currentArchetype = null;
+        let expectingConfig = false; // Track if we're expecting configuration rows
+
+        for (let i = 0; i < rawData.length; i++) {
+            const row = rawData[i];
+            
+            // Skip completely empty rows
+            const hasValue = Object.values(row).some(val => val !== null && val !== undefined && val.toString().trim() !== '');
+            if (!hasValue) {
+                // Empty row indicates end of current archetype
+                if (currentArchetype) {
+                    archetypes.push(currentArchetype);
+                    currentArchetype = null;
+                    expectingConfig = false;
+                }
+                continue;
+            }
+
+            // Get the first key and value from the row
+            const keys = Object.keys(row);
+            const firstKey = keys[0];
+            const firstValue = row[firstKey];
+
+            // Check if this row defines usage_group_building_name (start of new archetype)
+            if (firstKey === 'usage_group_building_name' && firstValue && firstValue.toString().trim() !== '') {
+                // Save previous archetype if exists
+                if (currentArchetype) {
+                    archetypes.push(currentArchetype);
+                }
+
+                // Start new archetype
+                currentArchetype = {
+                    usage_group_building_name: firstValue.toString().trim(),
+                    number_of_wall_layers: 1,
+                    number_of_roof_layers: 1,
+                    number_of_floor_layers: 1,
+                    periods: []
+                };
+                expectingConfig = true; // Next rows should be configuration
+                continue;
+            }
+
+            // If we have a current archetype and expecting configuration
+            if (currentArchetype && expectingConfig) {
+                // Check for number_of_wall_layers
+                if (firstKey === 'number_of_wall_layers' && firstValue && firstValue.toString().trim() !== '') {
+                    currentArchetype.number_of_wall_layers = parseInt(firstValue) || 1;
+                    continue;
+                }
+
+                // Check for number_of_roof_layers
+                if (firstKey === 'number_of_roof_layers' && firstValue && firstValue.toString().trim() !== '') {
+                    currentArchetype.number_of_roof_layers = parseInt(firstValue) || 1;
+                    continue;
+                }
+
+                // Check for number_of_floor_layers
+                if (firstKey === 'number_of_floor_layers' && firstValue && firstValue.toString().trim() !== '') {
+                    currentArchetype.number_of_floor_layers = parseInt(firstValue) || 1;
+                    continue;
+                }
+
+                // If we hit a header row (startPeriod as first key and value), we're done with config
+                if (firstKey === 'startPeriod' && firstValue === 'startPeriod') {
+                    expectingConfig = false;
+                    continue; // Skip header row
+                }
+            }
+
+            // If we have a current archetype and not expecting config, this should be a period row
+            if (currentArchetype && !expectingConfig) {
+                // Check if this is a header row (skip it)
+                if (firstKey === 'startPeriod' && firstValue === 'startPeriod') {
+                    continue; // Skip header row
+                }
+
+                // This is a period row - it should have startPeriod as a key
+                if (row.startPeriod !== undefined && row.startPeriod !== 'startPeriod') {
+                    currentArchetype.periods.push(row);
+                }
+            }
+
+            // If we don't have a current archetype and this is not a usage_group_building_name row,
+            // skip it (it might be a leftover config row from previous archetype or invalid data)
+            if (!currentArchetype && firstKey !== 'usage_group_building_name') {
+                continue;
+            }
+        }
+
+        // Add last archetype
+        if (currentArchetype) {
+            archetypes.push(currentArchetype);
+        }
+
+        // Filter out any invalid archetypes (those without proper usage_group_building_name)
+        const validArchetypes = archetypes.filter(archetype => {
+            return archetype.usage_group_building_name && 
+                   archetype.usage_group_building_name.trim() !== '' &&
+                   archetype.usage_group_building_name !== 'number_of_wall_layers' &&
+                   archetype.usage_group_building_name !== 'number_of_roof_layers' &&
+                   archetype.usage_group_building_name !== 'number_of_floor_layers';
+        });
+
+        return validArchetypes;
+    }
+
+    /**
+     * Populate archetype selector dropdown
+     * @param {Array} archetypes - Array of archetypes
+     */
+    populateArchetypeSelector(archetypes) {
+        const selector = document.getElementById('archetypeSelector');
+        if (!selector) return;
+
+        selector.innerHTML = ''; // Clear existing options
+        
+        // Only show archetypes that have a valid usage_group_building_name
+        archetypes.forEach((archetype, index) => {
+            // Filter out invalid archetypes (those without usage_group_building_name)
+            if (!archetype.usage_group_building_name || 
+                archetype.usage_group_building_name.trim() === '' ||
+                archetype.usage_group_building_name === 'number_of_wall_layers' ||
+                archetype.usage_group_building_name === 'number_of_roof_layers' ||
+                archetype.usage_group_building_name === 'number_of_floor_layers') {
+                return; // Skip invalid archetypes
+            }
+
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = archetype.usage_group_building_name || `Archetype ${index + 1}`;
+            selector.appendChild(option);
+        });
+    }
+
+    /**
+     * Setup event listeners for Building Archetypes
+     */
+    setupBuildingArchetypesListeners() {
+        // Archetype selector change
+        const selector = document.getElementById('archetypeSelector');
+        if (selector) {
+            selector.addEventListener('change', (e) => {
+                if (e.target.value !== '') {
+                    this.loadArchetype(e.target.value);
+                }
+            });
+        }
+
+        // Create new archetype button
+        const createNewBtn = document.getElementById('createNewArchetypeBtn');
+        if (createNewBtn) {
+            createNewBtn.addEventListener('click', () => {
+                this.createNewArchetype();
+            });
+        }
+
+        // Save configuration button
+        const saveConfigBtn = document.getElementById('saveArchetypeConfigBtn');
+        if (saveConfigBtn) {
+            saveConfigBtn.addEventListener('click', () => {
+                this.saveArchetypeConfiguration();
+            });
+        }
+
+        // Reset configuration button
+        const resetConfigBtn = document.getElementById('resetArchetypeConfigBtn');
+        if (resetConfigBtn) {
+            resetConfigBtn.addEventListener('click', () => {
+                this.resetArchetypeForm();
+            });
+        }
+
+        // Delete archetype button
+        const deleteBtn = document.getElementById('deleteArchetypeBtn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                this.deleteArchetype();
+            });
+        }
+
+        // Add period row button
+        const addPeriodBtn = document.getElementById('addPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.addEventListener('click', () => {
+                this.addPeriodRow();
+            });
+        }
+
+        // Layer number changes - rebuild table
+        const wallLayers = document.getElementById('wallLayers');
+        const roofLayers = document.getElementById('roofLayers');
+        const floorLayers = document.getElementById('floorLayers');
+        
+        [wallLayers, roofLayers, floorLayers].forEach(input => {
+            if (input) {
+                input.addEventListener('change', () => {
+                    // If an archetype is loaded, rebuild the table
+                    const selector = document.getElementById('archetypeSelector');
+                    if (selector && selector.value !== '') {
+                        this.rebuildArchetypeTable();
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Load an archetype into the form and table
+     * @param {string} archetypeIndex - Index of archetype in array
+     */
+    loadArchetype(archetypeIndex) {
+        if (!this.buildingArchetypes) return;
+
+        const index = parseInt(archetypeIndex);
+        if (isNaN(index) || index < 0 || index >= this.buildingArchetypes.length) return;
+
+        const archetype = this.buildingArchetypes[index];
+        this.currentArchetypeIndex = index;
+
+        // Fill form
+        document.getElementById('archetypeName').value = archetype.usage_group_building_name || '';
+        document.getElementById('wallLayers').value = archetype.number_of_wall_layers || 1;
+        document.getElementById('roofLayers').value = archetype.number_of_roof_layers || 1;
+        document.getElementById('floorLayers').value = archetype.number_of_floor_layers || 1;
+
+        // Show delete button
+        const deleteBtn = document.getElementById('deleteArchetypeBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'inline-block';
+        }
+
+        // Enable add period button
+        const addPeriodBtn = document.getElementById('addPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = false;
+        }
+
+        // Rebuild table
+        this.rebuildArchetypeTable();
+    }
+
+    /**
+     * Rebuild archetype table based on current layer configuration
+     */
+    rebuildArchetypeTable() {
+        if (!this.buildingArchetypes || this.currentArchetypeIndex === undefined) return;
+
+        const archetype = this.buildingArchetypes[this.currentArchetypeIndex];
+        const wallLayers = parseInt(document.getElementById('wallLayers').value) || 1;
+        const roofLayers = parseInt(document.getElementById('roofLayers').value) || 1;
+        const floorLayers = parseInt(document.getElementById('floorLayers').value) || 1;
+
+        // Update archetype layer counts
+        archetype.number_of_wall_layers = wallLayers;
+        archetype.number_of_roof_layers = roofLayers;
+        archetype.number_of_floor_layers = floorLayers;
+
+        // Generate headers based on layer counts
+        const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+
+        // Get table elements
+        const tableHead = document.getElementById('buildingArchyTypesTableHead');
+        const tableBody = document.getElementById('buildingArchyTypesTableBody');
+
+        if (!tableHead || !tableBody) return;
+
+        // Clear existing content
+        tableHead.innerHTML = '';
+        tableBody.innerHTML = '';
+
+        // Create header row
+        const headerRow = document.createElement('tr');
+        headers.forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            th.style.minWidth = '120px';
+            headerRow.appendChild(th);
+        });
+        // Add Actions column
+        const actionsHeader = document.createElement('th');
+        actionsHeader.textContent = 'Actions';
+        actionsHeader.style.width = '80px';
+        headerRow.appendChild(actionsHeader);
+        tableHead.appendChild(headerRow);
+
+        // Create data rows
+        archetype.periods.forEach((period, rowIndex) => {
+            const row = this.createArchetypePeriodRow(period, headers, rowIndex);
+            tableBody.appendChild(row);
+        });
+    }
+
+    /**
+     * Generate table headers based on layer counts
+     * @param {number} wallLayers - Number of wall layers
+     * @param {number} roofLayers - Number of roof layers
+     * @param {number} floorLayers - Number of floor layers
+     * @returns {Array} Array of header names
+     */
+    generateArchetypeHeaders(wallLayers, roofLayers, floorLayers) {
+        const headers = ['startPeriod', 'endPeriod', 'Uvalue_window(W/m2/K)', 'windowSHGC(-)', 'windowEmissivity(-)'];
+
+        // Add ThermalConductivity columns
+        for (let i = 1; i <= wallLayers; i++) {
+            headers.push(`ThermalConductivity_wall${i}[Wm-1K-1]`);
+        }
+        for (let i = 1; i <= roofLayers; i++) {
+            headers.push(`ThermalConductivity_roof${i}[Wm-1K-1]`);
+        }
+        for (let i = 1; i <= floorLayers; i++) {
+            headers.push(`ThermalConductivity_floor${i}[Wm-1K-1]`);
+        }
+
+        // Add SpecificHeat columns
+        for (let i = 1; i <= wallLayers; i++) {
+            headers.push(`SpecificHeat_wall${i}[Jkg-1K-1]`);
+        }
+        for (let i = 1; i <= roofLayers; i++) {
+            headers.push(`SpecificHeat_roof${i}[Jkg-1K-1]`);
+        }
+        for (let i = 1; i <= floorLayers; i++) {
+            headers.push(`SpecificHeat_floor${i}[Jkg-1K-1]`);
+        }
+
+        // Add Density columns
+        for (let i = 1; i <= wallLayers; i++) {
+            headers.push(`Density_wall${i}[kgm-3]`);
+        }
+        for (let i = 1; i <= roofLayers; i++) {
+            headers.push(`Density_roof${i}[kgm-3]`);
+        }
+        for (let i = 1; i <= floorLayers; i++) {
+            headers.push(`Density_floor${i}[kgm-3]`);
+        }
+
+        // Add Thickness columns
+        for (let i = 1; i <= wallLayers; i++) {
+            headers.push(`Thickness_wall${i}[m]`);
+        }
+        for (let i = 1; i <= roofLayers; i++) {
+            headers.push(`Thickness_roof${i}[m]`);
+        }
+        for (let i = 1; i <= floorLayers; i++) {
+            headers.push(`Thickness_floor${i}[m]`);
+        }
+
+        // Add Albedo and Emissivity columns
+        headers.push('wallAlbedo(-)', 'roofAlbedo(-)', 'floorAlbedo(-)');
+        headers.push('wallEmissivity(-)', 'roofEmissivity(-)', 'floorEmissivity(-)');
+
+        return headers;
+    }
+
+    /**
+     * Create a table row for a period
+     * @param {Object} period - Period data object
+     * @param {Array} headers - Array of header names
+     * @param {number} rowIndex - Index of the row
+     * @returns {HTMLElement} Table row element
+     */
+    createArchetypePeriodRow(period, headers, rowIndex) {
+        const row = document.createElement('tr');
+
+        headers.forEach(header => {
+            const td = document.createElement('td');
+            const value = period[header] !== undefined ? period[header] : '';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'surface-type-input';
+            input.value = value !== null && value !== undefined ? value.toString() : '';
+            input.dataset.category = 'buildingArchyTypes';
+            input.dataset.rowIndex = rowIndex;
+            input.dataset.header = header;
+            input.style.width = '100%';
+            input.style.padding = '3px';
+            
+            input.addEventListener('blur', () => {
+                this.handleArchetypePeriodChange(rowIndex, header, input.value);
+                this.validatePeriodField(input, header, input.value);
+            });
+            
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    input.blur();
+                }
+            });
+            
+            // Initial validation
+            this.validatePeriodField(input, header, input.value);
+            
+            td.appendChild(input);
+            row.appendChild(td);
+        });
+
+        // Add Delete button
+        const deleteCell = document.createElement('td');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-secondary delete-row-btn';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.dataset.rowIndex = rowIndex;
+        deleteBtn.addEventListener('click', () => {
+            this.deletePeriodRow(rowIndex);
+        });
+        deleteCell.appendChild(deleteBtn);
+        row.appendChild(deleteCell);
+
+        return row;
+    }
+
+    /**
+     * Validate a period field and apply red border if invalid
+     * @param {HTMLElement} input - Input element
+     * @param {string} header - Field header name
+     * @param {string} value - Field value
+     */
+    validatePeriodField(input, header, value) {
+        if (!input || !header) return true;
+        
+        const trimmedValue = value.toString().trim();
+        const isEmpty = trimmedValue === '' || trimmedValue === null || trimmedValue === undefined;
+        
+        // Check if this is a numeric field
+        const isNumericField = header.includes('ThermalConductivity') || 
+                              header.includes('SpecificHeat') || 
+                              header.includes('Density') || 
+                              header.includes('Thickness') ||
+                              header.includes('Uvalue') ||
+                              header.includes('SHGC') ||
+                              header.includes('Emissivity') ||
+                              header.includes('Albedo');
+        
+        let isValid = true;
+        if (isEmpty) {
+            isValid = false;
+        } else if (isNumericField) {
+            const numValue = parseFloat(trimmedValue);
+            if (isNaN(numValue)) {
+                isValid = false;
+            }
+        }
+        
+        // Apply red border if invalid
+        if (!isValid) {
+            input.style.border = '2px solid red';
+            input.style.backgroundColor = '#ffe6e6';
+        } else {
+            input.style.border = '';
+            input.style.backgroundColor = '';
+        }
+        
+        return isValid;
+    }
+
+    /**
+     * Validate a period field and apply red border if invalid
+     * @param {HTMLElement} input - Input element
+     * @param {string} header - Field header name
+     * @param {string} value - Field value
+     */
+    validatePeriodField(input, header, value) {
+        if (!input || !header) return true;
+        
+        const trimmedValue = value.toString().trim();
+        const isEmpty = trimmedValue === '' || trimmedValue === null || trimmedValue === undefined;
+        
+        // Check if this is a numeric field
+        const isNumericField = header.includes('ThermalConductivity') || 
+                              header.includes('SpecificHeat') || 
+                              header.includes('Density') || 
+                              header.includes('Thickness') ||
+                              header.includes('Uvalue') ||
+                              header.includes('SHGC') ||
+                              header.includes('Emissivity') ||
+                              header.includes('Albedo');
+        
+        let isValid = true;
+        if (isEmpty) {
+            isValid = false;
+        } else if (isNumericField) {
+            const numValue = parseFloat(trimmedValue);
+            if (isNaN(numValue)) {
+                isValid = false;
+            }
+        }
+        
+        // Apply red border if invalid
+        if (!isValid) {
+            input.style.border = '2px solid red';
+            input.style.backgroundColor = '#ffe6e6';
+        } else {
+            input.style.border = '';
+            input.style.backgroundColor = '';
+        }
+        
+        return isValid;
+    }
+
+    /**
+     * Handle period data change
+     * @param {number} rowIndex - Row index
+     * @param {string} header - Column header
+     * @param {string} newValue - New value
+     */
+    handleArchetypePeriodChange(rowIndex, header, newValue) {
+        if (!this.buildingArchetypes || this.currentArchetypeIndex === undefined) return;
+
+        const archetype = this.buildingArchetypes[this.currentArchetypeIndex];
+        if (rowIndex >= archetype.periods.length) return;
+
+        const period = archetype.periods[rowIndex];
+        const numValue = parseFloat(newValue);
+        period[header] = (!isNaN(numValue) && newValue.trim() !== '') ? numValue : newValue;
+
+        this.updateSaveButtonState(true);
+    }
+
+    /**
+     * Validate all building archetypes and their periods
+     * @returns {Object} Validation result with isValid, message, and invalidFields
+     */
+    validateAllBuildingArchetypes() {
+        if (!this.buildingArchetypes || this.buildingArchetypes.length === 0) {
+            return { isValid: true, message: '', invalidFields: [] };
+        }
+
+        const invalidFields = [];
+
+        this.buildingArchetypes.forEach((archetype, archetypeIndex) => {
+            if (!archetype.periods || archetype.periods.length === 0) {
+                invalidFields.push({
+                    archetypeIndex,
+                    archetypeName: archetype.usage_group_building_name,
+                    message: `Archetype "${archetype.usage_group_building_name}" has no period data`
+                });
+                return;
+            }
+
+            const wallLayers = archetype.number_of_wall_layers || 1;
+            const roofLayers = archetype.number_of_roof_layers || 1;
+            const floorLayers = archetype.number_of_floor_layers || 1;
+            const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+
+            archetype.periods.forEach((period, periodIndex) => {
+                headers.forEach(header => {
+                    const value = period[header];
+                    const trimmedValue = value !== null && value !== undefined ? value.toString().trim() : '';
+                    const isEmpty = trimmedValue === '';
+
+                    // Check if this is a numeric field
+                    const isNumericField = header.includes('ThermalConductivity') || 
+                                          header.includes('SpecificHeat') || 
+                                          header.includes('Density') || 
+                                          header.includes('Thickness') ||
+                                          header.includes('Uvalue') ||
+                                          header.includes('SHGC') ||
+                                          header.includes('Emissivity') ||
+                                          header.includes('Albedo');
+
+                    if (isEmpty) {
+                        invalidFields.push({
+                            archetypeIndex,
+                            periodIndex,
+                            header,
+                            archetypeName: archetype.usage_group_building_name,
+                            message: `Empty field "${header}" in period ${periodIndex + 1} of archetype "${archetype.usage_group_building_name}"`
+                        });
+                    } else if (isNumericField) {
+                        const numValue = parseFloat(trimmedValue);
+                        if (isNaN(numValue)) {
+                            invalidFields.push({
+                                archetypeIndex,
+                                periodIndex,
+                                header,
+                                archetypeName: archetype.usage_group_building_name,
+                                message: `Invalid numeric value "${trimmedValue}" in field "${header}" of period ${periodIndex + 1} of archetype "${archetype.usage_group_building_name}"`
+                            });
+                        }
+                    }
+                });
+            });
+        });
+
+        if (invalidFields.length > 0) {
+            const messages = invalidFields.map(f => f.message).slice(0, 5); // Show first 5 errors
+            const message = `Please fix the following errors before saving:\n\n${messages.join('\n')}${invalidFields.length > 5 ? `\n... and ${invalidFields.length - 5} more errors` : ''}`;
+            return { isValid: false, message, invalidFields };
+        }
+
+        return { isValid: true, message: '', invalidFields: [] };
+    }
+
+    /**
+     * Highlight invalid period fields in the table
+     * @param {Array} invalidFields - Array of invalid field information
+     */
+    highlightInvalidPeriodFields(invalidFields) {
+        if (!invalidFields || invalidFields.length === 0) return;
+
+        const tableBody = document.getElementById('buildingArchyTypesTableBody');
+        if (!tableBody) return;
+
+        const rows = tableBody.querySelectorAll('tr');
+        
+        invalidFields.forEach(field => {
+            if (field.periodIndex !== undefined && field.header) {
+                const row = rows[field.periodIndex];
+                if (row) {
+                    const inputs = row.querySelectorAll('input');
+                    inputs.forEach(input => {
+                        if (input.dataset.header === field.header) {
+                            input.style.border = '2px solid red';
+                            input.style.backgroundColor = '#ffe6e6';
+                            input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    /**
+     * Add a new period row with default values
+     */
+    addPeriodRow() {
+        if (!this.buildingArchetypes || this.currentArchetypeIndex === undefined) return;
+
+        const archetype = this.buildingArchetypes[this.currentArchetypeIndex];
+        const wallLayers = archetype.number_of_wall_layers || 1;
+        const roofLayers = archetype.number_of_roof_layers || 1;
+        const floorLayers = archetype.number_of_floor_layers || 1;
+
+        // Create new period with default values
+        const newPeriod = this.createDefaultPeriod(wallLayers, roofLayers, floorLayers);
+
+        archetype.periods.push(newPeriod);
+        const newRowIndex = archetype.periods.length - 1;
+
+        // Rebuild table
+        this.rebuildArchetypeTable();
+
+        // Scroll to new row
+        setTimeout(() => {
+            const tableBody = document.getElementById('buildingArchyTypesTableBody');
+            if (tableBody) {
+                const rows = tableBody.querySelectorAll('tr');
+                if (newRowIndex < rows.length) {
+                    rows[newRowIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        }, 100);
+
+        this.updateSaveButtonState(true);
+    }
+
+    /**
+     * Delete a period row
+     * @param {number} rowIndex - Index of row to delete
+     */
+    deletePeriodRow(rowIndex) {
+        if (!this.buildingArchetypes || this.currentArchetypeIndex === undefined) return;
+
+        const archetype = this.buildingArchetypes[this.currentArchetypeIndex];
+        if (rowIndex >= 0 && rowIndex < archetype.periods.length) {
+            archetype.periods.splice(rowIndex, 1);
+            this.rebuildArchetypeTable();
+            this.updateSaveButtonState(true);
+        }
+    }
+
+    /**
+     * Create default period data based on layer counts
+     * @param {number} wallLayers - Number of wall layers
+     * @param {number} roofLayers - Number of roof layers
+     * @param {number} floorLayers - Number of floor layers
+     * @returns {Object} Default period object
+     */
+    createDefaultPeriod(wallLayers, roofLayers, floorLayers) {
+        const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+        const defaultPeriod = {};
+        
+        // Default values for 1 layer case
+        const defaultValues = {
+            'startPeriod': '2010',
+            'endPeriod': '2013',
+            'Uvalue_window(W/m2/K)': 1.6,
+            'windowSHGC(-)': 0.31,
+            'windowEmissivity(-)': 0.84,
+            'ThermalConductivity_wall1[Wm-1K-1]': 0.8,
+            'ThermalConductivity_roof1[Wm-1K-1]': 0.8,
+            'ThermalConductivity_floor1[Wm-1K-1]': 0.8,
+            'SpecificHeat_wall1[Jkg-1K-1]': 800,
+            'SpecificHeat_roof1[Jkg-1K-1]': 800,
+            'SpecificHeat_floor1[Jkg-1K-1]': 800,
+            'Density_wall1[kgm-3]': 2000,
+            'Density_roof1[kgm-3]': 2000,
+            'Density_floor1[kgm-3]': 2000,
+            'Thickness_wall1[m]': 0.2,
+            'Thickness_roof1[m]': 0.2,
+            'Thickness_floor1[m]': 0.2,
+            'wallAlbedo(-)': 0.3,
+            'roofAlbedo(-)': 0.1,
+            'floorAlbedo(-)': 0.7,
+            'wallEmissivity(-)': 0.8,
+            'roofEmissivity(-)': 0.8,
+            'floorEmissivity(-)': 0.8
+        };
+
+        headers.forEach(header => {
+            if (defaultValues[header] !== undefined) {
+                defaultPeriod[header] = defaultValues[header];
+            } else {
+                // For additional layers (wall2, roof2, etc.), copy from layer 1
+                if (header.includes('_wall') && !header.includes('_wall1')) {
+                    const layer1Header = header.replace(/wall\d+/, 'wall1');
+                    defaultPeriod[header] = defaultPeriod[layer1Header] || defaultValues[layer1Header] || '';
+                } else if (header.includes('_roof') && !header.includes('_roof1')) {
+                    const layer1Header = header.replace(/roof\d+/, 'roof1');
+                    defaultPeriod[header] = defaultPeriod[layer1Header] || defaultValues[layer1Header] || '';
+                } else if (header.includes('_floor') && !header.includes('_floor1')) {
+                    const layer1Header = header.replace(/floor\d+/, 'floor1');
+                    defaultPeriod[header] = defaultPeriod[layer1Header] || defaultValues[layer1Header] || '';
+                } else {
+                    defaultPeriod[header] = '';
+                }
+            }
+        });
+
+        return defaultPeriod;
+    }
+
+    /**
+     * Save archetype configuration
+     */
+    saveArchetypeConfiguration() {
+        const name = document.getElementById('archetypeName').value.trim();
+        if (!name) {
+            alert('Please enter a Usage Group Building Name');
+            return;
+        }
+
+        const wallLayers = parseInt(document.getElementById('wallLayers').value) || 1;
+        const roofLayers = parseInt(document.getElementById('roofLayers').value) || 1;
+        const floorLayers = parseInt(document.getElementById('floorLayers').value) || 1;
+
+        if (!this.buildingArchetypes) {
+            this.buildingArchetypes = [];
+        }
+
+        const isNewArchetype = this.currentArchetypeIndex === undefined;
+
+        if (this.currentArchetypeIndex !== undefined) {
+            // Update existing archetype
+            const archetype = this.buildingArchetypes[this.currentArchetypeIndex];
+            const oldWallLayers = archetype.number_of_wall_layers || 1;
+            const oldRoofLayers = archetype.number_of_roof_layers || 1;
+            const oldFloorLayers = archetype.number_of_floor_layers || 1;
+            
+            archetype.usage_group_building_name = name;
+            archetype.number_of_wall_layers = wallLayers;
+            archetype.number_of_roof_layers = roofLayers;
+            archetype.number_of_floor_layers = floorLayers;
+
+            // If layers increased, copy layer 1 values to new layers
+            if (wallLayers > oldWallLayers || roofLayers > oldRoofLayers || floorLayers > oldFloorLayers) {
+                this.copyLayer1ValuesToNewLayers(archetype, oldWallLayers, oldRoofLayers, oldFloorLayers, wallLayers, roofLayers, floorLayers);
+            }
+        } else {
+            // Create new archetype with default period
+            const newArchetype = {
+                usage_group_building_name: name,
+                number_of_wall_layers: wallLayers,
+                number_of_roof_layers: roofLayers,
+                number_of_floor_layers: floorLayers,
+                periods: []
+            };
+            
+            // Add default period for new archetype
+            const defaultPeriod = this.createDefaultPeriod(wallLayers, roofLayers, floorLayers);
+            newArchetype.periods.push(defaultPeriod);
+            
+            this.buildingArchetypes.push(newArchetype);
+            this.currentArchetypeIndex = this.buildingArchetypes.length - 1;
+
+            // Update selector
+            this.populateArchetypeSelector(this.buildingArchetypes);
+            document.getElementById('archetypeSelector').value = this.currentArchetypeIndex;
+        }
+
+        // Rebuild table
+        this.rebuildArchetypeTable();
+
+        // Show delete button
+        const deleteBtn = document.getElementById('deleteArchetypeBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'inline-block';
+        }
+
+        // Enable add period button
+        const addPeriodBtn = document.getElementById('addPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = false;
+        }
+
+        this.updateSaveButtonState(true);
+    }
+
+    /**
+     * Copy layer 1 values to new layers when layer count increases
+     * @param {Object} archetype - Archetype object
+     * @param {number} oldWallLayers - Previous wall layer count
+     * @param {number} oldRoofLayers - Previous roof layer count
+     * @param {number} oldFloorLayers - Previous floor layer count
+     * @param {number} newWallLayers - New wall layer count
+     * @param {number} newRoofLayers - New roof layer count
+     * @param {number} newFloorLayers - New floor layer count
+     */
+    copyLayer1ValuesToNewLayers(archetype, oldWallLayers, oldRoofLayers, oldFloorLayers, newWallLayers, newRoofLayers, newFloorLayers) {
+        const headers = this.generateArchetypeHeaders(newWallLayers, newRoofLayers, newFloorLayers);
+        
+        archetype.periods.forEach(period => {
+            headers.forEach(header => {
+                // Check if this is a new layer header (wall2, roof2, etc.)
+                const wallMatch = header.match(/^(.+)_wall(\d+)\[/);
+                const roofMatch = header.match(/^(.+)_roof(\d+)\[/);
+                const floorMatch = header.match(/^(.+)_floor(\d+)\[/);
+                
+                if (wallMatch) {
+                    const prop = wallMatch[1];
+                    const layerNum = parseInt(wallMatch[2]);
+                    if (layerNum > oldWallLayers && layerNum <= newWallLayers) {
+                        const layer1Header = `${prop}_wall1[${header.split('[')[1]}`;
+                        if (period[layer1Header] !== undefined) {
+                            period[header] = period[layer1Header];
+                        }
+                    }
+                } else if (roofMatch) {
+                    const prop = roofMatch[1];
+                    const layerNum = parseInt(roofMatch[2]);
+                    if (layerNum > oldRoofLayers && layerNum <= newRoofLayers) {
+                        const layer1Header = `${prop}_roof1[${header.split('[')[1]}`;
+                        if (period[layer1Header] !== undefined) {
+                            period[header] = period[layer1Header];
+                        }
+                    }
+                } else if (floorMatch) {
+                    const prop = floorMatch[1];
+                    const layerNum = parseInt(floorMatch[2]);
+                    if (layerNum > oldFloorLayers && layerNum <= newFloorLayers) {
+                        const layer1Header = `${prop}_floor1[${header.split('[')[1]}`;
+                        if (period[layer1Header] !== undefined) {
+                            period[header] = period[layer1Header];
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * Create new archetype (reset form and clear period data)
+     */
+    createNewArchetype() {
+        // Reset form
+        document.getElementById('archetypeName').value = '';
+        document.getElementById('wallLayers').value = 1;
+        document.getElementById('roofLayers').value = 1;
+        document.getElementById('floorLayers').value = 1;
+
+        // Clear selector
+        const selector = document.getElementById('archetypeSelector');
+        if (selector) {
+            selector.value = '';
+        }
+
+        // Hide delete button
+        const deleteBtn = document.getElementById('deleteArchetypeBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'none';
+        }
+
+        // Enable add period button
+        const addPeriodBtn = document.getElementById('addPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = false;
+        }
+
+        // Reset current archetype index
+        this.currentArchetypeIndex = undefined;
+
+        // Clear period data table
+        const tableHead = document.getElementById('buildingArchyTypesTableHead');
+        const tableBody = document.getElementById('buildingArchyTypesTableBody');
+        if (tableHead) tableHead.innerHTML = '';
+        if (tableBody) tableBody.innerHTML = '';
+
+        // Focus on name input
+        setTimeout(() => {
+            document.getElementById('archetypeName').focus();
+        }, 100);
+    }
+
+    /**
+     * Create new archetype (reset form and clear period data)
+     */
+    createNewArchetype() {
+        // Reset form
+        document.getElementById('archetypeName').value = '';
+        document.getElementById('wallLayers').value = 1;
+        document.getElementById('roofLayers').value = 1;
+        document.getElementById('floorLayers').value = 1;
+
+        // Clear selector
+        const selector = document.getElementById('archetypeSelector');
+        if (selector) {
+            selector.value = '';
+        }
+
+        // Hide delete button
+        const deleteBtn = document.getElementById('deleteArchetypeBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'none';
+        }
+
+        // Enable add period button
+        const addPeriodBtn = document.getElementById('addPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = false;
+        }
+
+        // Reset current archetype index
+        this.currentArchetypeIndex = undefined;
+
+        // Clear period data table
+        const tableHead = document.getElementById('buildingArchyTypesTableHead');
+        const tableBody = document.getElementById('buildingArchyTypesTableBody');
+        if (tableHead) tableHead.innerHTML = '';
+        if (tableBody) tableBody.innerHTML = '';
+
+        // Focus on name input
+        setTimeout(() => {
+            document.getElementById('archetypeName').focus();
+        }, 100);
+    }
+
+    /**
+     * Reset archetype form
+     */
+    resetArchetypeForm() {
+        document.getElementById('archetypeName').value = '';
+        document.getElementById('wallLayers').value = 1;
+        document.getElementById('roofLayers').value = 1;
+        document.getElementById('floorLayers').value = 1;
+
+        const selector = document.getElementById('archetypeSelector');
+        if (selector) {
+            selector.value = '';
+        }
+
+        const deleteBtn = document.getElementById('deleteArchetypeBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'none';
+        }
+
+        const addPeriodBtn = document.getElementById('addPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = true;
+        }
+
+        this.currentArchetypeIndex = undefined;
+
+        // Clear table
+        const tableHead = document.getElementById('buildingArchyTypesTableHead');
+        const tableBody = document.getElementById('buildingArchyTypesTableBody');
+        if (tableHead) tableHead.innerHTML = '';
+        if (tableBody) tableBody.innerHTML = '';
+    }
+
+    /**
+     * Delete current archetype
+     */
+    deleteArchetype() {
+        if (this.currentArchetypeIndex === undefined || !this.buildingArchetypes) return;
+
+        if (confirm('Are you sure you want to delete this archetype?')) {
+            this.buildingArchetypes.splice(this.currentArchetypeIndex, 1);
+            this.populateArchetypeSelector(this.buildingArchetypes);
+            this.resetArchetypeForm();
+            this.updateSaveButtonState(true);
+        }
+    }
+
+    /**
+     * Convert building archetypes to CSV format
+     * CSV structure:
+     * Row 1: usage_group_building_name,value
+     * Row 2: number_of_wall_layers,value
+     * Row 3: number_of_roof_layers,value
+     * Row 4: number_of_floor_layers,value
+     * Row 5: header row (all headers)
+     * Rows 6+: period data rows
+     * Empty row between archetypes
+     * 
+     * @param {Array} archetypes - Array of archetype objects
+     * @returns {Array} Array of CSV row objects
+     */
+    convertBuildingArchetypesToCSV(archetypes) {
+        const csvRows = [];
+
+        archetypes.forEach((archetype, archetypeIndex) => {
+            // Row 1: usage_group_building_name (only this field, value in second column)
+            const row1 = {};
+            row1.usage_group_building_name = archetype.usage_group_building_name || '';
+            csvRows.push(row1);
+
+            // Row 2: number_of_wall_layers (only this field, value in second column)
+            const row2 = {};
+            row2.number_of_wall_layers = archetype.number_of_wall_layers || 1;
+            csvRows.push(row2);
+
+            // Row 3: number_of_roof_layers (only this field, value in second column)
+            const row3 = {};
+            row3.number_of_roof_layers = archetype.number_of_roof_layers || 1;
+            csvRows.push(row3);
+
+            // Row 4: number_of_floor_layers (only this field, value in second column)
+            const row4 = {};
+            row4.number_of_floor_layers = archetype.number_of_floor_layers || 1;
+            csvRows.push(row4);
+
+            // Row 5: Header row for periods (all headers in one row)
+            const wallLayers = archetype.number_of_wall_layers || 1;
+            const roofLayers = archetype.number_of_roof_layers || 1;
+            const floorLayers = archetype.number_of_floor_layers || 1;
+            const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+            
+            const headerRow = {};
+            headers.forEach(header => {
+                headerRow[header] = header;
+            });
+            csvRows.push(headerRow);
+
+            // Rows 6+: Period data rows (all fields in one row)
+            archetype.periods.forEach(period => {
+                const periodRow = {};
+                headers.forEach(header => {
+                    periodRow[header] = period[header] !== undefined ? period[header] : '';
+                });
+                csvRows.push(periodRow);
+            });
+
+            // Add empty row between archetypes (except for the last one)
+            if (archetypeIndex < archetypes.length - 1) {
+                csvRows.push({});
+            }
+        });
+
+        return csvRows;
+    }
+
+    /**
+     * Load and display Building Groups data
+     */
+    loadBuildingGroupsData() {
+        if (!this.surfaceTypesManager) return;
+
+        // Parse building groups from CSV structure
+        const rawData = this.surfaceTypesManager.getSurfaceTypes('buildingGroups');
+        let groups = this.parseBuildingGroups(rawData);
+
+        // If no groups exist, create default group1 with default period
+        if (!groups || groups.length === 0) {
+            const defaultGroup = {
+                group_name: 'group1',
+                number_of_wall_layers: 1,
+                number_of_roof_layers: 1,
+                number_of_floor_layers: 1,
+                periods: []
+            };
+            
+            // Add default period
+            const defaultPeriod = this.createDefaultPeriod(1, 1, 1);
+            defaultGroup.periods.push(defaultPeriod);
+            
+            groups = [defaultGroup];
+        }
+
+        // Store parsed groups
+        this.buildingGroups = groups;
+
+        // Populate group selector
+        this.populateGroupSelector(groups);
+
+        // Setup event listeners if not already set up
+        if (!this.buildingGroupsListenersSetup) {
+            this.setupBuildingGroupsListeners();
+            this.buildingGroupsListenersSetup = true;
+        }
+
+        // If a group is selected, load it
+        const selector = document.getElementById('groupSelector');
+        if (selector && selector.value) {
+            this.loadGroup(selector.value);
+        }
+    }
+
+    /**
+     * Parse building groups from raw CSV data
+     * CSV structure can be:
+     * 1. Standard structure (like buildingArchyTypes): usage_group_building_name, number_of_*, header row, period rows
+     * 2. Simple structure: header row, then period rows with group_name in first column
+     * @param {Array} rawData - Raw CSV data
+     * @returns {Array} Parsed groups array
+     */
+    parseBuildingGroups(rawData) {
+        const groups = [];
+        let currentGroup = null;
+        let expectingConfig = false;
+        let isSimpleStructure = false;
+
+        // Check if this is simple structure (first row is header with usage_group_building_name and startPeriod)
+        if (rawData.length > 0) {
+            const firstRow = rawData[0];
+            const keys = Object.keys(firstRow);
+            if (keys.includes('usage_group_building_name') && keys.includes('startPeriod')) {
+                // Check if first row is a header row
+                const firstRowGroupName = firstRow.usage_group_building_name;
+                const firstRowStartPeriod = firstRow.startPeriod;
+                
+                // Header row has usage_group_building_name = 'usage_group_building_name' or 'startPeriod'
+                // and startPeriod = 'startPeriod'
+                if ((firstRowGroupName === 'usage_group_building_name' || firstRowGroupName === 'startPeriod') &&
+                    firstRowStartPeriod === 'startPeriod') {
+                    isSimpleStructure = true;
+                }
+            }
+        }
+
+        for (let i = 0; i < rawData.length; i++) {
+            const row = rawData[i];
+            
+            // Skip completely empty rows
+            const hasValue = Object.values(row).some(val => val !== null && val !== undefined && val.toString().trim() !== '');
+            if (!hasValue) {
+                if (currentGroup) {
+                    groups.push(currentGroup);
+                    currentGroup = null;
+                    expectingConfig = false;
+                }
+                continue;
+            }
+
+            // Get the first key and value from the row
+            const keys = Object.keys(row);
+            const firstKey = keys[0];
+            const firstValue = row[firstKey];
+
+            // Handle simple structure (header row, then period rows)
+            if (isSimpleStructure && i === 0) {
+                // Skip header row
+                continue;
+            }
+
+            if (isSimpleStructure && i > 0) {
+                // Each row is a period with group_name in usage_group_building_name column
+                const groupName = row.usage_group_building_name;
+                const trimmedGroupName = groupName ? groupName.toString().trim() : '';
+                
+                // Skip invalid rows (header row, empty, or reserved names)
+                if (!trimmedGroupName || 
+                    trimmedGroupName === '' || 
+                    trimmedGroupName === 'startPeriod' ||
+                    trimmedGroupName === 'endPeriod' ||
+                    trimmedGroupName === 'usage_group_building_name') {
+                    continue;
+                }
+
+                // Find or create group
+                let group = groups.find(g => g.group_name === groupName.toString().trim());
+                if (!group) {
+                    group = {
+                        group_name: groupName.toString().trim(),
+                        number_of_wall_layers: 1,
+                        number_of_roof_layers: 1,
+                        number_of_floor_layers: 1,
+                        periods: []
+                    };
+                    groups.push(group);
+                }
+
+                // Add period (skip if it's a header row)
+                if (row.startPeriod && row.startPeriod.toString().trim() !== 'startPeriod' && row.startPeriod.toString().trim() !== '') {
+                    group.periods.push(row);
+                }
+                continue;
+            }
+
+            // Handle standard structure (like buildingArchyTypes)
+            // Check if this row defines usage_group_building_name (start of new group)
+            // But skip if it's a header row (value is 'usage_group_building_name' or 'startPeriod')
+            if (firstKey === 'usage_group_building_name' && firstValue && firstValue.toString().trim() !== '') {
+                const trimmedValue = firstValue.toString().trim();
+                // Skip header rows
+                if (trimmedValue === 'usage_group_building_name' || 
+                    trimmedValue === 'startPeriod' || 
+                    trimmedValue === 'endPeriod') {
+                    continue;
+                }
+
+                if (currentGroup) {
+                    groups.push(currentGroup);
+                }
+
+                currentGroup = {
+                    group_name: trimmedValue,
+                    number_of_wall_layers: 1,
+                    number_of_roof_layers: 1,
+                    number_of_floor_layers: 1,
+                    periods: []
+                };
+                expectingConfig = true;
+                continue;
+            }
+
+            // If we have a current group and expecting configuration
+            if (currentGroup && expectingConfig) {
+                if (firstKey === 'number_of_wall_layers' && firstValue && firstValue.toString().trim() !== '') {
+                    currentGroup.number_of_wall_layers = parseInt(firstValue) || 1;
+                    continue;
+                }
+
+                if (firstKey === 'number_of_roof_layers' && firstValue && firstValue.toString().trim() !== '') {
+                    currentGroup.number_of_roof_layers = parseInt(firstValue) || 1;
+                    continue;
+                }
+
+                if (firstKey === 'number_of_floor_layers' && firstValue && firstValue.toString().trim() !== '') {
+                    currentGroup.number_of_floor_layers = parseInt(firstValue) || 1;
+                    continue;
+                }
+
+                if (firstKey === 'startPeriod' && firstValue === 'startPeriod') {
+                    expectingConfig = false;
+                    continue;
+                }
+            }
+
+            // If we have a current group and not expecting config, this should be a period row
+            if (currentGroup && !expectingConfig) {
+                // Skip header row
+                if (firstKey === 'startPeriod' && firstValue === 'startPeriod') {
+                    continue;
+                }
+
+                // Check if this is a valid period row (has startPeriod but it's not the header)
+                if (row.startPeriod !== undefined && row.startPeriod !== 'startPeriod' && row.startPeriod !== '') {
+                    const startPeriodValue = row.startPeriod.toString().trim();
+                    if (startPeriodValue !== 'startPeriod' && startPeriodValue !== '') {
+                        currentGroup.periods.push(row);
+                    }
+                }
+            }
+
+            if (!currentGroup && firstKey !== 'usage_group_building_name') {
+                continue;
+            }
+        }
+
+        if (currentGroup) {
+            groups.push(currentGroup);
+        }
+
+        // Filter out any invalid groups and remove empty periods
+        const validGroups = groups.filter(group => {
+            // Filter out periods that are header rows or empty
+            if (group.periods) {
+                group.periods = group.periods.filter(period => {
+                    // Check if this period is a header row
+                    if (period.startPeriod === 'startPeriod' || period.startPeriod === '' || 
+                        period.startPeriod === null || period.startPeriod === undefined) {
+                        return false;
+                    }
+                    // Check if period has at least one non-empty value
+                    return Object.values(period).some(value => {
+                        if (value === null || value === undefined) return false;
+                        const strValue = value.toString().trim();
+                        return strValue !== '' && strValue !== 'startPeriod';
+                    });
+                });
+            }
+            
+            // Filter out invalid group names
+            const groupName = group.group_name ? group.group_name.toString().trim() : '';
+            return groupName !== '' &&
+                   groupName !== 'number_of_wall_layers' &&
+                   groupName !== 'number_of_roof_layers' &&
+                   groupName !== 'number_of_floor_layers' &&
+                   groupName !== 'startPeriod' &&
+                   groupName !== 'endPeriod' &&
+                   groupName !== 'usage_group_building_name';
+        });
+
+        return validGroups;
+    }
+
+    /**
+     * Populate group selector dropdown
+     * @param {Array} groups - Array of groups
+     */
+    populateGroupSelector(groups) {
+        const selector = document.getElementById('groupSelector');
+        if (!selector) return;
+
+        selector.innerHTML = '';
+        
+        groups.forEach((group, index) => {
+            if (!group.group_name || 
+                group.group_name.trim() === '' ||
+                group.group_name === 'number_of_wall_layers' ||
+                group.group_name === 'number_of_roof_layers' ||
+                group.group_name === 'number_of_floor_layers' ||
+                group.group_name === 'startPeriod' ||
+                group.group_name === 'endPeriod' ||
+                group.group_name === 'usage_group_building_name') {
+                return; // Skip invalid groups
+            }
+
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = group.group_name || `Group ${index + 1}`;
+            selector.appendChild(option);
+        });
+    }
+
+    /**
+     * Setup event listeners for Building Groups
+     */
+    setupBuildingGroupsListeners() {
+        // Group selector change
+        const selector = document.getElementById('groupSelector');
+        if (selector) {
+            selector.addEventListener('change', (e) => {
+                if (e.target.value !== '') {
+                    this.loadGroup(e.target.value);
+                }
+            });
+        }
+
+        // Create new group button
+        const createNewBtn = document.getElementById('createNewGroupBtn');
+        if (createNewBtn) {
+            createNewBtn.addEventListener('click', () => {
+                this.createNewGroup();
+            });
+        }
+
+        // Save configuration button
+        const saveConfigBtn = document.getElementById('saveGroupConfigBtn');
+        if (saveConfigBtn) {
+            saveConfigBtn.addEventListener('click', () => {
+                this.saveGroupConfiguration();
+            });
+        }
+
+        // Reset configuration button
+        const resetConfigBtn = document.getElementById('resetGroupConfigBtn');
+        if (resetConfigBtn) {
+            resetConfigBtn.addEventListener('click', () => {
+                this.resetGroupForm();
+            });
+        }
+
+        // Delete group button
+        const deleteBtn = document.getElementById('deleteGroupBtn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                this.deleteGroup();
+            });
+        }
+
+        // Add period row button
+        const addPeriodBtn = document.getElementById('addGroupPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.addEventListener('click', () => {
+                this.addGroupPeriodRow();
+            });
+        }
+
+        // Layer number changes - rebuild table
+        const wallLayers = document.getElementById('groupWallLayers');
+        const roofLayers = document.getElementById('groupRoofLayers');
+        const floorLayers = document.getElementById('groupFloorLayers');
+        
+        [wallLayers, roofLayers, floorLayers].forEach(input => {
+            if (input) {
+                input.addEventListener('change', () => {
+                    const selector = document.getElementById('groupSelector');
+                    if (selector && selector.value !== '') {
+                        this.rebuildGroupTable();
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Load a group into the form and table
+     * @param {string} groupIndex - Index of group in array
+     */
+    loadGroup(groupIndex) {
+        if (!this.buildingGroups) return;
+
+        const index = parseInt(groupIndex);
+        if (isNaN(index) || index < 0 || index >= this.buildingGroups.length) return;
+
+        const group = this.buildingGroups[index];
+        this.currentGroupIndex = index;
+
+        // Fill form
+        document.getElementById('groupName').value = group.group_name || '';
+        document.getElementById('groupWallLayers').value = group.number_of_wall_layers || 1;
+        document.getElementById('groupRoofLayers').value = group.number_of_roof_layers || 1;
+        document.getElementById('groupFloorLayers').value = group.number_of_floor_layers || 1;
+
+        // Show delete button
+        const deleteBtn = document.getElementById('deleteGroupBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'inline-block';
+        }
+
+        // Enable add period button
+        const addPeriodBtn = document.getElementById('addGroupPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = false;
+        }
+
+        // Rebuild table
+        this.rebuildGroupTable();
+    }
+
+    /**
+     * Rebuild group table based on current layer configuration
+     */
+    rebuildGroupTable() {
+        if (!this.buildingGroups || this.currentGroupIndex === undefined) return;
+
+        const group = this.buildingGroups[this.currentGroupIndex];
+        const wallLayers = parseInt(document.getElementById('groupWallLayers').value) || 1;
+        const roofLayers = parseInt(document.getElementById('groupRoofLayers').value) || 1;
+        const floorLayers = parseInt(document.getElementById('groupFloorLayers').value) || 1;
+
+        group.number_of_wall_layers = wallLayers;
+        group.number_of_roof_layers = roofLayers;
+        group.number_of_floor_layers = floorLayers;
+
+        const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+
+        const tableHead = document.getElementById('buildingGroupsTableHead');
+        const tableBody = document.getElementById('buildingGroupsTableBody');
+
+        if (!tableHead || !tableBody) return;
+
+        tableHead.innerHTML = '';
+        tableBody.innerHTML = '';
+
+        const headerRow = document.createElement('tr');
+        headers.forEach(header => {
+            const th = document.createElement('th');
+            th.textContent = header;
+            th.style.minWidth = '120px';
+            headerRow.appendChild(th);
+        });
+        const actionsHeader = document.createElement('th');
+        actionsHeader.textContent = 'Actions';
+        actionsHeader.style.width = '80px';
+        headerRow.appendChild(actionsHeader);
+        tableHead.appendChild(headerRow);
+
+        group.periods.forEach((period, rowIndex) => {
+            const row = this.createGroupPeriodRow(period, headers, rowIndex);
+            tableBody.appendChild(row);
+        });
+    }
+
+    /**
+     * Create a table row for a group period
+     * @param {Object} period - Period data object
+     * @param {Array} headers - Array of header names
+     * @param {number} rowIndex - Index of the row
+     * @returns {HTMLElement} Table row element
+     */
+    createGroupPeriodRow(period, headers, rowIndex) {
+        const row = document.createElement('tr');
+
+        headers.forEach(header => {
+            const td = document.createElement('td');
+            const value = period[header] !== undefined ? period[header] : '';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'surface-type-input';
+            input.value = value !== null && value !== undefined ? value.toString() : '';
+            input.dataset.category = 'buildingGroups';
+            input.dataset.rowIndex = rowIndex;
+            input.dataset.header = header;
+            input.style.width = '100%';
+            input.style.padding = '3px';
+            
+            input.addEventListener('blur', () => {
+                this.handleGroupPeriodChange(rowIndex, header, input.value);
+                this.validatePeriodField(input, header, input.value);
+            });
+            
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    input.blur();
+                }
+            });
+            
+            this.validatePeriodField(input, header, input.value);
+            
+            td.appendChild(input);
+            row.appendChild(td);
+        });
+
+        const deleteCell = document.createElement('td');
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-secondary delete-row-btn';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.dataset.rowIndex = rowIndex;
+        deleteBtn.addEventListener('click', () => {
+            this.deleteGroupPeriodRow(rowIndex);
+        });
+        deleteCell.appendChild(deleteBtn);
+        row.appendChild(deleteCell);
+
+        return row;
+    }
+
+    /**
+     * Handle group period data change
+     * @param {number} rowIndex - Row index
+     * @param {string} header - Column header
+     * @param {string} newValue - New value
+     */
+    handleGroupPeriodChange(rowIndex, header, newValue) {
+        if (!this.buildingGroups || this.currentGroupIndex === undefined) return;
+
+        const group = this.buildingGroups[this.currentGroupIndex];
+        if (rowIndex >= group.periods.length) return;
+
+        const period = group.periods[rowIndex];
+        const numValue = parseFloat(newValue);
+        period[header] = (!isNaN(numValue) && newValue.trim() !== '') ? numValue : newValue;
+
+        this.updateSaveButtonState(true);
+    }
+
+    /**
+     * Add a new group period row with default values
+     */
+    addGroupPeriodRow() {
+        if (!this.buildingGroups || this.currentGroupIndex === undefined) return;
+
+        const group = this.buildingGroups[this.currentGroupIndex];
+        const wallLayers = group.number_of_wall_layers || 1;
+        const roofLayers = group.number_of_roof_layers || 1;
+        const floorLayers = group.number_of_floor_layers || 1;
+
+        const newPeriod = this.createDefaultPeriod(wallLayers, roofLayers, floorLayers);
+
+        group.periods.push(newPeriod);
+        const newRowIndex = group.periods.length - 1;
+
+        this.rebuildGroupTable();
+
+        setTimeout(() => {
+            const tableBody = document.getElementById('buildingGroupsTableBody');
+            if (tableBody) {
+                const rows = tableBody.querySelectorAll('tr');
+                if (newRowIndex < rows.length) {
+                    rows[newRowIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        }, 100);
+
+        this.updateSaveButtonState(true);
+    }
+
+    /**
+     * Delete a group period row
+     * @param {number} rowIndex - Index of row to delete
+     */
+    deleteGroupPeriodRow(rowIndex) {
+        if (!this.buildingGroups || this.currentGroupIndex === undefined) return;
+
+        const group = this.buildingGroups[this.currentGroupIndex];
+        if (rowIndex >= 0 && rowIndex < group.periods.length) {
+            group.periods.splice(rowIndex, 1);
+            this.rebuildGroupTable();
+            this.updateSaveButtonState(true);
+        }
+    }
+
+    /**
+     * Save group configuration
+     */
+    saveGroupConfiguration() {
+        const name = document.getElementById('groupName').value.trim();
+        if (!name) {
+            alert('Please enter a Group Name');
+            return;
+        }
+
+        const wallLayers = parseInt(document.getElementById('groupWallLayers').value) || 1;
+        const roofLayers = parseInt(document.getElementById('groupRoofLayers').value) || 1;
+        const floorLayers = parseInt(document.getElementById('groupFloorLayers').value) || 1;
+
+        if (!this.buildingGroups) {
+            this.buildingGroups = [];
+        }
+
+        const isNewGroup = this.currentGroupIndex === undefined;
+
+        if (this.currentGroupIndex !== undefined) {
+            const group = this.buildingGroups[this.currentGroupIndex];
+            const oldWallLayers = group.number_of_wall_layers || 1;
+            const oldRoofLayers = group.number_of_roof_layers || 1;
+            const oldFloorLayers = group.number_of_floor_layers || 1;
+            
+            group.group_name = name;
+            group.number_of_wall_layers = wallLayers;
+            group.number_of_roof_layers = roofLayers;
+            group.number_of_floor_layers = floorLayers;
+
+            if (wallLayers > oldWallLayers || roofLayers > oldRoofLayers || floorLayers > oldFloorLayers) {
+                this.copyLayer1ValuesToNewLayersForGroup(group, oldWallLayers, oldRoofLayers, oldFloorLayers, wallLayers, roofLayers, floorLayers);
+            }
+        } else {
+            // Create new group
+            const newGroup = {
+                group_name: name,
+                number_of_wall_layers: wallLayers,
+                number_of_roof_layers: roofLayers,
+                number_of_floor_layers: floorLayers,
+                periods: []
+            };
+            
+            // Get period data from table if it exists (user may have edited the default period)
+            const tableBody = document.getElementById('buildingGroupsTableBody');
+            const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+            
+            if (tableBody && tableBody.children.length > 0) {
+                // Extract period data from all rows in table
+                const rows = tableBody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const inputs = row.querySelectorAll('input');
+                    const period = {};
+                    headers.forEach((header, index) => {
+                        if (inputs[index]) {
+                            const value = inputs[index].value.trim();
+                            const numValue = parseFloat(value);
+                            period[header] = (value !== '' && !isNaN(numValue)) ? numValue : value;
+                        }
+                    });
+                    // Only add period if it has at least one non-empty value
+                    if (Object.values(period).some(v => v !== '' && v !== null && v !== undefined)) {
+                        newGroup.periods.push(period);
+                    }
+                });
+            }
+            
+            // If no periods were added from table, create default period
+            if (newGroup.periods.length === 0) {
+                const defaultPeriod = this.createDefaultPeriod(wallLayers, roofLayers, floorLayers);
+                newGroup.periods.push(defaultPeriod);
+            }
+            
+            this.buildingGroups.push(newGroup);
+            this.currentGroupIndex = this.buildingGroups.length - 1;
+
+            this.populateGroupSelector(this.buildingGroups);
+            document.getElementById('groupSelector').value = this.currentGroupIndex;
+        }
+
+        this.rebuildGroupTable();
+
+        const deleteBtn = document.getElementById('deleteGroupBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'inline-block';
+        }
+
+        const addPeriodBtn = document.getElementById('addGroupPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = false;
+        }
+
+        this.updateSaveButtonState(true);
+    }
+
+    /**
+     * Copy layer 1 values to new layers for a group
+     */
+    copyLayer1ValuesToNewLayersForGroup(group, oldWallLayers, oldRoofLayers, oldFloorLayers, newWallLayers, newRoofLayers, newFloorLayers) {
+        const headers = this.generateArchetypeHeaders(newWallLayers, newRoofLayers, newFloorLayers);
+        
+        group.periods.forEach(period => {
+            headers.forEach(header => {
+                const wallMatch = header.match(/^(.+)_wall(\d+)\[/);
+                const roofMatch = header.match(/^(.+)_roof(\d+)\[/);
+                const floorMatch = header.match(/^(.+)_floor(\d+)\[/);
+                
+                if (wallMatch) {
+                    const layerNum = parseInt(wallMatch[2]);
+                    if (layerNum > oldWallLayers && layerNum <= newWallLayers) {
+                        const layer1Header = `${wallMatch[1]}_wall1[${header.split('[')[1]}`;
+                        if (period[layer1Header] !== undefined) {
+                            period[header] = period[layer1Header];
+                        }
+                    }
+                } else if (roofMatch) {
+                    const layerNum = parseInt(roofMatch[2]);
+                    if (layerNum > oldRoofLayers && layerNum <= newRoofLayers) {
+                        const layer1Header = `${roofMatch[1]}_roof1[${header.split('[')[1]}`;
+                        if (period[layer1Header] !== undefined) {
+                            period[header] = period[layer1Header];
+                        }
+                    }
+                } else if (floorMatch) {
+                    const layerNum = parseInt(floorMatch[2]);
+                    if (layerNum > oldFloorLayers && layerNum <= newFloorLayers) {
+                        const layer1Header = `${floorMatch[1]}_floor1[${header.split('[')[1]}`;
+                        if (period[layer1Header] !== undefined) {
+                            period[header] = period[layer1Header];
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * Create new group (reset form and show default period data)
+     */
+    createNewGroup() {
+        document.getElementById('groupName').value = '';
+        document.getElementById('groupWallLayers').value = 1;
+        document.getElementById('groupRoofLayers').value = 1;
+        document.getElementById('groupFloorLayers').value = 1;
+
+        const selector = document.getElementById('groupSelector');
+        if (selector) {
+            selector.value = '';
+        }
+
+        const deleteBtn = document.getElementById('deleteGroupBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'none';
+        }
+
+        const addPeriodBtn = document.getElementById('addGroupPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = false;
+        }
+
+        this.currentGroupIndex = undefined;
+
+        // Create a temporary group with default period for preview
+        const wallLayers = 1;
+        const roofLayers = 1;
+        const floorLayers = 1;
+        const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+        const defaultPeriod = this.createDefaultPeriod(wallLayers, roofLayers, floorLayers);
+
+        // Build table with default period
+        const tableHead = document.getElementById('buildingGroupsTableHead');
+        const tableBody = document.getElementById('buildingGroupsTableBody');
+        
+        if (tableHead && tableBody) {
+            tableHead.innerHTML = '';
+            tableBody.innerHTML = '';
+
+            // Create header row
+            const headerRow = document.createElement('tr');
+            headers.forEach(header => {
+                const th = document.createElement('th');
+                th.textContent = header;
+                th.style.minWidth = '120px';
+                headerRow.appendChild(th);
+            });
+            const actionsHeader = document.createElement('th');
+            actionsHeader.textContent = 'Actions';
+            actionsHeader.style.width = '80px';
+            headerRow.appendChild(actionsHeader);
+            tableHead.appendChild(headerRow);
+
+            // Create default period row
+            const row = this.createGroupPeriodRow(defaultPeriod, headers, 0);
+            tableBody.appendChild(row);
+        }
+
+        setTimeout(() => {
+            document.getElementById('groupName').focus();
+        }, 100);
+    }
+
+    /**
+     * Reset group form
+     */
+    resetGroupForm() {
+        document.getElementById('groupName').value = '';
+        document.getElementById('groupWallLayers').value = 1;
+        document.getElementById('groupRoofLayers').value = 1;
+        document.getElementById('groupFloorLayers').value = 1;
+
+        const selector = document.getElementById('groupSelector');
+        if (selector) {
+            selector.value = '';
+        }
+
+        const deleteBtn = document.getElementById('deleteGroupBtn');
+        if (deleteBtn) {
+            deleteBtn.style.display = 'none';
+        }
+
+        const addPeriodBtn = document.getElementById('addGroupPeriodRowBtn');
+        if (addPeriodBtn) {
+            addPeriodBtn.disabled = true;
+        }
+
+        this.currentGroupIndex = undefined;
+
+        const tableHead = document.getElementById('buildingGroupsTableHead');
+        const tableBody = document.getElementById('buildingGroupsTableBody');
+        if (tableHead) tableHead.innerHTML = '';
+        if (tableBody) tableBody.innerHTML = '';
+    }
+
+    /**
+     * Delete current group
+     */
+    deleteGroup() {
+        if (this.currentGroupIndex === undefined || !this.buildingGroups) return;
+
+        if (confirm('Are you sure you want to delete this group?')) {
+            this.buildingGroups.splice(this.currentGroupIndex, 1);
+            this.populateGroupSelector(this.buildingGroups);
+            this.resetGroupForm();
+            this.updateSaveButtonState(true);
+        }
+    }
+
+    /**
+     * Convert building groups to CSV format
+     * @param {Array} groups - Array of group objects
+     * @returns {Array} Array of CSV row objects
+     */
+    convertBuildingGroupsToCSV(groups) {
+        const csvRows = [];
+
+        groups.forEach((group, groupIndex) => {
+            const row1 = {};
+            row1.usage_group_building_name = group.group_name || '';
+            csvRows.push(row1);
+
+            const row2 = {};
+            row2.number_of_wall_layers = group.number_of_wall_layers || 1;
+            csvRows.push(row2);
+
+            const row3 = {};
+            row3.number_of_roof_layers = group.number_of_roof_layers || 1;
+            csvRows.push(row3);
+
+            const row4 = {};
+            row4.number_of_floor_layers = group.number_of_floor_layers || 1;
+            csvRows.push(row4);
+
+            const wallLayers = group.number_of_wall_layers || 1;
+            const roofLayers = group.number_of_roof_layers || 1;
+            const floorLayers = group.number_of_floor_layers || 1;
+            const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+            
+            const headerRow = {};
+            headers.forEach(header => {
+                headerRow[header] = header;
+            });
+            csvRows.push(headerRow);
+
+            group.periods.forEach(period => {
+                const periodRow = {};
+                headers.forEach(header => {
+                    periodRow[header] = period[header] !== undefined ? period[header] : '';
+                });
+                csvRows.push(periodRow);
+            });
+
+            if (groupIndex < groups.length - 1) {
+                csvRows.push({});
+            }
+        });
+
+        return csvRows;
+    }
+
+    /**
+     * Validate all building groups and their periods
+     * @returns {Object} Validation result
+     */
+    validateAllBuildingGroups() {
+        if (!this.buildingGroups || this.buildingGroups.length === 0) {
+            return { isValid: true, message: '', invalidFields: [] };
+        }
+
+        const invalidFields = [];
+
+        this.buildingGroups.forEach((group, groupIndex) => {
+            if (!group.periods || group.periods.length === 0) {
+                invalidFields.push({
+                    groupIndex,
+                    groupName: group.group_name,
+                    message: `Group "${group.group_name}" has no period data`
+                });
+                return;
+            }
+
+            const wallLayers = group.number_of_wall_layers || 1;
+            const roofLayers = group.number_of_roof_layers || 1;
+            const floorLayers = group.number_of_floor_layers || 1;
+            const headers = this.generateArchetypeHeaders(wallLayers, roofLayers, floorLayers);
+
+            group.periods.forEach((period, periodIndex) => {
+                headers.forEach(header => {
+                    const value = period[header];
+                    const trimmedValue = value !== null && value !== undefined ? value.toString().trim() : '';
+                    const isEmpty = trimmedValue === '';
+
+                    const isNumericField = header.includes('ThermalConductivity') || 
+                                          header.includes('SpecificHeat') || 
+                                          header.includes('Density') || 
+                                          header.includes('Thickness') ||
+                                          header.includes('Uvalue') ||
+                                          header.includes('SHGC') ||
+                                          header.includes('Emissivity') ||
+                                          header.includes('Albedo');
+
+                    if (isEmpty) {
+                        invalidFields.push({
+                            groupIndex,
+                            periodIndex,
+                            header,
+                            groupName: group.group_name,
+                            message: `Empty field "${header}" in period ${periodIndex + 1} of group "${group.group_name}"`
+                        });
+                    } else if (isNumericField) {
+                        const numValue = parseFloat(trimmedValue);
+                        if (isNaN(numValue)) {
+                            invalidFields.push({
+                                groupIndex,
+                                periodIndex,
+                                header,
+                                groupName: group.group_name,
+                                message: `Invalid numeric value "${trimmedValue}" in field "${header}" of period ${periodIndex + 1} of group "${group.group_name}"`
+                            });
+                        }
+                    }
+                });
+            });
+        });
+
+        if (invalidFields.length > 0) {
+            const messages = invalidFields.map(f => f.message).slice(0, 5);
+            const message = `Please fix the following errors before saving:\n\n${messages.join('\n')}${invalidFields.length > 5 ? `\n... and ${invalidFields.length - 5} more errors` : ''}`;
+            return { isValid: false, message, invalidFields };
+        }
+
+        return { isValid: true, message: '', invalidFields: [] };
+    }
+
+    /**
+     * Highlight invalid group period fields
+     * @param {Array} invalidFields - Array of invalid field information
+     */
+    highlightInvalidGroupPeriodFields(invalidFields) {
+        if (!invalidFields || invalidFields.length === 0) return;
+
+        const tableBody = document.getElementById('buildingGroupsTableBody');
+        if (!tableBody) return;
+
+        const rows = tableBody.querySelectorAll('tr');
+        
+        invalidFields.forEach(field => {
+            if (field.periodIndex !== undefined && field.header) {
+                const row = rows[field.periodIndex];
+                if (row) {
+                    const inputs = row.querySelectorAll('input');
+                    inputs.forEach(input => {
+                        if (input.dataset.header === field.header) {
+                            input.style.border = '2px solid red';
+                            input.style.backgroundColor = '#ffe6e6';
+                            input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    });
+                }
+            }
+        });
     }
 
     showAbout() {
@@ -1579,303 +6947,252 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Duplicate selected objects - NEW ALGORITHM: Create from scratch instead of cloning
      */
     duplicateSelected() {
-        if (!this.selectionManager) {
-            console.log('SelectionManager not available');
-            return;
-        }
-
-        const selectedObjects = this.selectionManager.getSelectedObjects();
-        if (selectedObjects.length === 0) {
-            console.log('No objects selected to duplicate');
-            return;
-        }
-
-        console.log(`Duplicating ${selectedObjects.length} selected objects using new algorithm`);
-
-        const duplicatedObjects = [];
-        const offsetDistance = 2; // Offset distance in meters
-        const scene = this.sceneManager.getScene();
-
-        selectedObjects.forEach((obj, index) => {
-            try {
-                // Skip if object is an extrusion (we'll duplicate the parent shape instead)
-                if (obj.name && obj.name.includes('_extrusion')) {
-                    console.log(`Skipping extrusion ${obj.name}, will be handled by parent shape`);
-                    return;
-                }
-
-                // Get object properties
-                const shapeType = this.getShapeType(obj);
-                const userData = obj.userData ? JSON.parse(JSON.stringify(obj.userData)) : {};
-                const position = obj.position.clone();
-                const rotation = obj.rotation.clone();
-                const scaling = obj.scaling.clone();
-                const originalExtrusion = obj.extrusion;
-                
-                // Offset position for duplicate
-                position.x += offsetDistance;
-                position.z += offsetDistance;
-
-                let clonedMesh = null;
-                const timestamp = Date.now();
-                const uniqueId = `${timestamp}_${index}`;
-
-                // Create new mesh from scratch based on shape type
-                if (shapeType === 'rectangle' || shapeType === 'building') {
-                    // Get dimensions from userData or calculate from bounding box
-                    let width, depth, height;
-                    if (userData.dimensions) {
-                        width = parseFloat(userData.dimensions.width) || 1;
-                        depth = parseFloat(userData.dimensions.depth) || 1;
-                        height = parseFloat(userData.dimensions.height) || 0.1;
-                    } else {
-                        const boundingInfo = obj.getBoundingInfo();
-                        width = boundingInfo.boundingBox.extendSize.x * 2;
-                        depth = boundingInfo.boundingBox.extendSize.z * 2;
-                        height = boundingInfo.boundingBox.extendSize.y * 2;
-                    }
-
-                    // Create new box from scratch
-                    clonedMesh = BABYLON.MeshBuilder.CreateBox(`${obj.name}_copy_${uniqueId}`, {
-                        width: width,
-                        height: height,
-                        depth: depth
-                    }, scene);
-
-                    // Set position (center Y at height/2)
-                    clonedMesh.position = new BABYLON.Vector3(
-                        position.x,
-                        position.y + height / 2,
-                        position.z
-                    );
-
-                } else if (shapeType === 'circle') {
-                    // Get dimensions from userData
-                    let diameterTop, diameterBottom, height;
-                    if (userData.dimensions) {
-                        diameterTop = parseFloat(userData.dimensions.diameterTop) || 1;
-                        diameterBottom = parseFloat(userData.dimensions.diameterBottom) || 1;
-                        height = parseFloat(userData.dimensions.height) || 0.1;
-                    } else {
-                        const boundingInfo = obj.getBoundingInfo();
-                        diameterTop = boundingInfo.boundingBox.extendSize.x * 2;
-                        diameterBottom = diameterTop;
-                        height = boundingInfo.boundingBox.extendSize.y * 2;
-                    }
-
-                    // Create new cylinder from scratch
-                    clonedMesh = BABYLON.MeshBuilder.CreateCylinder(`${obj.name}_copy_${uniqueId}`, {
-                        height: height,
-                        diameterTop: diameterTop,
-                        diameterBottom: diameterBottom,
-                        tessellation: 32
-                    }, scene);
-
-                    // Set position (center Y at height/2)
-                    clonedMesh.position = new BABYLON.Vector3(
-                        position.x,
-                        position.y + height / 2,
-                        position.z
-                    );
-
-                } else if (shapeType === 'polygon') {
-                    // For polygons, we need to extract the polygon points
-                    // This is more complex - we'll use VertexData approach
-                    try {
-                        const vertexData = BABYLON.VertexData.ExtractFromMesh(obj);
-                        clonedMesh = new BABYLON.Mesh(`${obj.name}_copy_${uniqueId}`, scene);
-                        vertexData.applyToMesh(clonedMesh);
-                        clonedMesh.position = position.clone();
-                    } catch (error) {
-                        console.error(`Error duplicating polygon ${obj.name}:`, error);
-                        return;
-                    }
-
-                } else if (this.isTree(obj)) {
-                    // For trees, use VertexData to create independent geometry
-                    try {
-                        const vertexData = BABYLON.VertexData.ExtractFromMesh(obj);
-                        clonedMesh = new BABYLON.Mesh(`${obj.name}_copy_${uniqueId}`, scene);
-                        vertexData.applyToMesh(clonedMesh);
-                        clonedMesh.position = position.clone();
-                        clonedMesh.rotation = rotation;
-                        clonedMesh.scaling = scaling;
-                        
-                        // Clone material for tree
-                        if (obj.material) {
-                            const clonedTreeMaterial = new BABYLON.StandardMaterial(`${obj.material.name}_copy_${uniqueId}`, scene);
-                            if (obj.material instanceof BABYLON.StandardMaterial) {
-                                clonedTreeMaterial.diffuseColor = obj.material.diffuseColor ? obj.material.diffuseColor.clone() : new BABYLON.Color3(0.4, 0.3, 0.2);
-                                clonedTreeMaterial.specularColor = obj.material.specularColor ? obj.material.specularColor.clone() : new BABYLON.Color3(0.1, 0.1, 0.1);
-                                clonedTreeMaterial.alpha = obj.material.alpha !== undefined ? obj.material.alpha : 1.0;
-                            }
-                            clonedMesh.material = clonedTreeMaterial;
-                        }
-                        
-                        // Handle tree structure
-                        if (this.treeManager) {
-                            const tree = this.treeManager.trees.find(t => t.parent === obj || t.meshes.includes(obj));
-                            if (tree) {
-                                this.treeManager.trees.push({
-                                    parent: clonedMesh,
-                                    meshes: [clonedMesh],
-                                    type: tree.type || 'default'
-                                });
-                            }
-                        }
-                    } catch (error) {
-                        console.error(`Error duplicating tree ${obj.name}:`, error);
-                        return;
-                    }
-                } else {
-                    // Fallback: use VertexData for unknown shapes
-                    try {
-                        const vertexData = BABYLON.VertexData.ExtractFromMesh(obj);
-                        clonedMesh = new BABYLON.Mesh(`${obj.name}_copy_${uniqueId}`, scene);
-                        vertexData.applyToMesh(clonedMesh);
-                        clonedMesh.position = position.clone();
-                    } catch (error) {
-                        console.error(`Error duplicating unknown shape ${obj.name}:`, error);
-                        return;
-                    }
-                }
-
-                if (!clonedMesh) {
-                    console.warn(`Failed to create duplicate for ${obj.name}`);
-                    return;
-                }
-
-                // Copy transform properties
-                clonedMesh.rotation = rotation;
-                clonedMesh.scaling = scaling;
-
-                // Create new material (completely independent)
-                if (obj.material) {
-                    const clonedMaterial = new BABYLON.StandardMaterial(`${obj.material.name}_copy_${uniqueId}`, scene);
-                    
-                    if (obj.material instanceof BABYLON.StandardMaterial) {
-                        clonedMaterial.diffuseColor = obj.material.diffuseColor ? obj.material.diffuseColor.clone() : new BABYLON.Color3(0.4, 0.3, 0.2);
-                        clonedMaterial.specularColor = obj.material.specularColor ? obj.material.specularColor.clone() : new BABYLON.Color3(0.1, 0.1, 0.1);
-                        clonedMaterial.emissiveColor = obj.material.emissiveColor ? obj.material.emissiveColor.clone() : new BABYLON.Color3(0, 0, 0);
-                        clonedMaterial.ambientColor = obj.material.ambientColor ? obj.material.ambientColor.clone() : new BABYLON.Color3(0, 0, 0);
-                        clonedMaterial.alpha = obj.material.alpha !== undefined ? obj.material.alpha : 1.0;
-                        clonedMaterial.backFaceCulling = obj.material.backFaceCulling !== undefined ? obj.material.backFaceCulling : true;
-                        clonedMaterial.twoSidedLighting = obj.material.twoSidedLighting !== undefined ? obj.material.twoSidedLighting : false;
-                    }
-                    
-                    clonedMesh.material = clonedMaterial;
-                }
-
-                // Copy userData
-                clonedMesh.userData = userData;
-                if (clonedMesh.userData.name) {
-                    clonedMesh.userData.name = clonedMesh.name;
-                }
-
-                // Set rendering properties
-                clonedMesh.renderingGroupId = obj.renderingGroupId || 1;
-                clonedMesh.setEnabled(true);
-                clonedMesh.isVisible = true;
-
-                // Handle extrusions if the original has one
-                if (originalExtrusion && (shapeType === 'rectangle' || shapeType === 'building' || shapeType === 'polygon')) {
-                    try {
-                        // Extract extrusion vertex data
-                        const extrusionVertexData = BABYLON.VertexData.ExtractFromMesh(originalExtrusion);
-                        
-                        // Create new extrusion mesh
-                        const clonedExtrusion = new BABYLON.Mesh(`${originalExtrusion.name}_copy_${uniqueId}`, scene);
-                        extrusionVertexData.applyToMesh(clonedExtrusion);
-                        
-                        // Create new material for extrusion
-                        if (originalExtrusion.material) {
-                            const clonedExtrusionMaterial = new BABYLON.StandardMaterial(`${originalExtrusion.material.name}_copy_${uniqueId}`, scene);
-                            if (originalExtrusion.material instanceof BABYLON.StandardMaterial) {
-                                clonedExtrusionMaterial.diffuseColor = originalExtrusion.material.diffuseColor ? originalExtrusion.material.diffuseColor.clone() : new BABYLON.Color3(1, 1, 1);
-                                clonedExtrusionMaterial.specularColor = originalExtrusion.material.specularColor ? originalExtrusion.material.specularColor.clone() : new BABYLON.Color3(0.1, 0.1, 0.1);
-                                clonedExtrusionMaterial.emissiveColor = originalExtrusion.material.emissiveColor ? originalExtrusion.material.emissiveColor.clone() : new BABYLON.Color3(0, 0, 0);
-                                clonedExtrusionMaterial.alpha = originalExtrusion.material.alpha !== undefined ? originalExtrusion.material.alpha : 1.0;
-                                clonedExtrusionMaterial.backFaceCulling = originalExtrusion.material.backFaceCulling !== undefined ? originalExtrusion.material.backFaceCulling : true;
-                                clonedExtrusionMaterial.twoSidedLighting = originalExtrusion.material.twoSidedLighting !== undefined ? originalExtrusion.material.twoSidedLighting : false;
-                            }
-                            clonedExtrusion.material = clonedExtrusionMaterial;
-                        }
-                        
-                        // Copy extrusion userData
-                        if (originalExtrusion.userData) {
-                            clonedExtrusion.userData = JSON.parse(JSON.stringify(originalExtrusion.userData));
-                        }
-                        
-                        // Set extrusion position relative to cloned mesh
-                        const originalExtrusionRelativePos = originalExtrusion.parent === obj ? originalExtrusion.position.clone() : originalExtrusion.position.clone();
-                        clonedExtrusion.position = originalExtrusionRelativePos;
-                        
-                        // Parent to cloned mesh
-                        clonedExtrusion.setParent(clonedMesh);
-                        
-                        // Link bidirectional
-                        clonedMesh.extrusion = clonedExtrusion;
-                        clonedExtrusion.basePolygon = clonedMesh;
-                        
-                        // Enable and make visible
-                        clonedExtrusion.setEnabled(true);
-                        clonedExtrusion.isVisible = true;
-                        clonedExtrusion.renderingGroupId = originalExtrusion.renderingGroupId || 1;
-                        
-                        // Add to selection manager
-                        if (this.selectionManager) {
-                            this.selectionManager.addSelectableObject(clonedExtrusion);
-                        }
-                    } catch (error) {
-                        console.error(`Error duplicating extrusion for ${obj.name}:`, error);
-                    }
-                }
-
-                // Add to selection manager
-                if (this.selectionManager) {
-                    this.selectionManager.addSelectableObject(clonedMesh);
-                }
-
-                // Update rectangleManager if applicable
-                if (this.rectangleManager && (shapeType === 'rectangle' || shapeType === 'building')) {
-                    this.rectangleManager.rectangles.push(clonedMesh);
-                }
-
-                // Enable shadows
-                if (this.lightingManager) {
-                    this.lightingManager.updateShadowsForNewObject(clonedMesh);
-                    if (clonedMesh.extrusion) {
-                        this.lightingManager.updateShadowsForNewObject(clonedMesh.extrusion);
-                    }
-                }
-
-                duplicatedObjects.push(clonedMesh);
-                console.log(`Duplicated object: ${obj.name} -> ${clonedMesh.name} (created from scratch)`);
-            } catch (error) {
-                console.error(`Error duplicating object ${obj.name}:`, error);
-            }
-        });
-
-        if (duplicatedObjects.length > 0) {
-            // Clear current selection
-            this.selectionManager.clearSelection();
-            
-            // Select duplicated objects
-            duplicatedObjects.forEach(obj => {
-                this.selectionManager.selectObject(obj, false, true);
-            });
-
-            // Dispatch scene change event
-            this.dispatchSceneChangeEvent();
-
-            // Update object list
-            if (this.objectListManager) {
-                this.objectListManager.updateObjectList();
-            }
-
-            console.log(`Duplicated ${duplicatedObjects.length} objects successfully using new algorithm`);
+        if (this.sceneOperationsManager) {
+            this.sceneOperationsManager.duplicateSelected();
         } else {
-            console.warn('No objects were duplicated');
+            console.error('SceneOperationsManager not available');
+        }
+    }
+
+    /**
+     * Import STL file
+     */
+    importSTL() {
+        if (this.stlManager) {
+            this.stlManager.importSTL();
+        } else {
+            console.error('STLManager not available');
+        }
+    }
+
+    // STL import/export methods moved to STLManager
+
+    /**
+     * Show preferences window
+     */
+    showPreferencesWindow() {
+        const window = document.getElementById('preferencesWindow');
+        const overlay = document.getElementById('preferencesOverlay');
+        
+        if (window && overlay) {
+            window.classList.add('show');
+            overlay.classList.add('show');
+            // Only setup listeners once
+            if (!this.preferencesListenersSetup) {
+                this.setupPreferencesListeners();
+                this.preferencesListenersSetup = true;
+            }
+            this.syncPreferencesState();
+        }
+    }
+
+    /**
+     * Hide preferences window
+     */
+    hidePreferencesWindow() {
+        const window = document.getElementById('preferencesWindow');
+        const overlay = document.getElementById('preferencesOverlay');
+        
+        if (window && overlay) {
+            window.classList.remove('show');
+            overlay.classList.remove('show');
+        }
+    }
+
+    /**
+     * Setup preferences window event listeners
+     */
+    setupPreferencesListeners() {
+        // Close button
+        const closeBtn = document.getElementById('closePreferences');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.hidePreferencesWindow();
+            });
+        }
+
+        // Overlay click to close
+        const overlay = document.getElementById('preferencesOverlay');
+        if (overlay) {
+            overlay.addEventListener('click', () => {
+                this.hidePreferencesWindow();
+            });
+        }
+    }
+
+    /**
+     * Sync preferences state with UI
+     */
+    syncPreferencesState() {
+        // Sync grid toggle state
+        const gridTogglePref = document.getElementById('gridTogglePref');
+        if (gridTogglePref) {
+            const isGridVisible = this.gridManager.isGridVisible();
+            gridTogglePref.classList.toggle('active', isGridVisible);
+        }
+
+        // Sync shadow toggle state
+        const shadowTogglePref = document.getElementById('shadowTogglePref');
+        if (shadowTogglePref) {
+            const areObjectShadowsEnabled = this.lightingManager.areObjectShadowsEnabled();
+            shadowTogglePref.classList.toggle('active', areObjectShadowsEnabled);
+        }
+
+        // Sync smoothing angle threshold
+        const smoothingAngleThresholdSlider = document.getElementById('smoothingAngleThresholdPref');
+        const smoothingAngleThresholdValue = document.getElementById('smoothingAngleThresholdValuePref');
+        if (smoothingAngleThresholdSlider && smoothingAngleThresholdValue) {
+            const currentThreshold = this.stlManager ? this.stlManager.smoothingAngleThreshold : 0;
+            smoothingAngleThresholdSlider.value = currentThreshold;
+            smoothingAngleThresholdValue.textContent = currentThreshold.toFixed(1);
+        }
+
+        // Sync hard shadow toggle state
+        const hardShadowTogglePref = document.getElementById('hardShadowTogglePref');
+        if (hardShadowTogglePref) {
+            const areHardShadowsEnabled = this.lightingManager.areHardShadowsEnabled();
+            hardShadowTogglePref.classList.toggle('active', areHardShadowsEnabled);
+        }
+
+        // Sync light intensity
+        const lightIntensitySlider = document.getElementById('lightIntensityPref');
+        const lightIntensityValue = document.getElementById('lightIntensityValuePref');
+        if (lightIntensitySlider && lightIntensityValue) {
+            const currentIntensity = this.lightingManager.getDirectionalIntensity();
+            lightIntensitySlider.value = currentIntensity;
+            lightIntensityValue.textContent = currentIntensity.toFixed(1);
+        }
+
+        // Sync shadow darkness
+        const shadowDarknessSlider = document.getElementById('shadowDarknessPref');
+        const shadowDarknessValue = document.getElementById('shadowDarknessValuePref');
+        if (shadowDarknessSlider && shadowDarknessValue) {
+            const currentDarkness = this.lightingManager.getShadowDarkness();
+            shadowDarknessSlider.value = currentDarkness;
+            shadowDarknessValue.textContent = currentDarkness.toFixed(2);
+        }
+
+        // Sync shadow bias
+        const shadowBiasSlider = document.getElementById('shadowBiasPref');
+        const shadowBiasValue = document.getElementById('shadowBiasValuePref');
+        if (shadowBiasSlider && shadowBiasValue) {
+            const currentBias = this.lightingManager.getShadowBias();
+            shadowBiasSlider.value = currentBias;
+            shadowBiasValue.textContent = currentBias.toFixed(5);
+        }
+
+        // Sync shadow normal bias
+        const shadowNormalBiasSlider = document.getElementById('shadowNormalBiasPref');
+        const shadowNormalBiasValue = document.getElementById('shadowNormalBiasValuePref');
+        if (shadowNormalBiasSlider && shadowNormalBiasValue) {
+            const currentNormalBias = this.lightingManager.getShadowNormalBias();
+            shadowNormalBiasSlider.value = currentNormalBias;
+            shadowNormalBiasValue.textContent = currentNormalBias.toFixed(2);
+        }
+
+        // Sync shadow depth scale
+        const shadowDepthScaleSlider = document.getElementById('shadowDepthScalePref');
+        const shadowDepthScaleValue = document.getElementById('shadowDepthScaleValuePref');
+        if (shadowDepthScaleSlider && shadowDepthScaleValue) {
+            const currentDepthScale = this.lightingManager.getShadowDepthScale();
+            shadowDepthScaleSlider.value = currentDepthScale;
+            shadowDepthScaleValue.textContent = currentDepthScale.toFixed(0);
+        }
+
+        // Sync shadow ortho scale
+        const shadowOrthoScaleSlider = document.getElementById('shadowOrthoScalePref');
+        const shadowOrthoScaleValue = document.getElementById('shadowOrthoScaleValuePref');
+        if (shadowOrthoScaleSlider && shadowOrthoScaleValue) {
+            const currentOrthoScale = this.lightingManager.getShadowOrthoScale();
+            shadowOrthoScaleSlider.value = currentOrthoScale;
+            shadowOrthoScaleValue.textContent = currentOrthoScale.toFixed(0);
+        }
+
+        // Sync shadow frustum size
+        const shadowFrustumSizeSlider = document.getElementById('shadowFrustumSizePref');
+        const shadowFrustumSizeValue = document.getElementById('shadowFrustumSizeValuePref');
+        if (shadowFrustumSizeSlider && shadowFrustumSizeValue) {
+            const currentFrustumSize = this.lightingManager.getShadowFrustumSize();
+            shadowFrustumSizeSlider.value = currentFrustumSize;
+            shadowFrustumSizeValue.textContent = currentFrustumSize.toFixed(0);
+        }
+
+        // Sync hemispheric light intensity
+        const hemisphericIntensitySlider = document.getElementById('hemisphericIntensityPref');
+        const hemisphericIntensityValue = document.getElementById('hemisphericIntensityValuePref');
+        if (hemisphericIntensitySlider && hemisphericIntensityValue) {
+            const currentIntensity = this.lightingManager.hemisphericLight ? this.lightingManager.hemisphericLight.intensity : 0.8;
+            hemisphericIntensitySlider.value = currentIntensity;
+            hemisphericIntensityValue.textContent = currentIntensity.toFixed(1);
+        }
+
+        // Sync shadow min Z
+        const shadowMinZSlider = document.getElementById('shadowMinZPref');
+        const shadowMinZValue = document.getElementById('shadowMinZValuePref');
+        if (shadowMinZSlider && shadowMinZValue) {
+            const currentMinZ = this.lightingManager.directionalLight ? this.lightingManager.directionalLight.shadowMinZ : 0.01;
+            shadowMinZSlider.value = currentMinZ;
+            shadowMinZValue.textContent = currentMinZ.toFixed(3);
+        }
+
+        // Sync shadow max Z
+        const shadowMaxZSlider = document.getElementById('shadowMaxZPref');
+        const shadowMaxZValue = document.getElementById('shadowMaxZValuePref');
+        if (shadowMaxZSlider && shadowMaxZValue) {
+            const currentMaxZ = this.lightingManager.directionalLight ? this.lightingManager.directionalLight.shadowMaxZ : 1500;
+            shadowMaxZSlider.value = currentMaxZ;
+            shadowMaxZValue.textContent = currentMaxZ.toFixed(0);
+        }
+
+        // Sync light position
+        const lightPositionXSlider = document.getElementById('lightPositionXPref');
+        const lightPositionXValue = document.getElementById('lightPositionXValuePref');
+        if (lightPositionXSlider && lightPositionXValue && this.lightingManager.directionalLight) {
+            lightPositionXSlider.value = this.lightingManager.directionalLight.position.x;
+            lightPositionXValue.textContent = this.lightingManager.directionalLight.position.x.toFixed(0);
+        }
+
+        const lightPositionYSlider = document.getElementById('lightPositionYPref');
+        const lightPositionYValue = document.getElementById('lightPositionYValuePref');
+        if (lightPositionYSlider && lightPositionYValue && this.lightingManager.directionalLight) {
+            lightPositionYSlider.value = this.lightingManager.directionalLight.position.y;
+            lightPositionYValue.textContent = this.lightingManager.directionalLight.position.y.toFixed(0);
+        }
+
+        const lightPositionZSlider = document.getElementById('lightPositionZPref');
+        const lightPositionZValue = document.getElementById('lightPositionZValuePref');
+        if (lightPositionZSlider && lightPositionZValue && this.lightingManager.directionalLight) {
+            lightPositionZSlider.value = this.lightingManager.directionalLight.position.z;
+            lightPositionZValue.textContent = this.lightingManager.directionalLight.position.z.toFixed(0);
+        }
+
+        // Sync light direction
+        const lightDirectionXSlider = document.getElementById('lightDirectionXPref');
+        const lightDirectionXValue = document.getElementById('lightDirectionXValuePref');
+        if (lightDirectionXSlider && lightDirectionXValue && this.lightingManager.directionalLight) {
+            lightDirectionXSlider.value = this.lightingManager.directionalLight.direction.x;
+            lightDirectionXValue.textContent = this.lightingManager.directionalLight.direction.x.toFixed(1);
+        }
+
+        const lightDirectionYSlider = document.getElementById('lightDirectionYPref');
+        const lightDirectionYValue = document.getElementById('lightDirectionYValuePref');
+        if (lightDirectionYSlider && lightDirectionYValue && this.lightingManager.directionalLight) {
+            lightDirectionYSlider.value = this.lightingManager.directionalLight.direction.y;
+            lightDirectionYValue.textContent = this.lightingManager.directionalLight.direction.y.toFixed(1);
+        }
+
+        const lightDirectionZSlider = document.getElementById('lightDirectionZPref');
+        const lightDirectionZValue = document.getElementById('lightDirectionZValuePref');
+        if (lightDirectionZSlider && lightDirectionZValue && this.lightingManager.directionalLight) {
+            lightDirectionZSlider.value = this.lightingManager.directionalLight.direction.z;
+            lightDirectionZValue.textContent = this.lightingManager.directionalLight.direction.z.toFixed(1);
+        }
+
+        // Sync statistics toggle state
+        const statisticsTogglePref = document.getElementById('statisticsTogglePref');
+        if (statisticsTogglePref && window.fpsMonitor) {
+            const isStatisticsVisible = window.fpsMonitor.isVisible;
+            statisticsTogglePref.classList.toggle('active', isStatisticsVisible);
         }
     }
 
@@ -1883,527 +7200,11 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Delete selected objects
      */
     deleteSelected() {
-        this.deleteSelectedObjects();
-    }
-
-    /**
-     * Import STL file
-     */
-    importSTL() {
-        // Create file input element
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.stl';
-        fileInput.style.display = 'none';
-        
-        fileInput.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (file) {
-                this.loadSTLFile(file);
-            }
-        });
-        
-        // Trigger file selection
-        document.body.appendChild(fileInput);
-        fileInput.click();
-        document.body.removeChild(fileInput);
-    }
-
-    /**
-     * Load STL file and add to scene
-     */
-    loadSTLFile(file) {
-        const reader = new FileReader();
-        
-        reader.onload = (e) => {
-            try {
-                const content = e.target.result;
-                this.parseSTLFile(content);
-            } catch (error) {
-                console.error('Error loading STL file:', error);
-                alert('Error loading STL file. Please try again.');
-            }
-        };
-        
-        reader.onerror = () => {
-            alert('Error reading file. Please try again.');
-        };
-        
-        // Read as text (ASCII STL format)
-        reader.readAsText(file);
-    }
-
-    /**
-     * Parse STL ASCII file content and create meshes
-     */
-    parseSTLFile(content) {
-        if (!this.sceneManager) {
-            console.error('SceneManager not available');
-            return;
+        if (this.sceneOperationsManager) {
+            this.sceneOperationsManager.deleteSelected();
+        } else {
+            console.error('SceneOperationsManager not available');
         }
-
-        const scene = this.sceneManager.getScene();
-        if (!scene) {
-            console.error('Scene not available');
-            return;
-        }
-
-        console.log('Parsing STL file...');
-
-        // Split content into lines
-        const lines = content.split('\n');
-        const objects = [];
-        let currentObject = null;
-        let currentTriangle = null;
-        let inFacet = false;
-        let inLoop = false;
-        let vertexCount = 0;
-
-        // Parse STL file line by line
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-
-            // Check for solid start
-            if (line.startsWith('solid ')) {
-                const objectName = line.substring(6).trim();
-                currentObject = {
-                    name: objectName,
-                    type: this.detectTypeFromName(objectName),
-                    triangles: []
-                };
-                console.log(`Found solid: ${objectName}, type: ${currentObject.type}`);
-            }
-            // Check for solid end
-            else if (line.startsWith('endsolid ')) {
-                if (currentObject && currentObject.triangles.length > 0) {
-                    objects.push(currentObject);
-                }
-                currentObject = null;
-            }
-            // Check for facet start
-            else if (line.startsWith('facet normal ')) {
-                if (!currentObject) continue;
-                
-                const normalMatch = line.match(/facet normal\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)/);
-                if (normalMatch) {
-                    // STL format: (X, Y, Z) where Y=forward, Z=up
-                    // Babylon.js: (X, Y, Z) where Y=up, Z=forward
-                    // So we need to swap Y and Z: (x, y, z) -> (x, z, y)
-                    const stlX = parseFloat(normalMatch[1]);
-                    const stlY = parseFloat(normalMatch[2]); // This is forward in STL
-                    const stlZ = parseFloat(normalMatch[3]); // This is up in STL
-                    
-                    currentTriangle = {
-                        normal: {
-                            x: stlX,
-                            y: stlZ,  // STL Z becomes Babylon Y (up)
-                            z: stlY   // STL Y becomes Babylon Z (forward)
-                        },
-                        vertices: []
-                    };
-                    inFacet = true;
-                    vertexCount = 0;
-                }
-            }
-            // Check for facet end
-            else if (line === 'endfacet') {
-                if (currentTriangle && currentTriangle.vertices.length === 3) {
-                    currentObject.triangles.push(currentTriangle);
-                }
-                currentTriangle = null;
-                inFacet = false;
-                inLoop = false;
-            }
-            // Check for outer loop start
-            else if (line === 'outer loop') {
-                inLoop = true;
-            }
-            // Check for loop end
-            else if (line === 'endloop') {
-                inLoop = false;
-            }
-            // Check for vertex
-            else if (line.startsWith('vertex ') && inFacet && inLoop) {
-                const vertexMatch = line.match(/vertex\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)\s+([\d\.e\+\-]+)/);
-                if (vertexMatch && currentTriangle) {
-                    // STL format: (X, Y, Z) where Y=forward, Z=up
-                    // Babylon.js: (X, Y, Z) where Y=up, Z=forward
-                    // So we need to swap Y and Z: (x, y, z) -> (x, z, y)
-                    const stlX = parseFloat(vertexMatch[1]);
-                    const stlY = parseFloat(vertexMatch[2]); // This is forward in STL
-                    const stlZ = parseFloat(vertexMatch[3]); // This is up in STL
-                    
-                    currentTriangle.vertices.push({
-                        x: stlX,
-                        y: stlZ,  // STL Z becomes Babylon Y (up)
-                        z: stlY   // STL Y becomes Babylon Z (forward)
-                    });
-                    vertexCount++;
-                }
-            }
-        }
-
-        console.log(`Parsed ${objects.length} objects from STL file`);
-
-        // Create meshes from parsed objects
-        let createdCount = 0;
-        objects.forEach((obj, index) => {
-            try {
-                const mesh = this.createMeshFromSTLObject(obj, scene);
-                if (mesh) {
-                    createdCount++;
-                }
-            } catch (error) {
-                console.error(`Error creating mesh for ${obj.name}:`, error);
-            }
-        });
-
-        console.log(`Created ${createdCount} meshes from STL file`);
-
-        // Dispatch scene change event to update object list
-        this.dispatchSceneChangeEvent();
-
-        // Show success message
-        alert(`Successfully imported ${createdCount} objects from STL file.`);
-    }
-
-    /**
-     * Detect object type from name
-     */
-    detectTypeFromName(name) {
-        const lowerName = name.toLowerCase();
-        
-        if (lowerName.startsWith('tree_')) {
-            return 'tree';
-        } else if (lowerName.startsWith('building_') || lowerName.startsWith('building')) {
-            return 'building';
-        } else if (lowerName.startsWith('highway_') || lowerName.startsWith('highway')) {
-            return 'highway';
-        } else if (lowerName.startsWith('ground_') || lowerName.startsWith('ground')) {
-            return 'ground';
-        } else if (lowerName.startsWith('green_') || lowerName.startsWith('green')) {
-            return 'green';
-        } else if (lowerName.startsWith('waterway_') || lowerName.startsWith('waterway') || lowerName.startsWith('water_')) {
-            return 'waterway';
-        }
-        
-        // Default to ground if type cannot be determined
-        return 'ground';
-    }
-
-    /**
-     * Create a mesh from STL object data
-     */
-    createMeshFromSTLObject(obj, scene) {
-        if (!obj || !obj.triangles || obj.triangles.length === 0) {
-            return null;
-        }
-
-        // Collect all vertices and create indices
-        // Use a smarter approach: group vertices by position AND normal similarity
-        // This allows proper smoothing while preserving hard edges
-        const positions = [];
-        const indices = [];
-        const normals = [];
-        const vertexMap = new Map(); // key -> array of {index, normal, triangleIndex}
-        // Use smoothing angle threshold from preferences (convert degrees to cosine)
-        // Note: We invert the angle (180 - angle) so that higher slider values = more smoothing
-        // cos(0°) = 1 (less smoothing), cos(180°) = -1 (more smoothing)
-        const angleDegrees = this.smoothingAngleThreshold || 100;
-        const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
-        
-        // First pass: collect vertices and group by position
-        obj.triangles.forEach((triangle, triIndex) => {
-            const triangleIndices = [];
-            const triangleNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
-
-            // Process each vertex in the triangle
-            triangle.vertices.forEach((vertex) => {
-                const key = `${vertex.x.toFixed(6)},${vertex.y.toFixed(6)},${vertex.z.toFixed(6)}`;
-                
-                if (!vertexMap.has(key)) {
-                    vertexMap.set(key, []);
-                }
-                
-                const vertexGroup = vertexMap.get(key);
-                
-                // Find if there's a similar normal in this vertex group
-                let foundSimilar = false;
-                for (let i = 0; i < vertexGroup.length; i++) {
-                    const existing = vertexGroup[i];
-                    const existingNormal = new BABYLON.Vector3(
-                        existing.normal.x,
-                        existing.normal.y,
-                        existing.normal.z
-                    );
-                    existingNormal.normalize();
-                    
-                    const dotProduct = BABYLON.Vector3.Dot(existingNormal, triangleNormal);
-                    
-                    // If normals are similar (angle < 60°), use the same vertex index
-                    if (dotProduct > smoothingAngleThreshold) {
-                        triangleIndices.push(existing.index);
-                        foundSimilar = true;
-                        
-                        // Update normal by averaging (for better smoothing)
-                        const count = existing.triangleCount || 1;
-                        existing.normal.x = (existing.normal.x * count + triangle.normal.x) / (count + 1);
-                        existing.normal.y = (existing.normal.y * count + triangle.normal.y) / (count + 1);
-                        existing.normal.z = (existing.normal.z * count + triangle.normal.z) / (count + 1);
-                        existing.triangleCount = count + 1;
-                        break;
-                    }
-                }
-                
-                // If no similar normal found, create a new vertex (hard edge)
-                if (!foundSimilar) {
-                    const vertexIndex = positions.length / 3;
-                    positions.push(vertex.x, vertex.y, vertex.z);
-                    
-                    vertexGroup.push({
-                        index: vertexIndex,
-                        normal: { x: triangle.normal.x, y: triangle.normal.y, z: triangle.normal.z },
-                        triangleCount: 1
-                    });
-                    
-                    triangleIndices.push(vertexIndex);
-                }
-            });
-
-            // Add triangle indices
-            // Check if we need to flip the triangle order based on normal direction
-            // In STL, normals should point outward. If the normal from STL points inward,
-            // we need to reverse the vertex order to get correct lighting
-            if (triangleIndices.length === 3) {
-                // Calculate normal from triangle vertices to verify direction
-                const v0 = triangle.vertices[0];
-                const v1 = triangle.vertices[1];
-                const v2 = triangle.vertices[2];
-                
-                const edge1 = new BABYLON.Vector3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
-                const edge2 = new BABYLON.Vector3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
-                const calculatedNormal = BABYLON.Vector3.Cross(edge1, edge2);
-                calculatedNormal.normalize();
-                
-                // Compare with STL normal
-                const stlNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
-                stlNormal.normalize();
-                
-                const dotProduct = BABYLON.Vector3.Dot(calculatedNormal, stlNormal);
-                
-                // If normals are opposite (dot product < 0), reverse the triangle order
-                if (dotProduct < 0) {
-                    // Reverse order: (0, 1, 2) -> (0, 2, 1)
-                    indices.push(triangleIndices[0], triangleIndices[2], triangleIndices[1]);
-                } else {
-                    // Keep original order
-                    indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
-                }
-            }
-        });
-        
-        // Second pass: calculate final normals for all vertices
-        let smoothingStats = {
-            totalVertices: 0,
-            smoothedVertices: 0,
-            hardEdges: 0,
-            uniqueNormals: new Set(),
-            maxVariantsPerPosition: 0
-        };
-        
-        vertexMap.forEach((vertexGroup) => {
-            smoothingStats.totalVertices++;
-            if (vertexGroup.length > 1) {
-                smoothingStats.hardEdges++;
-            }
-            if (vertexGroup.length > smoothingStats.maxVariantsPerPosition) {
-                smoothingStats.maxVariantsPerPosition = vertexGroup.length;
-            }
-            
-            vertexGroup.forEach((vertexData) => {
-                const normal = vertexData.normal;
-                
-                // Normalize the normal
-                const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
-                if (length > 0.0001) {
-                    const normalizedX = normal.x / length;
-                    const normalizedY = normal.y / length;
-                    const normalizedZ = normal.z / length;
-                    normals.push(normalizedX, normalizedY, normalizedZ);
-                    
-                    if (vertexData.triangleCount > 1) {
-                        smoothingStats.smoothedVertices++;
-                    }
-                    
-                    // Track unique normals
-                    const normalKey = `${normalizedX.toFixed(3)},${normalizedY.toFixed(3)},${normalizedZ.toFixed(3)}`;
-                    smoothingStats.uniqueNormals.add(normalKey);
-                } else {
-                    normals.push(0, 1, 0);
-                    smoothingStats.uniqueNormals.add('0.000,1.000,0.000');
-                }
-            });
-        });
-        
-        // Log smoothing information
-        console.log(`[STL Import] ${obj.name} - Smoothing Info:`, {
-            totalPositions: smoothingStats.totalVertices,
-            smoothedVertices: smoothingStats.smoothedVertices,
-            hardEdges: smoothingStats.hardEdges,
-            uniqueNormalCount: smoothingStats.uniqueNormals.size,
-            maxVariantsPerPosition: smoothingStats.maxVariantsPerPosition,
-            note: 'STL format does not have smoothing groups. Smoothing uses 60° angle threshold to preserve hard edges.'
-        });
-
-        if (positions.length === 0) {
-            return null;
-        }
-
-        // Create mesh
-        const mesh = new BABYLON.Mesh(obj.name, scene);
-
-        // Create vertex data
-        const vertexData = new BABYLON.VertexData();
-        vertexData.positions = positions;
-        vertexData.indices = indices;
-        
-        // Use smoothed normals (already calculated from STL normals)
-        // Note: STL format doesn't have smoothing groups, so we smooth by averaging
-        // normals of all triangles sharing each vertex
-        vertexData.normals = normals;
-
-        // Apply vertex data to mesh
-        vertexData.applyToMesh(mesh);
-
-        // Calculate bounding box to determine mesh center and minimum Y
-        mesh.refreshBoundingInfo();
-        const boundingInfo = mesh.getBoundingInfo();
-        const min = boundingInfo.boundingBox.minimum;
-        const max = boundingInfo.boundingBox.maximum;
-        const center = new BABYLON.Vector3(
-            (min.x + max.x) / 2,
-            (min.y + max.y) / 2,
-            (min.z + max.z) / 2
-        );
-        const originalMinY = min.y; // Store original minimum Y before offset
-
-        // Adjust mesh position and vertices:
-        // 1. Move mesh to center position (so gizmo appears at center X/Z)
-        // 2. Offset vertices so mesh center is at origin in local space
-        mesh.position = center.clone();
-        
-        // Offset all vertices so mesh center is at origin in local space
-        const offset = center.clone();
-        const adjustedPositions = [];
-        for (let i = 0; i < positions.length; i += 3) {
-            adjustedPositions.push(
-                positions[i] - offset.x,
-                positions[i + 1] - offset.y,
-                positions[i + 2] - offset.z
-            );
-        }
-        
-        // Update mesh with adjusted positions
-        mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, adjustedPositions);
-        
-        // Recalculate normals from geometry to ensure correct direction
-        // This fixes the issue where STL normals might be inverted
-        // ComputeNormals calculates normals based on triangle winding order (counter-clockwise = upward)
-        const recalculatedNormals = [];
-        BABYLON.VertexData.ComputeNormals(adjustedPositions, indices, recalculatedNormals);
-        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, recalculatedNormals);
-        
-        mesh.refreshBoundingInfo();
-        
-        // Calculate minimum Y after offset (in local space, should be negative or zero)
-        const updatedBoundingInfo = mesh.getBoundingInfo();
-        const updatedMin = updatedBoundingInfo.boundingBox.minimum;
-        const updatedMax = updatedBoundingInfo.boundingBox.maximum;
-        const localMinY = updatedMin.y;
-        
-        // Calculate world-space minimum Y for gizmo positioning
-        const worldMinY = mesh.position.y + localMinY;
-
-        // Set mesh properties based on type
-        mesh.renderingGroupId = 1;
-
-        // Create material based on type - ensure color is set correctly
-        const material = new BABYLON.StandardMaterial(`${obj.name}Material`, scene);
-        const color = this.getColorByType ? this.getColorByType(obj.type) : new BABYLON.Color3(0.8, 0.8, 0.8);
-        material.diffuseColor = color;
-        material.backFaceCulling = true;
-        material.twoSidedLighting = false;
-        material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        material.roughness = 0.7;
-        mesh.material = material;
-
-        // Enable edges rendering
-        mesh.enableEdgesRendering();
-        mesh.edgesWidth = 1.0;
-        mesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
-        
-        // Set userData based on type
-        // Store original STL data for real-time smoothing updates
-        mesh.userData = {
-            type: obj.type,
-            shapeType: obj.type === 'tree' ? 'tree' : (obj.type === 'building' ? 'building' : 'polygon'),
-            dimensions: {
-                width: updatedMax.x - updatedMin.x,
-                depth: updatedMax.z - updatedMin.z,
-                height: updatedMax.y - updatedMin.y
-            },
-            originalHeight: updatedMax.y - updatedMin.y,
-            baseY: worldMinY, // Store world-space minimum Y for gizmo positioning
-            isImportedSTL: true, // Flag to identify imported STL meshes
-            originalSTLData: JSON.parse(JSON.stringify(obj)) // Deep copy of original STL data for rebuilding
-        };
-
-        // Enable shadows
-        mesh.receiveShadows = true;
-        mesh.castShadows = true;
-
-        // Add to selection manager
-        if (this.selectionManager) {
-            this.selectionManager.addSelectableObject(mesh);
-        }
-
-        // Add to scene manager if it's a building
-        if (obj.type === 'building' && this.sceneManager) {
-            // SceneManager.addBuilding expects an object with mesh property
-            this.sceneManager.addBuilding({ mesh: mesh });
-        }
-
-        // For trees, we would need to handle them differently (as TransformNode with child meshes)
-        // For now, trees are imported as regular meshes
-        if (obj.type === 'tree' && this.treeManager) {
-            // Note: Trees imported from STL won't have the same structure as drawn trees
-            // They will be simple meshes, not TransformNodes with child meshes
-            console.log(`Imported tree: ${obj.name} (as simple mesh)`);
-        }
-
-        // Update shadows
-        if (this.lightingManager) {
-            this.lightingManager.updateShadowsForNewObject(mesh);
-        }
-
-        console.log(`Created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length})`);
-
-        return mesh;
-    }
-
-    /**
-     * Calculate bounding box for a mesh
-     */
-    calculateBoundingBox(mesh) {
-        const boundingInfo = mesh.getBoundingInfo();
-        const min = boundingInfo.boundingBox.minimum;
-        const max = boundingInfo.boundingBox.maximum;
-        
-        return {
-            width: max.x - min.x,
-            depth: max.z - min.z,
-            height: max.y - min.y
-        };
     }
 
     /**
@@ -2985,6 +7786,9 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Generate new buildings on default area
         const buildings = this.buildingGenerator.generateBuildings(count, minHeight, maxHeight);
+        
+        // Apply 2-sided materials to all meshes after generating buildings
+        this.apply2SidedMaterialsToAll();
 
         // Add buildings to scene and setup shadows
         buildings.forEach(building => {
@@ -3260,85 +8064,191 @@ Transform your 3D models into powerful energy analysis tools.`;
     }
 
     /**
-     * Create empty scene with only ground
+     * Show save scene confirmation dialog before creating new scene
+     * @param {string} sceneType - 'empty' or 'default'
      */
-    createEmptyScene() {
-        // Clear selection first
-        if (this.selectionManager) {
-            this.selectionManager.clearSelection();
+    showSaveSceneDialog(sceneType) {
+        const dialog = document.getElementById('saveSceneDialog');
+        if (!dialog) {
+            console.error('Save scene dialog not found');
+            // If dialog not found, proceed directly
+            if (sceneType === 'empty') {
+                this.createEmptyScene();
+            } else {
+                this.createDefaultScene();
+            }
+            return;
         }
-        
-        // Clear all trees
-        if (this.treeManager && this.treeManager.clearAllTrees) {
-            this.treeManager.clearAllTrees();
+
+        // Store scene type for later use
+        this.pendingSceneType = sceneType;
+
+        // Show dialog
+        dialog.style.display = 'flex';
+
+        // Setup event listeners (remove old ones first by cloning)
+        const closeBtn = document.getElementById('saveSceneDialogClose');
+        const noBtn = document.getElementById('saveSceneDialogNo');
+        const yesBtn = document.getElementById('saveSceneDialogYes');
+
+        // Remove existing listeners by cloning elements
+        if (closeBtn) {
+            const newCloseBtn = closeBtn.cloneNode(true);
+            closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
         }
-        
-        // Clear all buildings (this also clears roads and polygons)
-        this.sceneManager.clearBuildings();
-        this.buildingGenerator.clearBuildings();
-        
-        // Clear all rectangles, circles, and polygons
-        this.clear2DShapes();
-
-        // Reset camera
-        this.cameraController.resetCamera();
-
-        // Reset UI values
-        document.getElementById('buildingCount').value = 70;
-        document.getElementById('buildingCountValue').textContent = '70';
-        document.getElementById('minHeight').value = 4;
-        document.getElementById('minHeightValue').textContent = '4';
-        document.getElementById('maxHeight').value = 20;
-        document.getElementById('maxHeightValue').textContent = '20';
-
-        // Ensure ground is visible
-        if (!this.sceneManager.getGround()) {
-            this.sceneManager.createGround();
+        if (noBtn) {
+            const newNoBtn = noBtn.cloneNode(true);
+            noBtn.parentNode.replaceChild(newNoBtn, noBtn);
         }
-        
-        // Dispatch scene change event to update object list
-        this.dispatchSceneChangeEvent();
+        if (yesBtn) {
+            const newYesBtn = yesBtn.cloneNode(true);
+            yesBtn.parentNode.replaceChild(newYesBtn, yesBtn);
+        }
+
+        const closeDialog = () => {
+            dialog.style.display = 'none';
+        };
+
+        // Close button
+        const finalCloseBtn = document.getElementById('saveSceneDialogClose');
+        if (finalCloseBtn) {
+            finalCloseBtn.addEventListener('click', closeDialog);
+        }
+
+        // No button - proceed without saving
+        const finalNoBtn = document.getElementById('saveSceneDialogNo');
+        if (finalNoBtn) {
+            finalNoBtn.addEventListener('click', () => {
+                closeDialog();
+                if (this.pendingSceneType === 'empty') {
+                    this.createEmptyScene();
+                } else {
+                    this.createDefaultScene();
+                }
+                this.pendingSceneType = null;
+            });
+        }
+
+        // Yes button - save first, then proceed
+        const finalYesBtn = document.getElementById('saveSceneDialogYes');
+        if (finalYesBtn) {
+            finalYesBtn.addEventListener('click', () => {
+                closeDialog();
+                // Save scene first
+                this.saveScene();
+                // Then proceed with new scene
+                // Note: saveScene might be async, but we proceed anyway
+                setTimeout(() => {
+                    if (this.pendingSceneType === 'empty') {
+                        this.createEmptyScene();
+                    } else {
+                        this.createDefaultScene();
+                    }
+                    this.pendingSceneType = null;
+                }, 100);
+            });
+        }
     }
 
     /**
-     * Create default scene with ground and 10 random buildings
+     * Create empty scene with only ground
+     */
+    createEmptyScene() {
+        if (this.sceneOperationsManager) {
+            // First, select all objects
+            if (this.selectionManager && this.selectionManager.selectAll) {
+                this.selectionManager.selectAll();
+            }
+            // Then use SceneOperationsManager to clear the scene
+            this.sceneOperationsManager.createEmptyScene();
+        } else {
+            console.error('SceneOperationsManager not available');
+        }
+    }
+
+    /**
+     * Create default scene with ground and random buildings
      */
     createDefaultScene() {
-        // Clear selection first
-        if (this.selectionManager) {
-            this.selectionManager.clearSelection();
+        // Use the same approach as createEmptyScene to ensure all objects (including STL) are cleared
+        if (this.sceneOperationsManager) {
+            // First, select all objects (this includes STL objects)
+            if (this.selectionManager && this.selectionManager.selectAll) {
+                this.selectionManager.selectAll();
+            }
+            // Then use SceneOperationsManager to clear the scene (this handles STL objects too)
+            this.sceneOperationsManager.createEmptyScene();
+        } else {
+            // Fallback: manual clearing
+            // Clear selection first
+            if (this.selectionManager) {
+                this.selectionManager.clearSelection();
+            }
+            
+            // Clear all trees
+            if (this.treeManager && this.treeManager.clearAllTrees) {
+                this.treeManager.clearAllTrees();
+            }
+            
+            // Clear all buildings (this also clears roads and polygons)
+            this.sceneManager.clearBuildings();
+            this.buildingGenerator.clearBuildings();
+            
+            // Clear all rectangles, circles, and polygons
+            this.clear2DShapes();
+            
+            // Clear all STL objects
+            const scene = this.sceneManager.getScene();
+            if (scene) {
+                const meshes = scene.meshes.slice(); // Copy array to avoid modification during iteration
+                meshes.forEach(mesh => {
+                    if (mesh.userData && mesh.userData.isImportedSTL) {
+                        if (this.selectionManager) {
+                            this.selectionManager.removeSelectableObject(mesh);
+                        }
+                        scene.removeMesh(mesh);
+                        if (mesh.material && !mesh.material.getClassName().includes('Shared')) {
+                            mesh.material.dispose();
+                        }
+                        mesh.dispose();
+                    }
+                });
+            }
+
+            // Reset camera
+            this.cameraController.resetCamera();
         }
         
-        // Clear all trees
-        if (this.treeManager && this.treeManager.clearAllTrees) {
-            this.treeManager.clearAllTrees();
-        }
+        // Apply 2-sided materials to all meshes after clearing
+        this.apply2SidedMaterialsToAll();
         
-        // Clear all buildings (this also clears roads and polygons)
-        this.sceneManager.clearBuildings();
-        this.buildingGenerator.clearBuildings();
+        // After clearing (whether using SceneOperationsManager or fallback), generate new random buildings (for default scene)
+        // Reset UI values to match the initial scene generation (same as autoGenerateBuildings)
+        const buildingCount = document.getElementById('buildingCount');
+        const buildingCountValue = document.getElementById('buildingCountValue');
+        const minHeight = document.getElementById('minHeight');
+        const minHeightValue = document.getElementById('minHeightValue');
+        const maxHeight = document.getElementById('maxHeight');
+        const maxHeightValue = document.getElementById('maxHeightValue');
         
-        // Clear all rectangles, circles, and polygons
-        this.clear2DShapes();
-
-        // Reset camera
-        this.cameraController.resetCamera();
-
-        // Reset UI values
-        document.getElementById('buildingCount').value = 70;
-        document.getElementById('buildingCountValue').textContent = '70';
-        document.getElementById('minHeight').value = 4;
-        document.getElementById('minHeightValue').textContent = '4';
-        document.getElementById('maxHeight').value = 20;
-        document.getElementById('maxHeightValue').textContent = '20';
+        // Use same values as initial scene generation (minHeight: 5, maxHeight: 35)
+        if (buildingCount) buildingCount.value = 70;
+        if (buildingCountValue) buildingCountValue.textContent = '70';
+        if (minHeight) minHeight.value = 5;
+        if (minHeightValue) minHeightValue.textContent = '5';
+        if (maxHeight) maxHeight.value = 35;
+        if (maxHeightValue) maxHeightValue.textContent = '35';
 
         // Ensure ground is visible
         if (!this.sceneManager.getGround()) {
             this.sceneManager.createGround();
         }
 
-        // Generate 70 random buildings
-        this.buildingGenerator.generateBuildings(70);
+        // Generate 70 random buildings with same parameters as initial scene (minHeight: 5, maxHeight: 35)
+        this.buildingGenerator.generateBuildings(70, 5, 35);
+        
+        // Apply 2-sided materials to all meshes after generating buildings
+        this.apply2SidedMaterialsToAll();
         
         // Dispatch scene change event to update object list
         this.dispatchSceneChangeEvent();
@@ -3836,6 +8746,14 @@ Transform your 3D models into powerful energy analysis tools.`;
         };
         mesh.userData.originalHeight = updatedMax.y - updatedMin.y;
         mesh.userData.baseY = worldMinY;
+        
+        // Ensure no period properties for non-building objects
+        if (mesh.userData.type && mesh.userData.type !== 'building') {
+            delete mesh.userData.startPeriod;
+            delete mesh.userData.endPeriod;
+            delete mesh.userData.buildingArchetypePeriod;
+            delete mesh.userData.buildingGroupPeriod;
+        }
         
         // Restore original STL data reference
         mesh.userData.originalSTLData = originalData;
@@ -4574,6 +9492,43 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Keyboard events - Using event.code instead of event.key for language-independent shortcuts
         document.addEventListener('keydown', (event) => {
+            // Check if user is typing in an input field - if so, don't handle global keyboard shortcuts
+            const activeElement = document.activeElement;
+            const isInputFocused = activeElement && (
+                activeElement.tagName === 'INPUT' || 
+                activeElement.tagName === 'SELECT' || 
+                activeElement.tagName === 'TEXTAREA' ||
+                activeElement.isContentEditable
+            );
+            
+            // If typing in input field, only handle specific cases (like Escape to close popup)
+            // But don't handle other shortcuts that might interfere
+            if (isInputFocused) {
+                // Only handle Escape to close popup if user wants
+                if (event.code === 'Escape') {
+                    // Check if any properties popup is open
+                    const propertiesPopup = document.getElementById('propertiesPopup');
+                    const circlePopup = document.getElementById('circlePropertiesPopup');
+                    const polygonPopup = document.getElementById('polygonPropertiesPopup');
+                    const treePopup = document.getElementById('treePropertiesPopup');
+                    const stlPopup = document.getElementById('stlPropertiesPopup');
+                    
+                    const isPopupOpen = (propertiesPopup && propertiesPopup.classList.contains('show')) ||
+                                      (circlePopup && circlePopup.classList.contains('show')) ||
+                                      (polygonPopup && polygonPopup.classList.contains('show')) ||
+                                      (treePopup && treePopup.classList.contains('show')) ||
+                                      (stlPopup && stlPopup.classList.contains('show'));
+                    
+                    if (isPopupOpen) {
+                        // Don't close popup when typing - just stop propagation
+                        event.stopPropagation();
+                        return;
+                    }
+                }
+                // For all other keys when typing, don't handle global shortcuts
+                return;
+            }
+            
             // Handle polygon drawing specific keys first
             if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
                 if (event.code === 'Backspace') {
@@ -4790,6 +9745,11 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Check if any drawing tool is currently active
      */
     isDrawingModeActive() {
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.isDrawingModeActive();
+        }
+        // Fallback if ToolManager not available
         const activeDrawingTool = document.querySelector('#drawingPanel .tool-item.active');
         return activeDrawingTool !== null;
     }
@@ -4798,6 +9758,11 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Stop all active drawing operations
      */
     stopAllDrawingOperations() {
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.stopAllDrawingOperations();
+        }
+        // Fallback if ToolManager not available
         // Stop polygon drawing
         if (this.polygonManager && this.polygonManager.isDrawing) {
             this.stopPolygonDrawing();
@@ -4837,6 +9802,11 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Check if any transform tool is active (select, move, rotate, scale)
      */
     isAnyTransformToolActive() {
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.isAnyTransformToolActive();
+        }
+        // Fallback if ToolManager not available
         const activeTool = document.querySelector('#transformPanel .tool-item.active');
         if (!activeTool) return false;
         
@@ -4848,6 +9818,11 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Check if a transform editing tool is active (move, rotate, scale - excluding select)
      */
     isTransformEditingToolActive() {
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.isTransformEditingToolActive();
+        }
+        // Fallback if ToolManager not available
         const activeTool = document.querySelector('#transformPanel .tool-item.active');
         if (!activeTool) return false;
         
@@ -5053,8 +10028,27 @@ Transform your 3D models into powerful energy analysis tools.`;
                     return;
                 }
                 
-                // For trees, check the parent transform node
-                const currentTree = this.currentTree ? (this.currentTree.parent || this.currentTree) : null;
+                // For trees, use the currentTree (which is already the parent TransformNode)
+                // If currentTree is a mesh, find its parent
+                let currentTree = this.currentTree;
+                if (currentTree instanceof BABYLON.Mesh && currentTree.parent instanceof BABYLON.TransformNode) {
+                    currentTree = currentTree.parent;
+                } else if (this.treeManager && currentTree) {
+                    // Try to find the parent tree in TreeManager
+                    const treeData = this.treeManager.trees.find(t => 
+                        t.parent === currentTree || t.meshes.includes(currentTree)
+                    );
+                    if (treeData && treeData.parent) {
+                        currentTree = treeData.parent;
+                    }
+                }
+                
+                if (!currentTree) {
+                    console.error('Cannot update tree name: tree not found');
+                    treeNameInput.value = originalTreeName;
+                    return;
+                }
+                
                 if (!this.isNameUnique(newName, currentTree)) {
                     treeNameInput.value = originalTreeName;
                     alert('Duplicate name. Please choose a different name.');
@@ -5062,16 +10056,20 @@ Transform your 3D models into powerful energy analysis tools.`;
                 }
                 
                 // Name is unique, update the tree name
-                if (currentTree) {
-                    currentTree.name = newName;
-                    this.dispatchSceneChangeEvent();
+                currentTree.name = newName;
+                this.dispatchSceneChangeEvent();
+                
+                // Update object list to reflect the name change
+                if (this.objectListManager) {
+                    this.objectListManager.updateObjectList();
                 }
             });
         }
 
         // Shape properties auto-save
+        // Note: shapeType has its own dedicated listener, so we exclude it here
         const shapeInputs = [
-            'shapeType', 'shapeColor', 'shapeLength', 'shapeWidth', 'shapeHeight', 'shapeRadius'
+            'shapeColor', 'shapeLength', 'shapeWidth', 'shapeHeight', 'shapeRadius'
         ];
         
         shapeInputs.forEach(inputId => {
@@ -5142,6 +10140,21 @@ Transform your 3D models into powerful energy analysis tools.`;
             const newType = e.target.value;
             console.log('Polygon type changed to:', newType);
             
+            // Check if type actually changed by comparing with the previous value from the dropdown
+            const currentTypeInUserData = this.currentShape?.userData?.type;
+            const previousTypeInDropdown = e.target.getAttribute('data-previous-value') || currentTypeInUserData;
+            const typeChanged = previousTypeInDropdown !== newType;
+            
+            // Store the new value for next comparison
+            e.target.setAttribute('data-previous-value', newType);
+            
+            console.log('Polygon type change check:', { 
+                currentTypeInUserData, 
+                previousTypeInDropdown, 
+                newType, 
+                typeChanged 
+            });
+            
             // Show/hide height field based on type
             const heightGroup = document.getElementById('polygonHeightGroup');
             if (newType === 'building') {
@@ -5155,15 +10168,69 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Update color based on type
             this.updatePolygonColorByType(newType);
             
-            // Update polygon name based on type
-            const newName = this.generateUniquePolygonName(newType);
+            // Update polygon name based on type (only if type actually changed)
+            // IMPORTANT: Update name BEFORE updating userData.type
+            if (typeChanged) {
+                const newName = this.generateUniqueNameByType(newType);
+                console.log('[Polygon Type Change] Type changed from', previousTypeInDropdown, 'to', newType, '- generating new name:', newName);
+                
+                // Update both the polygon name and the popup field
+                if (this.currentShape) {
+                    const oldName = this.currentShape.name;
+                    this.currentShape.name = newName;
+                    console.log('[Polygon Type Change] Updated polygon name from', oldName, 'to', newName);
+                    
+                    // Update userData.name to match the new name
+                    if (this.currentShape.userData) {
+                        this.currentShape.userData.name = newName;
+                    }
+                    // Also update extrusion name if exists
+                    if (this.currentShape.extrusion) {
+                        this.currentShape.extrusion.name = `${newName}_extrusion`;
+                    }
+                }
             document.getElementById('polygonName').value = newName;
+                
+                // Update object list to reflect the name change
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                    console.log('[Polygon Type Change] Object list updated');
+                }
+                
+                // Dispatch scene change event
+                this.dispatchSceneChangeEvent();
+                console.log('[Polygon Type Change] Scene change event dispatched');
+            } else {
+                console.log('[Polygon Type Change] Type did not change, skipping name update');
+            }
+            
+            // Update userData type AFTER name update
+            if (this.currentShape) {
+                // IMPORTANT: Preserve sideWallNormalsFlipped flag before updating
+                const sideWallNormalsFlipped = this.currentShape.userData?.sideWallNormalsFlipped || false;
+                
+                this.currentShape.userData = this.currentShape.userData || {};
+                this.currentShape.userData.type = newType;
+                // IMPORTANT: Always keep shapeType as 'polygon' to prevent misidentification as rectangle
+                // The type field indicates the category (building, ground, etc.), but shapeType should remain 'polygon'
+                this.currentShape.userData.shapeType = 'polygon';
+                // IMPORTANT: Preserve sideWallNormalsFlipped flag after updating userData
+                this.currentShape.userData.sideWallNormalsFlipped = sideWallNormalsFlipped;
+            }
+            
+            // IMPORTANT: Always update object list after type change (even if name didn't change)
+            // This ensures the object is re-categorized in the correct category
+            if (this.objectListManager && this.objectListManager.updateObjectList) {
+                this.objectListManager.updateObjectList();
+                console.log('[Polygon Type Change] Object list updated after type change');
+            }
+            
+            // Dispatch scene change event to ensure all listeners are notified
+            this.dispatchSceneChangeEvent();
             
             // Update polygon material in real-time
             if (this.currentShape) {
                 this.updatePolygonMaterialByType(this.currentShape, newType);
-                // Update polygon name in real-time
-                this.currentShape.name = newName;
             }
         });
 
@@ -5193,6 +10260,10 @@ Transform your 3D models into powerful energy analysis tools.`;
                 this.currentShape.scaling.y = scaleFactor;
                 this.realignPolygonBase(this.currentShape, baseY);
                 this.currentShape.userData.currentHeight = newHeight;
+                
+                // NOTE: When using scaling, normals are automatically scaled correctly by Babylon.js
+                // We should NOT recalculate normals when height changes via scaling, as this causes shadow issues
+                // Only update normals if the mesh geometry itself is recreated (not when scaling changes)
             }
         });
 
@@ -5201,10 +10272,21 @@ Transform your 3D models into powerful energy analysis tools.`;
             const newType = e.target.value;
             console.log('Shape type changed to:', newType);
             
-            // Check if type actually changed before updating userData
-            const currentType = this.currentShape?.userData?.type;
-            const typeChanged = currentType !== newType;
-            console.log('Shape type change check:', { currentType, newType, typeChanged });
+            // Check if type actually changed by comparing with the current value in userData
+            // But also check the previous value from the dropdown to handle cases where userData was already updated
+            const currentTypeInUserData = this.currentShape?.userData?.type;
+            const previousTypeInDropdown = e.target.getAttribute('data-previous-value') || currentTypeInUserData;
+            const typeChanged = previousTypeInDropdown !== newType;
+            
+            // Store the new value for next comparison
+            e.target.setAttribute('data-previous-value', newType);
+            
+            console.log('Shape type change check:', { 
+                currentTypeInUserData, 
+                previousTypeInDropdown, 
+                newType, 
+                typeChanged 
+            });
             
             // Always update color when type changes, even if it's the same type
             // This ensures color picker reflects the correct type-based color
@@ -5217,28 +10299,60 @@ Transform your 3D models into powerful energy analysis tools.`;
             
             this.updatePropertiesFields(newType);
             
-            // Update userData type
+            // Update name based on new type (only if type actually changed)
+            // IMPORTANT: Update name BEFORE updating userData.type, so updateShapeInRealTime can detect the change
+            if (typeChanged) {
+                console.log('[Type Change] Type changed detected:', { 
+                    currentTypeInUserData, 
+                    previousTypeInDropdown, 
+                    newType, 
+                    shapeName: this.currentShape.name 
+                });
+                const newName = this.generateUniqueNameByType(newType);
+                console.log('[Type Change] Generated new name:', newName);
+                
+                // Update both the shape name and the popup field
+                const oldName = this.currentShape.name;
+                this.currentShape.name = newName;
+                document.getElementById('shapeName').value = newName;
+                console.log('[Type Change] Updated shape name from', oldName, 'to', newName);
+                
+                // Update userData.name to match the new name
+                if (this.currentShape.userData) {
+                    this.currentShape.userData.name = newName;
+                }
+                
+                // Update object list to reflect the name change
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                    console.log('[Type Change] Object list updated');
+                }
+                
+                // Dispatch scene change event
+                this.dispatchSceneChangeEvent();
+                console.log('[Type Change] Scene change event dispatched');
+            } else {
+                console.log('[Type Change] Type did not change, skipping name update');
+            }
+            
+            // Update userData type AFTER name update
             if (this.currentShape) {
                 this.currentShape.userData = this.currentShape.userData || {};
                 this.currentShape.userData.type = newType;
                 console.log('Updated userData.type to:', newType);
             }
             
-            // Update name based on new type (only if type actually changed)
-            if (typeChanged) {
-                const newName = this.generateUniqueNameByType(newType);
-                console.log('Type changed from', currentType, 'to', newType, '- generating new name:', newName);
-                // Update both the shape name and the popup field
-                this.currentShape.name = newName;
-                document.getElementById('shapeName').value = newName;
-                
-                // Automatically update color based on new type
-                const newColor = this.getHexColorByType(newType);
-                console.log('Getting color for type:', newType, 'result:', newColor);
-                document.getElementById('shapeColor').value = newColor;
-                console.log('Auto-updated shape color to:', newColor, 'for type:', newType);
+            // IMPORTANT: Always update object list after type change (even if name didn't change)
+            // This ensures the object is re-categorized in the correct category
+            if (this.objectListManager && this.objectListManager.updateObjectList) {
+                this.objectListManager.updateObjectList();
+                console.log('[Rectangle Type Change] Object list updated after type change');
             }
             
+            // Dispatch scene change event to ensure all listeners are notified
+            this.dispatchSceneChangeEvent();
+            
+            // Update shape in real-time (this will update geometry and material, but not name since type is already updated)
             this.updateShapeInRealTime();
         });
 
@@ -5256,14 +10370,21 @@ Transform your 3D models into powerful energy analysis tools.`;
         });
         this.setupContinuousParameterChange('shapeRadius', () => this.updateShapeInRealTime());
 
-        // Prevent backspace from closing popup when typing in input fields
+        // Prevent keyboard events from closing popup when typing in input fields
         const popup = document.getElementById('propertiesPopup');
         popup.addEventListener('keydown', (event) => {
-            // Allow backspace in input fields
-            if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+            // Stop all keyboard events when typing in input fields, textareas, or contentEditable elements
+            const target = event.target;
+            if (target && (
+                target.tagName === 'INPUT' || 
+                target.tagName === 'SELECT' || 
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable
+            )) {
                 event.stopPropagation();
+                // Don't prevent default for input fields - allow normal typing
             }
-        });
+        }, true); // Use capture phase to catch events early
 
         // Circle properties real-time updates
         document.getElementById('circleType').addEventListener('change', (e) => {
@@ -5300,16 +10421,29 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Update name based on new type (only if type actually changed)
             if (typeChanged) {
                 const newName = this.generateUniqueNameByType(newType);
-                console.log('Type changed from', currentType, 'to', newType, '- generating new name:', newName);
+                console.log('Circle type changed from', currentType, 'to', newType, '- generating new name:', newName);
                 // Update both the shape name and the popup field
                 this.currentShape.name = newName;
                 document.getElementById('circleName').value = newName;
+                
+                // Update userData.name to match the new name
+                if (this.currentShape.userData) {
+                    this.currentShape.userData.name = newName;
+                }
                 
                 // Automatically update color based on new type
                 const newColor = this.getHexColorByType(newType);
                 console.log('Getting circle color for type:', newType, 'result:', newColor);
                 document.getElementById('circleColor').value = newColor;
                 console.log('Auto-updated circle color to:', newColor, 'for type:', newType);
+                
+                // Update object list to reflect the name change
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                }
+                
+                // Dispatch scene change event
+                this.dispatchSceneChangeEvent();
             }
             
             // Update color based on type
@@ -5322,10 +10456,20 @@ Transform your 3D models into powerful energy analysis tools.`;
                 newColor = '#0080ff'; // Blue for waterway
             } else if (newType === 'highway') {
                 newColor = '#4d4d4d'; // Gray for highway
-            } else if (newType === 'green') {
-                newColor = '#00cc00'; // Green for green areas
+            } else if (newType === 'grass') {
+                newColor = '#00cc00'; // Green for grass areas
             }
             document.getElementById('circleColor').value = newColor;
+            
+            // IMPORTANT: Always update object list after type change (even if name didn't change)
+            // This ensures the object is re-categorized in the correct category
+            if (this.objectListManager && this.objectListManager.updateObjectList) {
+                this.objectListManager.updateObjectList();
+                console.log('[Circle Type Change] Object list updated after type change');
+            }
+            
+            // Dispatch scene change event to ensure all listeners are notified
+            this.dispatchSceneChangeEvent();
             
             this.updateCircleInRealTime();
         });
@@ -5338,14 +10482,69 @@ Transform your 3D models into powerful energy analysis tools.`;
         this.setupContinuousParameterChange('circleDiameter', () => this.updateCircleInRealTime());
         this.setupContinuousParameterChange('circleHeight', () => this.updateCircleInRealTime());
 
-        // Prevent backspace from closing circle popup when typing in input fields
+        // Prevent keyboard events from closing circle popup when typing in input fields
         const circlePopup = document.getElementById('circlePropertiesPopup');
         circlePopup.addEventListener('keydown', (event) => {
-            // Allow backspace in input fields
-            if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+            // Stop all keyboard events when typing in input fields, textareas, or contentEditable elements
+            const target = event.target;
+            if (target && (
+                target.tagName === 'INPUT' || 
+                target.tagName === 'SELECT' || 
+                target.tagName === 'TEXTAREA' ||
+                target.isContentEditable
+            )) {
                 event.stopPropagation();
+                // Don't prevent default for input fields - allow normal typing
             }
-        });
+        }, true); // Use capture phase to catch events early
+        
+        // Prevent keyboard events from closing polygon popup when typing in input fields
+        const polygonPopup = document.getElementById('polygonPropertiesPopup');
+        if (polygonPopup) {
+            polygonPopup.addEventListener('keydown', (event) => {
+                const target = event.target;
+                if (target && (
+                    target.tagName === 'INPUT' || 
+                    target.tagName === 'SELECT' || 
+                    target.tagName === 'TEXTAREA' ||
+                    target.isContentEditable
+                )) {
+                    event.stopPropagation();
+                }
+            }, true);
+        }
+        
+        // Prevent keyboard events from closing tree popup when typing in input fields
+        const treePopup = document.getElementById('treePropertiesPopup');
+        if (treePopup) {
+            treePopup.addEventListener('keydown', (event) => {
+                const target = event.target;
+                if (target && (
+                    target.tagName === 'INPUT' || 
+                    target.tagName === 'SELECT' || 
+                    target.tagName === 'TEXTAREA' ||
+                    target.isContentEditable
+                )) {
+                    event.stopPropagation();
+                }
+            }, true);
+        }
+        
+        // Prevent keyboard events from closing STL popup when typing in input fields
+        const stlPopup = document.getElementById('stlPropertiesPopup');
+        if (stlPopup) {
+            stlPopup.addEventListener('keydown', (event) => {
+                const target = event.target;
+                if (target && (
+                    target.tagName === 'INPUT' || 
+                    target.tagName === 'SELECT' || 
+                    target.tagName === 'TEXTAREA' ||
+                    target.isContentEditable
+                )) {
+                    event.stopPropagation();
+                }
+            }, true);
+        }
     }
 
     /**
@@ -5365,7 +10564,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Fill form fields
         document.getElementById('shapeName').value = properties.name;
-        document.getElementById('shapeType').value = properties.type;
+        const shapeTypeSelect = document.getElementById('shapeType');
+        shapeTypeSelect.value = properties.type;
+        // Store the initial type value for change detection
+        shapeTypeSelect.setAttribute('data-previous-value', properties.type);
         document.getElementById('shapeColor').value = displayColor;
         document.getElementById('shapeLength').value = properties.length;
         document.getElementById('shapeWidth').value = properties.width;
@@ -5446,20 +10648,34 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Show tree properties popup
      */
     showTreePropertiesPopup(tree) {
-        this.currentShape = tree;
-        this.currentTree = tree; // Store tree reference for name validation
+        // If tree is a mesh child, find the parent TransformNode
+        let treeParent = tree;
+        if (tree instanceof BABYLON.Mesh && tree.parent instanceof BABYLON.TransformNode) {
+            treeParent = tree.parent;
+        } else if (this.treeManager) {
+            // Try to find the parent tree in TreeManager
+            const treeData = this.treeManager.trees.find(t => 
+                t.parent === tree || t.meshes.includes(tree)
+            );
+            if (treeData && treeData.parent) {
+                treeParent = treeData.parent;
+            }
+        }
         
-        console.log('Showing tree properties for:', tree.name);
+        this.currentShape = treeParent;
+        this.currentTree = treeParent; // Store tree reference for name validation
+        
+        console.log('Showing tree properties for:', treeParent.name, '(original object:', tree.name, ')');
         
         // Get tree type from name (e.g., "tree_1_0" -> "1")
-        const treeType = this.getTreeTypeFromName(tree.name);
+        const treeType = this.getTreeTypeFromName(treeParent.name);
         
-        // Fill form fields
-        document.getElementById('treeName').value = tree.name;
+        // Fill form fields - use parent name, not child mesh name
+        document.getElementById('treeName').value = treeParent.name;
         document.getElementById('treeCategory').value = 'Tree';
         
-        // Set current scale value
-        const currentScale = tree.scaling.x; // Use X scaling as reference
+        // Set current scale value from parent
+        const currentScale = treeParent.scaling.x; // Use X scaling as reference
         document.getElementById('treeScale').value = currentScale.toFixed(1);
         
         // Show popup
@@ -5610,9 +10826,29 @@ Transform your 3D models into powerful energy analysis tools.`;
                     this.currentSTLMesh.material.diffuseColor = color;
                 }
                 
-                console.log(`STL mesh type changed from ${oldType} to ${newType}`);
+                // Update name based on new type
+                const newName = this.generateUniqueNameByType(newType);
+                console.log(`STL mesh type changed from ${oldType} to ${newType}, generating new name: ${newName}`);
                 
-                // Update object list if available
+                // Update both the mesh name and the popup field
+                this.currentSTLMesh.name = newName;
+                if (this.currentSTLMesh.userData) {
+                    this.currentSTLMesh.userData.name = newName;
+                }
+                document.getElementById('stlName').value = newName;
+                
+                // IMPORTANT: Always update object list after type change
+                // This ensures the object is re-categorized in the correct category
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                    console.log('[STL Type Change] Object list updated after type change');
+                }
+                
+                // Dispatch scene change event to ensure all listeners are notified
+                this.dispatchSceneChangeEvent();
+            } else {
+                // Even if type didn't change, update object list to ensure categorization is correct
+                // This handles edge cases where userData.type might have been updated elsewhere
                 if (this.objectListManager && this.objectListManager.updateObjectList) {
                     this.objectListManager.updateObjectList();
                 }
@@ -5634,6 +10870,15 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     updateShapeInRealTime() {
         if (!this.currentShape) return;
+
+        // Store current focus element to restore it after update
+        const activeElement = document.activeElement;
+        const wasInputFocused = activeElement && (
+            activeElement.tagName === 'INPUT' || 
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.isContentEditable
+        );
+        const focusedInputId = wasInputFocused ? activeElement.id : null;
 
         // Get current values from popup (for rectangles and other shapes)
         const type = document.getElementById('shapeType').value;
@@ -5660,20 +10905,10 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.currentShape.material.diffuseColor = newColor;
         }
 
-        // Check if type actually changed before updating userData
-        const currentType = this.currentShape.userData.type;
-        const typeChanged = currentType !== type;
-        
-        // Update userData
+        // Update userData (type may have already been updated in the change listener)
+        // Don't regenerate name here - it's already handled in the change listener
         this.currentShape.userData.type = type;
         this.currentShape.userData.shapeType = type === 'building' ? 'building' : 'rectangle';
-        
-        // Only generate new name if type actually changed
-        if (typeChanged) {
-            const newName = this.generateUniqueNameByType(type);
-            this.currentShape.name = newName;
-            document.getElementById('shapeName').value = newName;
-        }
 
         // Update geometry based on shape type
         console.log('Updating shape geometry with properties:', {
@@ -5688,6 +10923,23 @@ Transform your 3D models into powerful energy analysis tools.`;
         const newRectangle = this.updateRectangleGeometryLikeCircle(this.currentShape, roundedLength, roundedWidth, roundedHeight, type);
         if (newRectangle) {
             this.currentShape = newRectangle;
+        }
+        
+        // Restore focus to the input field if it was focused before
+        if (wasInputFocused && focusedInputId) {
+            // Use setTimeout to ensure DOM is updated
+            setTimeout(() => {
+                const inputElement = document.getElementById(focusedInputId);
+                if (inputElement) {
+                    // Restore cursor position
+                    const cursorPosition = inputElement.selectionStart || 0;
+                    inputElement.focus();
+                    // Try to restore cursor position
+                    if (inputElement.setSelectionRange) {
+                        inputElement.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                }
+            }, 0);
         }
     }
 
@@ -5729,6 +10981,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 oldExtrusion.basePolygon = null;
             }
         }
+        
+        // Store selection state before removing from selection manager
+        const wasSelected = this.selectionManager && this.selectionManager.isSelected(shape);
         
         // Remove from selection manager before disposing
         if (this.selectionManager) {
@@ -5784,8 +11039,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Use oldName since shape is already disposed
         const material = new BABYLON.StandardMaterial(`${oldName}Material`, this.sceneManager.getScene());
         material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
-        material.backFaceCulling = true;
-        material.twoSidedLighting = false;
+        material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         material.alpha = 1.0;
         newRectangle.material = material;
@@ -5828,6 +11083,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Add to selection manager
         if (this.selectionManager) {
             this.selectionManager.addSelectableObject(newRectangle);
+            
+            // Restore selection if it was selected before
+            if (wasSelected && this.selectionManager) {
+                this.selectionManager.selectObject(newRectangle);
+            }
         }
         
         // Enable shadows
@@ -5903,8 +11163,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                 shape.material.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
             } else if (properties.type === 'highway') {
                 shape.material.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-            } else if (properties.type === 'green') {
-                shape.material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+            } else if (properties.type === 'grass') {
+                shape.material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for grass areas
             }
         }
     }
@@ -5944,8 +11204,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                 shape.material.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
             } else if (properties.type === 'highway') {
                 shape.material.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-            } else if (properties.type === 'green') {
-                shape.material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+            } else if (properties.type === 'grass') {
+                shape.material.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for grass areas
             }
         }
     }
@@ -5963,6 +11223,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         const currentName = shape.name;
         const isSelected = this.selectionManager && this.selectionManager.isSelected(shape);
         
+        // IMPORTANT: Store userData BEFORE disposing the shape (deep copy to preserve all properties)
+        const existingUserData = shape.userData ? JSON.parse(JSON.stringify(shape.userData)) : {};
+        
         // Store current focus element
         const activeElement = document.activeElement;
         
@@ -5971,6 +11234,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.selectionManager.removeSelectableObject(shape);
             this.selectionManager.originalMaterials.delete(shape);
         }
+        
+        // Calculate the bottom of the original building BEFORE disposing
+        const originalHeight = existingUserData?.dimensions?.height || existingUserData?.originalHeight || properties.height;
         
         // Dispose old mesh completely
         if (shape.geometry) { shape.geometry.dispose(); }
@@ -5987,7 +11253,6 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Restore all transform properties with smart Y positioning
         // Calculate the bottom of the original building
-        const originalHeight = shape.userData?.dimensions?.height || shape.userData?.originalHeight || properties.height;
         const originalBottom = currentPosition.y - (originalHeight / 2);
         
         // Position new building with same bottom but new height
@@ -6011,15 +11276,16 @@ Transform your 3D models into powerful energy analysis tools.`;
             newMaterial.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
         } else if (properties.type === 'highway') {
             newMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-        } else if (properties.type === 'green') {
-            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        } else if (properties.type === 'grass') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for grass areas
         } else {
             newMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // Default white
         }
         
         newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         newMaterial.roughness = 0.7;
-        newMaterial.twoSidedLighting = false;
+        newMaterial.twoSidedLighting = true; // Enable lighting on both sides
+        newMaterial.backFaceCulling = false; // 2-sided
         
         newMesh.material = newMaterial;
         newMesh.renderingGroupId = 1;
@@ -6027,8 +11293,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         newMesh.edgesWidth = 1.0;
         newMesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
         
-        // Update userData
+        // Update userData - preserve existing userData (yearOfConstruction, buildingEnvelopeProperties, etc.)
+        // existingUserData was already stored before disposing the shape
         newMesh.userData = {
+            ...existingUserData, // Preserve all existing userData (yearOfConstruction, buildingEnvelopeProperties, etc.)
             type: properties.type,
             shapeType: 'building',
             dimensions: {
@@ -6038,6 +11306,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             },
             originalHeight: properties.height
         };
+        
+        // Ensure no period properties for non-building objects
+        if (newMesh.userData.type && newMesh.userData.type !== 'building') {
+            delete newMesh.userData.startPeriod;
+            delete newMesh.userData.endPeriod;
+            delete newMesh.userData.buildingArchetypePeriod;
+            delete newMesh.userData.buildingGroupPeriod;
+        }
         
         // Update currentShape reference
         this.currentShape = newMesh;
@@ -6133,7 +11409,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                     mesh.userData = {};
                 }
                 // Try to extract type from name (e.g., polygon_water_1 -> water)
-                const nameMatch = name.match(/polygon_(water|waterway|ground|green)_/);
+                const nameMatch = name.match(/polygon_(water|waterway|ground|grass)_/);
                 if (nameMatch) {
                     mesh.userData.type = nameMatch[1];
                 } else {
@@ -6382,13 +11658,19 @@ Transform your 3D models into powerful energy analysis tools.`;
         const mesh = builder.build(false, height);
         
         // Fix normals for proper surface orientation
-        // Flip faces to correct side wall normals
-        mesh.flipFaces(false);
+        // Only flip side wall normals, not top and bottom faces
+        this.flipSideWallNormals(mesh, height);
         
-        // Ensure material has backFaceCulling enabled (single-sided)
+        // Mark that normals have been flipped
+        if (!mesh.userData) {
+            mesh.userData = {};
+        }
+        mesh.userData.sideWallNormalsFlipped = true;
+        
+        // Ensure material is 2-sided
         if (mesh.material) {
-            mesh.material.backFaceCulling = true;
-            mesh.material.sideOrientation = BABYLON.Material.FrontSide;
+            mesh.material.backFaceCulling = false; // 2-sided
+            mesh.material.twoSidedLighting = true; // Enable lighting on both sides
         }
         
         // Force normal recalculation
@@ -6400,6 +11682,160 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         console.log(`Extrusion created using PolygonMeshBuilder with height ${height}`);
         return mesh;
+    }
+
+    /**
+     * Flip only side wall normals, preserving top and bottom face normals
+     */
+    flipSideWallNormals(mesh, height) {
+        if (!mesh.geometry || !mesh.geometry.getVerticesData(BABYLON.VertexBuffer.NormalKind)) {
+            console.warn('Cannot flip side wall normals: mesh geometry or normals not found');
+            return;
+        }
+
+        // IMPORTANT: Check if normals have already been flipped to prevent double-flipping
+        // This is critical because this function may be called multiple times (e.g., when recreating polygons)
+        if (mesh.userData && mesh.userData.sideWallNormalsFlipped === true) {
+            console.log(`[flipSideWallNormals] Normals already flipped for ${mesh.name}, skipping to prevent double-flipping`);
+            return;
+        }
+
+        const positions = mesh.geometry.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+        const normals = mesh.geometry.getVerticesData(BABYLON.VertexBuffer.NormalKind);
+        const indices = mesh.geometry.getIndices();
+
+        if (!positions || !normals || !indices) {
+            console.warn('Cannot flip side wall normals: missing geometry data');
+            return;
+        }
+
+        // Tolerance for identifying top and bottom faces
+        const tolerance = 0.001;
+        const topY = height / 2;
+        const bottomY = -height / 2;
+
+        // Create a new normals array
+        const newNormals = [...normals];
+
+        // Process each triangle
+        for (let i = 0; i < indices.length; i += 3) {
+            const idx1 = indices[i];
+            const idx2 = indices[i + 1];
+            const idx3 = indices[i + 2];
+
+            const y1 = positions[idx1 * 3 + 1];
+            const y2 = positions[idx2 * 3 + 1];
+            const y3 = positions[idx3 * 3 + 1];
+
+            // Check if this is a top face (all vertices at topY)
+            const isTopFace = Math.abs(y1 - topY) < tolerance && 
+                             Math.abs(y2 - topY) < tolerance && 
+                             Math.abs(y3 - topY) < tolerance;
+
+            // Check if this is a bottom face (all vertices at bottomY)
+            const isBottomFace = Math.abs(y1 - bottomY) < tolerance && 
+                                Math.abs(y2 - bottomY) < tolerance && 
+                                Math.abs(y3 - bottomY) < tolerance;
+
+            // Only flip normals for side walls (not top or bottom faces)
+            if (!isTopFace && !isBottomFace) {
+                // Flip normals for this triangle's vertices
+                const normalIdx1 = idx1 * 3;
+                const normalIdx2 = idx2 * 3;
+                const normalIdx3 = idx3 * 3;
+
+                newNormals[normalIdx1] = -newNormals[normalIdx1];
+                newNormals[normalIdx1 + 1] = -newNormals[normalIdx1 + 1];
+                newNormals[normalIdx1 + 2] = -newNormals[normalIdx1 + 2];
+
+                newNormals[normalIdx2] = -newNormals[normalIdx2];
+                newNormals[normalIdx2 + 1] = -newNormals[normalIdx2 + 1];
+                newNormals[normalIdx2 + 2] = -newNormals[normalIdx2 + 2];
+
+                newNormals[normalIdx3] = -newNormals[normalIdx3];
+                newNormals[normalIdx3 + 1] = -newNormals[normalIdx3 + 1];
+                newNormals[normalIdx3 + 2] = -newNormals[normalIdx3 + 2];
+            }
+        }
+
+        // Update the mesh with new normals
+        mesh.geometry.setVerticesData(BABYLON.VertexBuffer.NormalKind, newNormals);
+        
+        // Mark that normals have been flipped
+        if (!mesh.userData) {
+            mesh.userData = {};
+        }
+        mesh.userData.sideWallNormalsFlipped = true;
+        
+        console.log(`[flipSideWallNormals] Side wall normals flipped for ${mesh.name}, top and bottom normals preserved`);
+    }
+
+    /**
+     * Update extrusion normals when height changes (for scaling-based height changes)
+     * Note: This should NOT be called when height changes via scaling, as scaling doesn't affect normals.
+     * Only call this when the mesh geometry itself is recreated.
+     */
+    updateExtrusionNormals(extrusion, currentHeight) {
+        if (!extrusion || !extrusion.geometry) {
+            console.warn('Cannot update extrusion normals: extrusion or geometry not found');
+            return;
+        }
+
+        // IMPORTANT: When height changes via scaling, normals don't need to be updated
+        // Scaling automatically scales normals correctly, so we should NOT recalculate them
+        // Only update normals if they haven't been set up yet (first time)
+        
+        // Check if normals have already been flipped (to avoid double-flipping)
+        if (extrusion.userData && extrusion.userData.sideWallNormalsFlipped) {
+            // Normals are already correctly flipped, no need to update
+            // When scaling changes, normals are automatically scaled correctly by Babylon.js
+            console.log('Side wall normals already flipped, skipping update (scaling handles normals automatically)');
+            return;
+        }
+
+        // Extract vertex data (use local positions, not world positions)
+        const positions = extrusion.geometry.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+        const indices = extrusion.geometry.getIndices();
+        
+        if (!positions || !indices) {
+            console.warn('Cannot update extrusion normals: missing position or index data');
+            return;
+        }
+        
+        // Find the original height from the geometry (before scaling)
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (let i = 1; i < positions.length; i += 3) {
+            minY = Math.min(minY, positions[i]);
+            maxY = Math.max(maxY, positions[i]);
+        }
+        const originalHeight = maxY - minY;
+        
+        // Check if normals already exist
+        let normals = extrusion.geometry.getVerticesData(BABYLON.VertexBuffer.NormalKind);
+        
+        // If normals don't exist or are invalid, recalculate them
+        if (!normals || normals.length === 0) {
+            normals = [];
+            BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+            extrusion.geometry.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        }
+        
+        // Now flip only side wall normals (preserving top and bottom)
+        // This preserves the existing normal structure and only flips side walls
+        this.flipSideWallNormals(extrusion, originalHeight);
+        
+        // Mark that normals have been flipped
+        if (!extrusion.userData) {
+            extrusion.userData = {};
+        }
+        extrusion.userData.sideWallNormalsFlipped = true;
+        
+        // Force mesh update (but don't recalculate bounding box unnecessarily)
+        extrusion.computeWorldMatrix(true);
+        extrusion.refreshBoundingInfo();
+        
+        console.log(`Updated extrusion normals for original height ${originalHeight}`);
     }
 
     /**
@@ -6468,15 +11904,36 @@ Transform your 3D models into powerful energy analysis tools.`;
             return;
         }
 
+        // Convert world coordinates to relative coordinates (relative to polygon center)
+        // Calculate center of points
+        const center = BABYLON.Vector3.Zero();
+        points.forEach(point => {
+            const p = point instanceof BABYLON.Vector3 ? point : new BABYLON.Vector3(point.x, point.y || 0, point.z);
+            center.addInPlace(p);
+        });
+        center.scaleInPlace(1 / points.length);
+        center.y = 0; // Keep Y at 0 for 2D polygon shape
+        
+        // Convert to relative points
+        const relativePoints = points.map(point => {
+            const p = point instanceof BABYLON.Vector3 ? point : new BABYLON.Vector3(point.x, point.y || 0, point.z);
+            return p.subtract(center);
+        });
+
         // Create 3D extrusion with height 0.05
         const extrusionName = `${polygon.name}_3d`;
-        const extrusion = this.createCustomPolygonExtrusion(extrusionName, points, 0.05);
+        const extrusion = this.createCustomPolygonExtrusion(extrusionName, relativePoints, 0.05);
+        
+        // Position extrusion at polygon center
+        extrusion.position.x = center.x;
+        extrusion.position.z = center.z;
         
         // Copy material from original polygon
         if (polygon.material) {
             const newMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
             newMaterial.diffuseColor = polygon.material.diffuseColor.clone();
-            newMaterial.backFaceCulling = true;
+            newMaterial.backFaceCulling = false; // 2-sided
+            newMaterial.twoSidedLighting = true; // Enable lighting on both sides
             extrusion.material = newMaterial;
         }
         
@@ -6642,8 +12099,8 @@ Transform your 3D models into powerful energy analysis tools.`;
             newMaterial.diffuseColor = new BABYLON.Color3(0, 0.5, 1); // Blue for waterway
         } else if (properties.type === 'highway') {
             newMaterial.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-        } else if (properties.type === 'green') {
-            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+        } else if (properties.type === 'grass') {
+            newMaterial.diffuseColor = new BABYLON.Color3(0, 0.8, 0); // Green for grass areas
         } else {
             // Use original material color for other types
             if (currentMaterial && currentMaterial.diffuseColor) {
@@ -6666,6 +12123,14 @@ Transform your 3D models into powerful energy analysis tools.`;
         newMesh.material = newMaterial;
         newMesh.renderingGroupId = 1;
         newMesh.userData = currentUserData;
+        
+        // Ensure no period properties for non-building objects
+        if (newMesh.userData && newMesh.userData.type && newMesh.userData.type !== 'building') {
+            delete newMesh.userData.startPeriod;
+            delete newMesh.userData.endPeriod;
+            delete newMesh.userData.buildingArchetypePeriod;
+            delete newMesh.userData.buildingGroupPeriod;
+        }
 
         // Apply anti-flickering settings
         newMesh.enableEdgesRendering();
@@ -6769,14 +12234,35 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Create new extrusion
                 const points = shape.userData.points || [];
                 if (points.length >= 3) {
+                    // Convert world coordinates to relative coordinates (relative to shape center)
+                    // Calculate center of points
+                    const center = BABYLON.Vector3.Zero();
+                    points.forEach(point => {
+                        const p = point instanceof BABYLON.Vector3 ? point : new BABYLON.Vector3(point.x, point.y || 0, point.z);
+                        center.addInPlace(p);
+                    });
+                    center.scaleInPlace(1 / points.length);
+                    center.y = 0; // Keep Y at 0 for 2D polygon shape
+                    
+                    // Convert to relative points
+                    const relativePoints = points.map(point => {
+                        const p = point instanceof BABYLON.Vector3 ? point : new BABYLON.Vector3(point.x, point.y || 0, point.z);
+                        return p.subtract(center);
+                    });
+                    
                     const extrusionName = `${shape.name}_extrusion`;
-                    const extrusion = this.createCustomPolygonExtrusion(extrusionName, points, height);
+                    const extrusion = this.createCustomPolygonExtrusion(extrusionName, relativePoints, height);
+                    
+                    // Position extrusion at shape center
+                    extrusion.position.x = center.x;
+                    extrusion.position.z = center.z;
                     
                     // Copy material from original shape
                     if (shape.material) {
                         const newMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
                         newMaterial.diffuseColor = shape.material.diffuseColor.clone();
-                        newMaterial.backFaceCulling = true;
+                        newMaterial.backFaceCulling = false; // 2-sided
+            newMaterial.twoSidedLighting = true; // Enable lighting on both sides
                         extrusion.material = newMaterial;
                     }
                     
@@ -7310,7 +12796,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 isMouseDown = true;
 
                 applyStepChange();
-
+                
                 // Start continuous change after a short delay
                 timeoutId = setTimeout(() => {
                     if (isMouseDown && !isTyping) {
@@ -7359,8 +12845,27 @@ Transform your 3D models into powerful energy analysis tools.`;
             isTyping = false;
         });
 
-        input.addEventListener('blur', () => {
+        // Handle blur to round the value when user finishes typing
+        input.addEventListener('blur', (e) => {
             isTyping = false;
+            
+            // Clear any pending input timeout
+            if (inputTimeout) {
+                clearTimeout(inputTimeout);
+                inputTimeout = null;
+            }
+            
+            // Round to 2 decimal places only when user leaves the field
+            const currentValue = parseFloat(input.value) || 0;
+            const roundedValue = Math.round(currentValue * 100) / 100;
+            
+            // Only update if value actually changed
+            if (roundedValue !== currentValue) {
+                input.value = roundedValue;
+            }
+            
+            // Always update on blur to ensure final value is saved
+            updateCallback();
         });
 
         // Handle keydown to detect typing
@@ -7372,16 +12877,21 @@ Transform your 3D models into powerful energy analysis tools.`;
             isTyping = false;
         });
 
-        // Handle input events - immediate update for real-time changes
-        input.addEventListener('input', () => {
-            isTyping = false;
+        // Handle input events - debounced update for real-time changes
+        let inputTimeout = null;
+        input.addEventListener('input', (e) => {
+            isTyping = true; // Mark as typing to prevent interference
             
-            // Round to 2 decimal places
-            const currentValue = parseFloat(input.value) || 0;
-            const roundedValue = Math.round(currentValue * 100) / 100;
-            input.value = roundedValue;
+            // Clear previous timeout
+            if (inputTimeout) {
+                clearTimeout(inputTimeout);
+            }
             
-            updateCallback(); // Immediate update
+            // Debounce the update - only update after user stops typing for 150ms
+            inputTimeout = setTimeout(() => {
+                isTyping = false;
+                updateCallback(); // Update after user stops typing
+            }, 150);
         });
     }
 
@@ -7389,16 +12899,65 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Generate unique name based on type
      */
     generateUniqueNameByType(type) {
-        // Count existing objects of this type in the scene
+        const scene = this.sceneManager.getScene();
+        
+        // Special handling for buildings: use buildingشماره format (without underscore)
+        if (type === 'building') {
+            const usedNumbers = new Set();
+            let maxNumber = 0;
+            
+            // Check all meshes in the scene for building names
+            // Support both formats: building_1 (old), building1 (new)
+            scene.meshes.forEach(mesh => {
+                if (mesh.name && mesh.isEnabled() && !mesh.isDisposed()) {
+                    // Check for buildingشماره format (without underscore) - new format
+                    const noUnderscoreMatch = mesh.name.match(/^building(\d+)$/);
+                    if (noUnderscoreMatch) {
+                        const number = parseInt(noUnderscoreMatch[1]);
+                        usedNumbers.add(number);
+                        if (number > maxNumber) {
+                            maxNumber = number;
+                        }
+                    }
+                    // Also check for building_شماره format (with underscore) for backward compatibility
+                    const underscoreMatch = mesh.name.match(/^building_(\d+)$/);
+                    if (underscoreMatch) {
+                        const number = parseInt(underscoreMatch[1]);
+                        usedNumbers.add(number);
+                        if (number > maxNumber) {
+                            maxNumber = number;
+                        }
+                    }
+                }
+            });
+            
+            // Start from maxNumber + 1, but check for duplicates
+            let nextNumber = maxNumber + 1;
+            
+            // Keep incrementing until we find a unique name
+            while (usedNumbers.has(nextNumber)) {
+                nextNumber++;
+            }
+            
+            // Verify the name doesn't exist in the scene
+            let proposedName = `building${nextNumber}`;
+            while (scene.meshes.some(mesh => mesh.name === proposedName && !mesh.isDisposed())) {
+                nextNumber++;
+                proposedName = `building${nextNumber}`;
+            }
+            
+            return proposedName;
+        }
+        
+        // For other types (ground, waterway, highway, grass), use maxNumber + 1 logic
         let maxNumber = 0;
         const usedNumbers = new Set();
-        const scene = this.sceneManager.getScene();
         
         // Check all meshes in the scene for names of this type
         // Only count enabled meshes that are still in the scene
         scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(`${type}_`)) {
-                const match = mesh.name.match(new RegExp(`^${type}_(\\d+)$`));
+            if (mesh.name && mesh.isEnabled() && !mesh.isDisposed() && mesh.name.startsWith(type) && /^\d+$/.test(mesh.name.substring(type.length))) {
+                const match = mesh.name.match(new RegExp(`^${type}(\\d+)$`));
                 if (match) {
                     const number = parseInt(match[1]);
                     usedNumbers.add(number);
@@ -7409,15 +12968,78 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         });
         
-        // Find the first available number (not just maxNumber + 1)
-        // This prevents duplicate names when objects are deleted
+        // Start from maxNumber + 1, but check for duplicates
+        let nextNumber = maxNumber + 1;
+        
+        // Keep incrementing until we find a unique name
+        while (usedNumbers.has(nextNumber)) {
+            nextNumber++;
+        }
+        
+        // Verify the name doesn't exist in the scene
+        let proposedName = `${type}${nextNumber}`;
+        while (scene.meshes.some(mesh => mesh.name === proposedName && !mesh.isDisposed())) {
+            nextNumber++;
+            proposedName = `${type}${nextNumber}`;
+        }
+        
+        return proposedName;
+    }
+
+    /**
+     * Generate unique tree name (tree1, tree2, tree3, ...)
+     * Checks both TransformNodes and meshes in the scene
+     */
+    generateUniqueTreeName() {
+        const usedNumbers = new Set();
+        const scene = this.sceneManager.getScene();
+        
+        // Check TransformNodes (tree parents)
+        if (scene && scene.transformNodes) {
+            scene.transformNodes.forEach(node => {
+                if (node.name && !node.isDisposed()) {
+                    // Check for new naming: tree1, tree2, ...
+                    const newFormatMatch = node.name.match(/^tree(\d+)$/);
+                    if (newFormatMatch) {
+                        const number = parseInt(newFormatMatch[1]);
+                        usedNumbers.add(number);
+                    }
+                    // Also check for old format: tree_1_1, 3_tree_207, etc.
+                    // Extract the last number from names like "3_tree_207"
+                    const oldFormatMatch = node.name.match(/(?:tree|_tree_)(\d+)(?:_|$)/);
+                    if (oldFormatMatch) {
+                        const number = parseInt(oldFormatMatch[1]);
+                        usedNumbers.add(number);
+                    }
+                }
+            });
+        }
+        
+        // Also check TreeManager trees
+        if (this.treeManager && this.treeManager.trees) {
+            this.treeManager.trees.forEach(tree => {
+                if (tree.parent && tree.parent.name && !tree.parent.isDisposed()) {
+                    const newFormatMatch = tree.parent.name.match(/^tree(\d+)$/);
+                    if (newFormatMatch) {
+                        const number = parseInt(newFormatMatch[1]);
+                        usedNumbers.add(number);
+                    }
+                    const oldFormatMatch = tree.parent.name.match(/(?:tree|_tree_)(\d+)(?:_|$)/);
+                    if (oldFormatMatch) {
+                        const number = parseInt(oldFormatMatch[1]);
+                        usedNumbers.add(number);
+                    }
+                }
+            });
+        }
+        
+        // Find the first available number
         let nextNumber = 1;
         while (usedNumbers.has(nextNumber)) {
             nextNumber++;
         }
         
-        // Return next available number
-        return `${type}_${nextNumber}`;
+        return `tree${nextNumber}`;
     }
 
     /**
@@ -7431,9 +13053,40 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Get shape type (rectangle, circle, polygon, etc.)
      */
     getShapeType(shape) {
+        // First check if it's a tree (before checking userData)
+        if (this.isTree(shape) || (shape instanceof BABYLON.TransformNode && this.treeManager)) {
+            // Check if it's in TreeManager
+            if (this.treeManager) {
+                const treeData = this.treeManager.trees.find(t => t.parent === shape || t.meshes.includes(shape));
+                if (treeData) {
+                    return 'tree';
+                }
+            }
+            // If it's a TransformNode with tree name pattern, it's a tree
+            if (shape instanceof BABYLON.TransformNode && 
+                (shape.name.startsWith('tree') || shape.name.includes('_tree_'))) {
+                return 'tree';
+            }
+        }
+        
         // First check userData for explicit shape type
         if (shape.userData && shape.userData.shapeType) {
             return shape.userData.shapeType;
+        }
+        
+        // IMPORTANT: Check for polygon BEFORE checking dimensions
+        // Polygons have points array, which is the most reliable indicator
+        if (shape.userData && shape.userData.points && Array.isArray(shape.userData.points) && shape.userData.points.length >= 3) {
+            return 'polygon';
+        }
+        
+        // Also check name for polygon (before dimensions check)
+        if (shape.name && (shape.name.includes('polygon') || shape.name.startsWith('ground') || shape.name.startsWith('grass') || 
+            shape.name.startsWith('waterway') || shape.name.startsWith('highway'))) {
+            // Double-check: if it has points, it's definitely a polygon
+            if (shape.userData && shape.userData.points) {
+                return 'polygon';
+            }
         }
         
         // Check if this is a circle by looking for diameterTop in dimensions
@@ -7452,6 +13105,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (shape.name.includes('rectangle')) return 'rectangle';
         if (shape.name.includes('polygon')) return 'polygon';
         if (shape.name.includes('building')) return 'building';
+        if (shape.name.includes('tree') || shape.name.includes('_tree_')) return 'tree';
         return 'rectangle'; // Default
     }
 
@@ -7542,8 +13196,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                 return new BABYLON.Color3(0, 0.5, 1); // Light blue for waterway
             case 'highway':
                 return new BABYLON.Color3(0.3, 0.3, 0.3); // Gray for highway
-            case 'green':
-                return new BABYLON.Color3(0, 0.8, 0); // Green for green areas
+            case 'grass':
+                return new BABYLON.Color3(0, 0.8, 0); // Green for grass areas
             case 'tree':
                 return new BABYLON.Color3(0.2, 0.6, 0.2); // Dark green for trees
             default:
@@ -7589,28 +13243,28 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         if (!shape) {
             // Fallback: try to find by name from input field
-            const shapeNameElement = document.getElementById('shapeName');
-            if (!shapeNameElement) {
-                console.warn('Cannot save properties: shape name element not found');
-                return;
-            }
+        const shapeNameElement = document.getElementById('shapeName');
+        if (!shapeNameElement) {
+            console.warn('Cannot save properties: shape name element not found');
+            return;
+        }
 
-            const shapeName = shapeNameElement.value;
-            if (!shapeName) {
-                console.warn('Cannot save properties: shape name is empty');
-                return;
-            }
+        const shapeName = shapeNameElement.value;
+        if (!shapeName) {
+            console.warn('Cannot save properties: shape name is empty');
+            return;
+        }
 
-            // Find the shape in the scene
-            const scene = this.sceneManager.getScene();
+        // Find the shape in the scene
+        const scene = this.sceneManager.getScene();
             shape = scene.getMeshByName(shapeName);
-            if (!shape) {
-                console.warn('Cannot save properties: shape not found in scene:', shapeName);
-                return;
-            }
-            
+        if (!shape) {
+            console.warn('Cannot save properties: shape not found in scene:', shapeName);
+            return;
+        }
+
             // Set currentShape for future use
-            this.currentShape = shape;
+        this.currentShape = shape;
         }
 
         // Get the height value from the popup
@@ -7693,7 +13347,8 @@ Transform your 3D models into powerful energy analysis tools.`;
             const previewMaterial = new BABYLON.StandardMaterial(`${previewName}Material`, this.sceneManager.getScene());
             previewMaterial.diffuseColor = new BABYLON.Color3(0.5, 0.5, 1.0); // Light blue
             previewMaterial.alpha = 0.3; // Semi-transparent
-            previewMaterial.backFaceCulling = true;
+            previewMaterial.backFaceCulling = false; // 2-sided
+            previewMaterial.twoSidedLighting = true; // Enable lighting on both sides
             previewExtrusion.material = previewMaterial;
             previewExtrusion.renderingGroupId = 1;
             
@@ -7832,30 +13487,30 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
             // Check if it's a tree (regular trees, not STL imported)
             else if (this.treeManager && this.isTree(obj)) {
-                // Find the tree object in the tree manager
-                const tree = this.treeManager.trees.find(t => t.parent === obj);
-                if (tree) {
-                    this.treeManager.removeTree(tree);
-                } else {
-                    // Fallback: just dispose the object
+                    // Find the tree object in the tree manager
+                    const tree = this.treeManager.trees.find(t => t.parent === obj);
+                    if (tree) {
+                        this.treeManager.removeTree(tree);
+                    } else {
+                        // Fallback: just dispose the object
                     this.deleteImportedSTLObject(obj);
+                    }
                 }
-            }
-            // Check if it's a 2D shape
-            else if (this.shape2DManager && this.is2DShape(obj)) {
-                this.shape2DManager.removeShape(obj);
-            } 
-            // Check if it's a polygon
-            else if (this.polygonManager && this.isPolygon(obj)) {
-                // For now, just dispose the polygon object
-                // TODO: Add proper polygon removal method to PolygonManager
-                obj.dispose();
-            }
-            else {
-                // It's a 3D building or other object
-                obj.dispose();
-            }
-            console.log(`Deleted object: ${obj.name}`);
+                // Check if it's a 2D shape
+                else if (this.shape2DManager && this.is2DShape(obj)) {
+                    this.shape2DManager.removeShape(obj);
+                } 
+                // Check if it's a polygon
+                else if (this.polygonManager && this.isPolygon(obj)) {
+                    // For now, just dispose the polygon object
+                    // TODO: Add proper polygon removal method to PolygonManager
+                    obj.dispose();
+                }
+                else {
+                    // It's a 3D building or other object
+                    obj.dispose();
+                }
+                console.log(`Deleted object: ${obj.name}`);
         });
 
         // Clear selection after deletion
@@ -7954,9 +13609,19 @@ Transform your 3D models into powerful energy analysis tools.`;
     isTree(obj) {
         if (!obj || !obj.name) return false;
         
-        return obj.name.startsWith('tree_') || 
+        // Check if it's a tree by name pattern
+        const isTreeByName = obj.name.startsWith('tree_') || 
                obj.name.includes('_tree_') || 
-               obj.name.startsWith('simple_tree_');
+                           obj.name.startsWith('simple_tree_') ||
+                           (obj.name.startsWith('tree') && /^\d+$/.test(obj.name.substring(4)));
+        
+        // Also check if it's a TransformNode that's a tree parent
+        if (!isTreeByName && obj instanceof BABYLON.TransformNode && this.treeManager) {
+            const treeData = this.treeManager.trees.find(t => t.parent === obj);
+            return treeData !== undefined;
+        }
+        
+        return isTreeByName;
     }
 
     /**
@@ -8010,6 +13675,15 @@ Transform your 3D models into powerful energy analysis tools.`;
     updateCircleInRealTime() {
         if (!this.currentShape) return;
 
+        // Store current focus element to restore it after update
+        const activeElement = document.activeElement;
+        const wasInputFocused = activeElement && (
+            activeElement.tagName === 'INPUT' || 
+            activeElement.tagName === 'TEXTAREA' ||
+            activeElement.isContentEditable
+        );
+        const focusedInputId = wasInputFocused ? activeElement.id : null;
+
         // Get current values from popup
         const type = document.getElementById('circleType').value;
         const color = document.getElementById('circleColor').value;
@@ -8051,6 +13725,19 @@ Transform your 3D models into powerful energy analysis tools.`;
             const newName = this.generateUniqueNameByType(type);
             this.currentShape.name = newName;
             document.getElementById('circleName').value = newName;
+            
+            // Update userData.name to match the new name
+            if (this.currentShape.userData) {
+                this.currentShape.userData.name = newName;
+            }
+            
+            // Update object list to reflect the name change
+            if (this.objectListManager && this.objectListManager.updateObjectList) {
+                this.objectListManager.updateObjectList();
+            }
+            
+            // Dispatch scene change event
+            this.dispatchSceneChangeEvent();
         }
         
         // Update circle geometry
@@ -8062,6 +13749,23 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.currentShape.userData.dimensions.diameterBottom = roundedDiameterBottom;
             this.currentShape.userData.dimensions.height = roundedHeight;
             console.log('Circle updated successfully, userData:', this.currentShape.userData);
+        }
+        
+        // Restore focus to the input field if it was focused before
+        if (wasInputFocused && focusedInputId) {
+            // Use setTimeout to ensure DOM is updated
+            setTimeout(() => {
+                const inputElement = document.getElementById(focusedInputId);
+                if (inputElement) {
+                    // Restore cursor position
+                    const cursorPosition = inputElement.selectionStart || 0;
+                    inputElement.focus();
+                    // Try to restore cursor position
+                    if (inputElement.setSelectionRange) {
+                        inputElement.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                }
+            }, 0);
         }
     }
 
@@ -8095,7 +13799,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         polygon.userData.originalColor = color;
         
         // Set type
-        document.getElementById('polygonType').value = type;
+        const polygonTypeSelect = document.getElementById('polygonType');
+        polygonTypeSelect.value = type;
+        // Store the initial type value for change detection
+        polygonTypeSelect.setAttribute('data-previous-value', type);
         
         // Use current polygon name (don't generate new name)
         document.getElementById('polygonName').value = polygon.name;
@@ -8185,7 +13892,7 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Update polygon name (only if it changed)
         if (this.currentShape.name !== name) {
-            this.currentShape.name = name;
+        this.currentShape.name = name;
             // Also update extrusion name if exists
             if (this.currentShape.extrusion) {
                 this.currentShape.extrusion.name = `${name}_extrusion`;
@@ -8220,8 +13927,25 @@ Transform your 3D models into powerful energy analysis tools.`;
             return;
         }
         
-        // Apply scaling to the tree
-        this.currentShape.scaling = new BABYLON.Vector3(scaleValue, scaleValue, scaleValue);
+        // IMPORTANT: Preserve the sign of original scaling to prevent tree from flipping
+        // Get the original scaling signs to maintain orientation
+        const originalScaling = this.currentShape.scaling;
+        const signX = originalScaling.x >= 0 ? 1 : -1;
+        const signY = originalScaling.y >= 0 ? 1 : -1;
+        const signZ = originalScaling.z >= 0 ? 1 : -1;
+        
+        // Apply scaling with preserved signs
+        this.currentShape.scaling = new BABYLON.Vector3(
+            scaleValue * signX,
+            scaleValue * signY,
+            scaleValue * signZ
+        );
+        
+        console.log(`[Tree Scale] Saved scaling for ${this.currentShape.name}:`, {
+            original: `X:${originalScaling.x}, Y:${originalScaling.y}, Z:${originalScaling.z}`,
+            new: `X:${this.currentShape.scaling.x}, Y:${this.currentShape.scaling.y}, Z:${this.currentShape.scaling.z}`,
+            signs: `X:${signX}, Y:${signY}, Z:${signZ}`
+        });
         
         // Update wireframes if they exist
         if (this.selectionManager) {
@@ -8243,8 +13967,25 @@ Transform your 3D models into powerful energy analysis tools.`;
             return; // Don't update if below minimum
         }
         
-        // Apply scaling to the tree
-        this.currentShape.scaling = new BABYLON.Vector3(scaleValue, scaleValue, scaleValue);
+        // IMPORTANT: Preserve the sign of original scaling to prevent tree from flipping
+        // Get the original scaling signs to maintain orientation
+        const originalScaling = this.currentShape.scaling;
+        const signX = originalScaling.x >= 0 ? 1 : -1;
+        const signY = originalScaling.y >= 0 ? 1 : -1;
+        const signZ = originalScaling.z >= 0 ? 1 : -1;
+        
+        // Apply scaling with preserved signs
+        this.currentShape.scaling = new BABYLON.Vector3(
+            scaleValue * signX,
+            scaleValue * signY,
+            scaleValue * signZ
+        );
+        
+        console.log(`[Tree Scale] Updated scaling for ${this.currentShape.name}:`, {
+            original: `X:${originalScaling.x}, Y:${originalScaling.y}, Z:${originalScaling.z}`,
+            new: `X:${this.currentShape.scaling.x}, Y:${this.currentShape.scaling.y}, Z:${this.currentShape.scaling.z}`,
+            signs: `X:${signX}, Y:${signY}, Z:${signZ}`
+        });
         
         // Update wireframes if they exist
         if (this.selectionManager) {
@@ -8340,6 +14081,11 @@ Transform your 3D models into powerful energy analysis tools.`;
             polygon.scaling.y = scaleFactor;
             this.realignPolygonBase(polygon, baseY);
             polygon.userData.currentHeight = properties.height;
+            
+            // NOTE: When using scaling, normals are automatically scaled correctly by Babylon.js
+            // We should NOT recalculate normals when height changes via scaling, as this causes shadow issues
+            // Only update normals if the mesh geometry itself is recreated (not when scaling changes)
+            // Removed updateExtrusionNormals calls to prevent shadow artifacts
         }
 
         console.log('Updated polygon properties:', properties);
@@ -8354,7 +14100,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Collect all existing polygon names
         scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.name.startsWith(type + '_')) {
+            if (mesh.name && mesh.name.startsWith(type) && /^\d+$/.test(mesh.name.substring(type.length))) {
                 existingNames.add(mesh.name);
             }
         });
@@ -8363,7 +14109,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         let counter = 1;
         let newName;
         do {
-            newName = `${type}_${counter}`;
+            newName = `${type}${counter}`;
             counter++;
         } while (existingNames.has(newName));
         
@@ -8413,12 +14159,25 @@ Transform your 3D models into powerful energy analysis tools.`;
         const originalHeight = polygon.userData?.originalHeight || 0.1;
         const scaleFactor = targetHeight / originalHeight;
         
+        // IMPORTANT: Preserve sideWallNormalsFlipped flag before scaling
+        const sideWallNormalsFlipped = polygon.userData?.sideWallNormalsFlipped || false;
+        
         const baseY = this.getPolygonBaseWorldY(polygon);
         polygon.scaling.y = scaleFactor;
         this.realignPolygonBase(polygon, baseY);
         
         // Update userData
         polygon.userData.currentHeight = targetHeight;
+        // IMPORTANT: Preserve sideWallNormalsFlipped flag after scaling
+        if (!polygon.userData) {
+            polygon.userData = {};
+        }
+        polygon.userData.sideWallNormalsFlipped = sideWallNormalsFlipped;
+        
+        // NOTE: When using scaling, normals are automatically scaled correctly by Babylon.js
+        // We should NOT recalculate normals when height changes via scaling, as this causes shadow issues
+        // Only update normals if the mesh geometry itself is recreated (not when scaling changes)
+        // The sideWallNormalsFlipped flag ensures we don't accidentally flip normals again
 
         // Material settings are now normal since bottom faces are removed
 
@@ -8543,11 +14302,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         const objectListHidden = objectListPanel && objectListPanel.classList.contains('hidden');
 
         // If object list is hidden, move properties to right edge (right: 0)
-        // Otherwise, keep it at right: 300px (left of object list)
+        // Otherwise, keep it at right: 250px (left of object list)
         if (objectListHidden) {
             popup.style.right = '0px';
         } else {
-            popup.style.right = '300px';
+            popup.style.right = '250px';
         }
     }
 
@@ -8603,87 +14362,31 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Setup transform input fields (X, Y, Z position inputs at bottom of screen)
      */
     setupTransformInputFields() {
-        const transformX = document.getElementById('transformX');
-        const transformY = document.getElementById('transformY');
-        const transformZ = document.getElementById('transformZ');
-        
-        if (!transformX || !transformY || !transformZ) {
-            console.warn('Transform input fields not found');
+        // Delegated to TransformInputManager
+        if (this.transformInputManager) {
+            // TransformInputManager handles this
             return;
         }
-
-        // Flag to prevent circular updates
-        this.isUpdatingFromInput = false;
-
-        // Listen for input changes - update object position
-        transformX.addEventListener('input', () => {
-            this.handleTransformInputChange('x', parseFloat(transformX.value) || 0);
-        });
-        
-        transformY.addEventListener('input', () => {
-            this.handleTransformInputChange('y', parseFloat(transformY.value) || 0);
-        });
-        
-        transformZ.addEventListener('input', () => {
-            this.handleTransformInputChange('z', parseFloat(transformZ.value) || 0);
-        });
-
-        // Listen for position changes from MoveManager via scene render loop
-        const scene = this.sceneManager.getScene();
-        let lastPositions = new Map();
-        
-        // Check transform changes in render loop
-        scene.onBeforeRenderObservable.add(() => {
-            if (this.isTransformEditingToolActive() && this.selectionManager && !this.isUpdatingFromInput) {
-                const selectedObjects = this.selectionManager.getSelectedObjects();
-                if (selectedObjects.length === 1) {
-                    const obj = selectedObjects[0];
-                    const activeTool = this.getActiveTransformTool();
-                    
-                    // Get current transform values based on active tool
-                    let currentTransform;
-                    if (activeTool === 'move') {
-                        currentTransform = obj.position;
-                    } else if (activeTool === 'rotate') {
-                        currentTransform = obj.rotation;
-                    } else if (activeTool === 'scale') {
-                        currentTransform = obj.scaling;
-                    } else {
-                        currentTransform = obj.position;
-                    }
-                    
-                    const lastTransform = lastPositions.get(obj);
-                    
-                    // Check if transform changed significantly
-                    if (!lastTransform || 
-                        Math.abs(currentTransform.x - lastTransform.x) > 0.01 ||
-                        Math.abs(currentTransform.y - lastTransform.y) > 0.01 ||
-                        Math.abs(currentTransform.z - lastTransform.z) > 0.01) {
-                        this.updateTransformInputFieldsValues();
-                        lastPositions.set(obj, currentTransform.clone());
-                    }
-                } else {
-                    // Clear last transforms if selection changed
-                    lastPositions.clear();
-                }
-            }
-        });
+        // Fallback if TransformInputManager not available (should not happen)
+        console.warn('TransformInputManager not available, transform input fields not set up');
     }
 
     /**
      * Update transform input fields visibility based on active transform tool
      */
     updateTransformInputFieldsVisibility() {
+        // Delegated to TransformInputManager
+        if (this.transformInputManager) {
+            return this.transformInputManager.updateVisibility();
+        }
+        // Fallback if TransformInputManager not available
         const transformInputPanel = document.getElementById('transformInputPanel');
         if (!transformInputPanel) return;
 
-        // Only show fields for move, rotate, scale tools (not select or drawing tools)
         const isTransformEditingToolActive = this.isTransformEditingToolActive();
         
         if (isTransformEditingToolActive) {
             transformInputPanel.style.display = 'flex';
-            // Update values if object is selected
-            this.updateTransformInputFieldsValues();
         } else {
             transformInputPanel.style.display = 'none';
         }
@@ -8693,133 +14396,35 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update transform input fields values from selected object transform
      */
     updateTransformInputFieldsValues() {
-        if (this.isUpdatingFromInput) return;
-        
-        const transformX = document.getElementById('transformX');
-        const transformY = document.getElementById('transformY');
-        const transformZ = document.getElementById('transformZ');
-        
-        if (!transformX || !transformY || !transformZ) return;
-
-        if (!this.selectionManager) return;
-        
-        const selectedObjects = this.selectionManager.getSelectedObjects();
-        
-        if (selectedObjects.length === 1) {
-            const obj = selectedObjects[0];
-            const activeTool = this.getActiveTransformTool();
-            
-            let x, y, z;
-            
-            if (activeTool === 'move') {
-                // Position values
-                x = obj.position.x;
-                y = obj.position.y;
-                z = obj.position.z;
-            } else if (activeTool === 'rotate') {
-                // Rotation values (convert from radians to degrees)
-                x = obj.rotation.x * (180 / Math.PI);
-                y = obj.rotation.y * (180 / Math.PI);
-                z = obj.rotation.z * (180 / Math.PI);
-            } else if (activeTool === 'scale') {
-                // Scale values
-                x = obj.scaling.x;
-                y = obj.scaling.y;
-                z = obj.scaling.z;
-            } else {
-                // Default to position
-                x = obj.position.x;
-                y = obj.position.y;
-                z = obj.position.z;
-            }
-            
-            // Round to 2 decimal places
-            transformX.value = Math.round(x * 100) / 100;
-            transformY.value = Math.round(y * 100) / 100;
-            transformZ.value = Math.round(z * 100) / 100;
-        } else if (selectedObjects.length > 1) {
-            // For multiple objects, leave empty
-            transformX.value = '';
-            transformY.value = '';
-            transformZ.value = '';
-        } else {
-            // No selection - clear fields
-            transformX.value = '';
-            transformY.value = '';
-            transformZ.value = '';
+        // Delegated to TransformInputManager
+        if (this.transformInputManager) {
+            return this.transformInputManager.updateValues();
         }
+        // Fallback if TransformInputManager not available
+        console.warn('TransformInputManager not available, cannot update transform input fields values');
     }
 
     /**
      * Handle transform input field change - update object transform
      */
     handleTransformInputChange(axis, value) {
-        if (!this.selectionManager) return;
-        
-        const selectedObjects = this.selectionManager.getSelectedObjects();
-        if (selectedObjects.length !== 1) return;
-
-        const obj = selectedObjects[0];
-        const activeTool = this.getActiveTransformTool();
-        
-        // Set flag to prevent circular update
-        this.isUpdatingFromInput = true;
-        
-        // Update transform based on active tool and axis
-        if (activeTool === 'move') {
-            // Update position
-            if (axis === 'x') {
-                obj.position.x = value;
-            } else if (axis === 'y') {
-                obj.position.y = value;
-            } else if (axis === 'z') {
-                obj.position.z = value;
-            }
-        } else if (activeTool === 'rotate') {
-            // Update rotation (convert from degrees to radians)
-            const radians = value * (Math.PI / 180);
-            if (axis === 'x') {
-                obj.rotation.x = radians;
-            } else if (axis === 'y') {
-                obj.rotation.y = radians;
-            } else if (axis === 'z') {
-                obj.rotation.z = radians;
-            }
-        } else if (activeTool === 'scale') {
-            // Update scale
-            if (axis === 'x') {
-                obj.scaling.x = value;
-            } else if (axis === 'y') {
-                obj.scaling.y = value;
-            } else if (axis === 'z') {
-                obj.scaling.z = value;
-            }
-        } else {
-            // Default to position
-            if (axis === 'x') {
-                obj.position.x = value;
-            } else if (axis === 'y') {
-                obj.position.y = value;
-            } else if (axis === 'z') {
-                obj.position.z = value;
-            }
+        // Delegated to TransformInputManager
+        if (this.transformInputManager) {
+            return this.transformInputManager.handleTransformInputChange(axis, value);
         }
-        
-        // Update wireframe if exists
-        if (this.selectionManager) {
-            this.selectionManager.updateWireframeTransforms(obj);
-        }
-        
-        // Reset flag after a short delay
-        setTimeout(() => {
-            this.isUpdatingFromInput = false;
-        }, 100);
+        // Fallback if TransformInputManager not available
+        console.warn('TransformInputManager not available, cannot handle transform input change');
     }
 
     /**
      * Get the currently active transform tool
      */
     getActiveTransformTool() {
+        // Delegated to ToolManager
+        if (this.toolManager) {
+            return this.toolManager.getActiveTransformTool();
+        }
+        // Fallback if ToolManager not available
         const activeTool = document.querySelector('#transformPanel .tool-item.active:not([data-tool="coordinate-toggle"])');
         if (activeTool) {
             return activeTool.getAttribute('data-tool');
@@ -8827,3 +14432,4 @@ Transform your 3D models into powerful energy analysis tools.`;
         return 'select';
     }
 }
+

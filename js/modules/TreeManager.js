@@ -162,6 +162,9 @@ class TreeManager {
         }
 
         try {
+            // Increment counter first to start from tree1 (not tree0)
+            this.treeCounter++;
+            
             // Clone the tree model
             const clonedMeshes = [];
             treeModel.meshes.forEach(mesh => {
@@ -181,7 +184,8 @@ class TreeManager {
             });
 
             // Create a parent mesh to group all tree parts
-            const treeName = `tree_${this.selectedTreeType}_${this.treeCounter}`;
+            // Use new naming convention: tree1, tree2, tree3, ...
+            const treeName = `tree${this.treeCounter}`;
             const treeParent = new BABYLON.TransformNode(treeName, this.scene);
             treeParent.position = position.clone();
 
@@ -214,7 +218,7 @@ class TreeManager {
             };
 
             this.trees.push(treeData);
-            this.treeCounter++;
+            // Note: treeCounter was already incremented at the beginning, don't increment again
 
             // Make tree selectable
             if (this.selectionManager) {
@@ -246,7 +250,11 @@ class TreeManager {
      */
     createSimpleTree(position) {
         try {
-            const treeName = `simple_tree_${this.selectedTreeType}_${this.treeCounter}`;
+            // Increment counter first to start from tree1 (not tree0)
+            this.treeCounter++;
+            
+            // Use new naming convention: tree1, tree2, tree3, ...
+            const treeName = `tree${this.treeCounter}`;
             
             // Create tree trunk (cylinder)
             const trunk = BABYLON.MeshBuilder.CreateCylinder(`${treeName}_trunk`, {
@@ -267,10 +275,14 @@ class TreeManager {
             // Create materials
             const trunkMaterial = new BABYLON.StandardMaterial(`${treeName}_trunk_material`, this.scene);
             trunkMaterial.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0.1); // Brown
+            trunkMaterial.backFaceCulling = false; // 2-sided
+            trunkMaterial.twoSidedLighting = true; // Enable lighting on both sides
             trunk.material = trunkMaterial;
             
             const leavesMaterial = new BABYLON.StandardMaterial(`${treeName}_leaves_material`, this.scene);
             leavesMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.6, 0.1); // Green
+            leavesMaterial.backFaceCulling = false; // 2-sided
+            leavesMaterial.twoSidedLighting = true; // Enable lighting on both sides
             leaves.material = leavesMaterial;
             
             // Set same rendering priority as buildings
@@ -312,7 +324,6 @@ class TreeManager {
             };
 
             this.trees.push(treeData);
-            this.treeCounter++;
 
             // Make tree selectable
             if (this.selectionManager) {
@@ -412,9 +423,14 @@ class TreeManager {
         // This is a safety measure in case some trees weren't properly tracked
         const scene = this.scene;
         if (scene) {
-            // Find all TransformNodes with tree names
+            // Find all TransformNodes with tree names (old format with underscore and new format without)
             const treeTransformNodes = scene.transformNodes.filter(node => 
-                node.name && (node.name.startsWith('tree_') || node.name.startsWith('simple_tree_'))
+                node.name && (
+                    node.name.startsWith('tree_') || 
+                    node.name.startsWith('simple_tree_') ||
+                    (node.name.startsWith('tree') && /^\d+$/.test(node.name.substring(4))) ||
+                    (node.name.startsWith('simple_tree') && /^\d+$/.test(node.name.substring(11)))
+                )
             );
             
             treeTransformNodes.forEach(node => {
@@ -438,10 +454,18 @@ class TreeManager {
             });
             
             // Also find any orphaned tree meshes (meshes with tree names but no parent)
+            // Include both old format (tree_1) and new format (tree1), and imported STL trees
             const orphanedTreeMeshes = scene.meshes.filter(mesh => 
                 mesh.name && 
-                (mesh.name.startsWith('tree_') || mesh.name.includes('_tree_') || mesh.name.startsWith('simple_tree_')) &&
-                !mesh.isDisposed()
+                !mesh.isDisposed() &&
+                (
+                    mesh.name.startsWith('tree_') || 
+                    mesh.name.includes('_tree_') || 
+                    mesh.name.startsWith('simple_tree_') ||
+                    (mesh.name.startsWith('tree') && /^\d+$/.test(mesh.name.substring(4))) ||
+                    (mesh.name.startsWith('simple_tree') && /^\d+$/.test(mesh.name.substring(11))) ||
+                    (mesh.userData && mesh.userData.isImportedSTL && mesh.userData.type === 'tree')
+                )
             );
             
             orphanedTreeMeshes.forEach(mesh => {
@@ -452,6 +476,9 @@ class TreeManager {
                 mesh.dispose();
             });
         }
+        
+        // Dispatch scene change event to update object list
+        this.dispatchSceneChangeEvent();
         
         console.log(`Cleared all trees from scene (removed ${treesToRemove.length} tracked trees)`);
     }

@@ -277,10 +277,14 @@ class RotateManager {
                     this.gizmoManager.attachToMesh(selectedObject);
                     
                     // Setup gizmo based on current coordinate mode for single object
+                    // IMPORTANT: Setup AFTER attaching to ensure gizmo is properly initialized
                     if (this.isGlobalMode) {
                         this.setupGlobalGizmo();
                     } else {
-                        this.setupLocalGizmo();
+                        // For local mode, setup after a short delay to ensure gizmo is attached
+                        setTimeout(() => {
+                            this.setupLocalGizmo();
+                        }, 10);
                     }
                     
                     // Clear multi-object data
@@ -415,10 +419,26 @@ class RotateManager {
      */
     setupLocalGizmo() {
         if (this.gizmoManager.gizmos.rotationGizmo) {
-            // In local mode, gizmo should always align with the mesh's rotation
-            // This ensures the gizmo axes match the object's local coordinate system
-            this.gizmoManager.gizmos.rotationGizmo.updateGizmoRotationToMatchAttachedMesh = true;
+            // IMPORTANT: Disable updateGizmoRotationToMatchAttachedMesh to prevent issues with scaled objects
+            // When objects are scaled (especially non-uniform scaling), this flag can cause the rotation gizmo
+            // to break or become unresponsive. By disabling it, we ensure rotation works regardless of scaling.
+            // The gizmo will still work correctly in local mode, but won't automatically update its rotation
+            // which can cause issues with scaled objects.
+            this.gizmoManager.gizmos.rotationGizmo.updateGizmoRotationToMatchAttachedMesh = false;
             
+            // Manually set the gizmo rotation to match the attached mesh's rotation
+            // This ensures the gizmo aligns with the object's local coordinate system
+            // even when the object is scaled
+            const attachedMesh = this.gizmoManager.gizmos.rotationGizmo.attachedMesh;
+            if (attachedMesh) {
+                // Set gizmo rotation to match mesh rotation
+                // Use rotationQuaternion if available, otherwise use rotation
+                if (attachedMesh.rotationQuaternion) {
+                    this.gizmoManager.gizmos.rotationGizmo.rotationQuaternion = attachedMesh.rotationQuaternion.clone();
+                } else {
+                    this.gizmoManager.gizmos.rotationGizmo.rotation = attachedMesh.rotation.clone();
+                }
+            }
         }
     }
 
@@ -585,6 +605,16 @@ class RotateManager {
                 } else {
                     // Regular single object - attach gizmo directly
                     this.gizmoManager.attachToMesh(selectedObject);
+                    
+                    // Setup gizmo based on current coordinate mode AFTER attaching
+                    if (this.isGlobalMode) {
+                        this.setupGlobalGizmo();
+                    } else {
+                        // For local mode, setup after a short delay to ensure gizmo is attached
+                        setTimeout(() => {
+                            this.setupLocalGizmo();
+                        }, 10);
+                    }
                 }
             }
         }

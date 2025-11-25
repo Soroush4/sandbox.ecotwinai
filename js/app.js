@@ -9,6 +9,7 @@ class DigitalTwinApp {
         this.cameraController = null;
         this.gridManager = null;
         this.uiManager = null;
+        this.postProcessingManager = null;
         
         this.isInitialized = false;
         
@@ -90,6 +91,9 @@ class DigitalTwinApp {
                 }
             }, 1000);
             
+            // Initialize Post Processing Manager
+            this.postProcessingManager = new PostProcessingManager(this.sceneManager.getScene());
+            
             // Initialize UI manager
             this.uiManager = new UIManager(
                 this.sceneManager,
@@ -105,8 +109,101 @@ class DigitalTwinApp {
                 this.treeManager,
                 this.polygonManager,
                 this.rectangleManager,
-                this.circleManager
+                this.circleManager,
+                this.postProcessingManager
             );
+            
+            // Initialize STL manager (after UI manager since it needs uiManager reference)
+            this.stlManager = new STLManager(
+                this.sceneManager,
+                this.treeManager,
+                this.selectionManager,
+                this.lightingManager,
+                this.uiManager
+            );
+            
+            // Set STL manager reference in UI manager
+            if (this.uiManager) {
+                this.uiManager.stlManager = this.stlManager;
+            }
+
+            // Initialize SceneOperationsManager (after UI manager and STL manager)
+            const objectListManager = this.uiManager ? this.uiManager.getObjectListManager() : null;
+            this.sceneOperationsManager = new SceneOperationsManager(
+                this.sceneManager,
+                this.selectionManager,
+                this.treeManager,
+                this.lightingManager,
+                this.buildingGenerator,
+                this.shape2DManager,
+                this.polygonManager,
+                this.rectangleManager,
+                this.circleManager,
+                this.stlManager,
+                objectListManager,
+                this.cameraController,
+                this.uiManager
+            );
+            
+            // Set SceneOperationsManager reference in UI manager
+            if (this.uiManager) {
+                this.uiManager.sceneOperationsManager = this.sceneOperationsManager;
+            }
+            
+            // Initialize PropertiesPopupManager (after UI manager)
+            this.propertiesPopupManager = new PropertiesPopupManager(this.uiManager);
+            
+            // Set PropertiesPopupManager reference in UI manager
+            if (this.uiManager) {
+                this.uiManager.propertiesPopupManager = this.propertiesPopupManager;
+            }
+            
+            // Initialize ToolManager (after UI manager and all managers)
+            this.toolManager = new ToolManager(
+                this.uiManager,
+                this.selectionManager,
+                this.moveManager,
+                this.rotateManager,
+                this.scaleManager,
+                this.rectangleManager,
+                this.circleManager,
+                this.polygonManager,
+                this.treeManager,
+                this.shape2DManager
+            );
+            
+            // Set ToolManager reference in UI manager
+            if (this.uiManager) {
+                this.uiManager.toolManager = this.toolManager;
+            }
+            
+            // Initialize TransformInputManager (after UI manager and ToolManager)
+            this.transformInputManager = new TransformInputManager(
+                this.uiManager,
+                this.sceneManager,
+                this.selectionManager
+            );
+            
+            // Set TransformInputManager reference in UI manager
+            if (this.uiManager) {
+                this.uiManager.transformInputManager = this.transformInputManager;
+            }
+            
+            // Initialize SurfaceTypesManager
+            this.surfaceTypesManager = new SurfaceTypesManager();
+            await this.surfaceTypesManager.init();
+            
+            // Set SurfaceTypesManager reference in UI manager
+            if (this.uiManager) {
+                this.uiManager.surfaceTypesManager = this.surfaceTypesManager;
+                // Load default building archetypes from CSV if not already loaded
+                await this.uiManager.loadDefaultBuildingArchetypes();
+            }
+            
+            // Set ObjectListManager reference in SceneOperationsManager (after it's initialized)
+            if (this.sceneOperationsManager && objectListManager) {
+                this.sceneOperationsManager.setObjectListManager(objectListManager);
+            }
 
             // Set ObjectListManager reference in SelectionManager
             if (this.selectionManager && this.uiManager && this.uiManager.getObjectListManager) {

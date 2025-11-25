@@ -278,8 +278,8 @@ class CircleManager {
         }
         
         material.diffuseColor = materialColor;
-        material.backFaceCulling = true; // Single-sided
-        material.twoSidedLighting = false; // Disable lighting on both sides
+        material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         material.alpha = 1.0; // Fully opaque
         circle.material = material;
@@ -339,8 +339,8 @@ class CircleManager {
         // Check all meshes in the scene for names of this type
         // Only count enabled meshes that are still in the scene
         this.scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(`${type}_`)) {
-                const match = mesh.name.match(new RegExp(`^${type}_(\\d+)$`));
+            if (mesh.name && mesh.isEnabled() && mesh.name.startsWith(type) && /^\d+$/.test(mesh.name.substring(type.length))) {
+                const match = mesh.name.match(new RegExp(`^${type}(\\d+)$`));
                 if (match) {
                     const number = parseInt(match[1]);
                     usedNumbers.add(number);
@@ -358,7 +358,7 @@ class CircleManager {
         }
         
         // Return next available number
-        return `${type}_${nextNumber}`;
+        return `${type}${nextNumber}`;
     }
 
     /**

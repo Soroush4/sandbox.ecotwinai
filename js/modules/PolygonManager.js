@@ -26,7 +26,7 @@ class PolygonManager {
         // Use standardized color
         const defaultColor = this.uiManager ? this.uiManager.getDefaultDrawingColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
         this.polygonMaterial.diffuseColor = defaultColor;
-        this.polygonMaterial.backFaceCulling = true; // Single-sided
+        this.polygonMaterial.backFaceCulling = false; // 2-sided
         this.polygonMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Normal specular
         this.polygonMaterial.roughness = 0.8; // Normal roughness
         this.polygonMaterial.metallic = 0.0; // Non-metallic
@@ -38,7 +38,7 @@ class PolygonManager {
         const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
         this.previewMaterial.diffuseColor = previewColor;
         this.previewMaterial.alpha = previewAlpha;
-        this.previewMaterial.backFaceCulling = true;
+        this.previewMaterial.backFaceCulling = false; // 2-sided
         
         // Material for points
         this.pointMaterial = new BABYLON.StandardMaterial("polygonPointMaterial", this.scene);
@@ -1202,17 +1202,39 @@ class PolygonManager {
         const center = this.calculateCenter();
         const relativePoints = this.points.map(point => point.subtract(center));
         
-        // Create 3D polygon directly with initial height 0.1
-        const polygonName = 'polygon_' + Date.now();
-        this.currentPolygon = this.create3DPolygonWithHeight(relativePoints, polygonName, 0.1);
+        // Generate unique name based on type (default is 'ground')
+        const defaultType = 'ground';
+        const polygonName = this.uiManager && this.uiManager.generateUniqueNameByType ? 
+            this.uiManager.generateUniqueNameByType(defaultType) : 
+            `ground${Date.now()}`;
+        
+        // Create 3D polygon using UIManager's createCustomPolygonExtrusion to ensure normals are correctly flipped
+        // createCustomPolygonExtrusion expects points relative to origin (0,0,0), so we use relativePoints directly
+        // Convert relativePoints to Vector3 format (with y=0 for 2D polygon shape)
+        const pointsForExtrusion = relativePoints.map(p => new BABYLON.Vector3(p.x, 0, p.z));
+        const initialHeight = 0.1;
+        
+        // Check if uiManager and createCustomPolygonExtrusion are available
+        if (!this.uiManager || !this.uiManager.createCustomPolygonExtrusion) {
+            console.error('UIManager or createCustomPolygonExtrusion not available, falling back to create3DPolygonWithHeight');
+            this.currentPolygon = this.create3DPolygonWithHeight(relativePoints, polygonName, initialHeight);
+        } else {
+            this.currentPolygon = this.uiManager.createCustomPolygonExtrusion(polygonName, pointsForExtrusion, initialHeight);
+        }
+        
         this.currentPolygon.material = this.polygonMaterial;
         this.currentPolygon.renderingGroupId = 1;
         this.currentPolygon.receiveShadows = true;
         this.currentPolygon.castShadows = true;
-        // Position the polygon at center, but keep Y position from create3DPolygonWithHeight
+        // Position the polygon at center
+        // createCustomPolygonExtrusion sets position.y to height / 2, so we need to adjust
         this.currentPolygon.position.x = center.x;
         this.currentPolygon.position.z = center.z;
-        // Y position is already set correctly in create3DPolygonWithHeight
+        // Y position is already set correctly in createCustomPolygonExtrusion (height / 2 = 0.05)
+        // But if we used create3DPolygonWithHeight, we need to set it differently
+        if (!this.uiManager || !this.uiManager.createCustomPolygonExtrusion) {
+            this.currentPolygon.position.y = initialHeight;
+        }
         
         // Store polygon properties in userData
         const dimensions = this.calculatePolygonDimensions();
@@ -1228,7 +1250,8 @@ class PolygonManager {
             originalHeight: 0.1, // Initial height
             currentHeight: 0.1, // Current height (will change based on type)
             is3D: true,
-            baseY: baseY
+            baseY: baseY,
+            sideWallNormalsFlipped: true // Already flipped by createCustomPolygonExtrusion
         };
         
         // Set name

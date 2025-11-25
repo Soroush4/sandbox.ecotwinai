@@ -224,11 +224,11 @@ class SelectionManager {
                    !mesh.name.includes('_wireframe') && // Exclude wireframe clones
                    !mesh.name.includes('_edge_wireframe') && // Exclude edge wireframe clones
                    (
-                       mesh.name.startsWith('building_') ||
-                       mesh.name.startsWith('ground_') ||
-                       mesh.name.startsWith('waterway_') ||
-                       mesh.name.startsWith('highway_') ||
-                       mesh.name.startsWith('green_') ||
+                       (mesh.name.startsWith('building') && /^\d+$/.test(mesh.name.substring(8))) ||
+                       (mesh.name.startsWith('ground') && /^\d+$/.test(mesh.name.substring(6))) ||
+                       (mesh.name.startsWith('waterway') && /^\d+$/.test(mesh.name.substring(8))) ||
+                       (mesh.name.startsWith('highway') && /^\d+$/.test(mesh.name.substring(7))) ||
+                       (mesh.name.startsWith('grass') && /^\d+$/.test(mesh.name.substring(5))) ||
                        mesh.name.includes('rectangle') ||
                        mesh.name.includes('circle') ||
                        mesh.name.includes('triangle') ||
@@ -237,13 +237,17 @@ class SelectionManager {
                        mesh.name.startsWith('polyline') ||
                        mesh.name.startsWith('line') ||
                        mesh.name.includes('_extrusion') || // Include extrusion meshes
-                       mesh.name.startsWith('tree_') || // Include tree parent nodes
+                       mesh.name.startsWith('tree_') || // Include tree parent nodes (old format)
+                       (mesh.name.startsWith('tree') && /^\d+$/.test(mesh.name.substring(4))) || // Include tree parent nodes (new format: tree1, tree2, ...)
                        mesh.name.includes('_tree_') || // Include tree meshes
-                       mesh.name.startsWith('simple_tree_') || // Include simple tree meshes
+                       mesh.name.startsWith('simple_tree_') || // Include simple tree meshes (old format)
+                       (mesh.name.startsWith('simple_tree') && /^\d+$/.test(mesh.name.substring(11))) || // Include simple tree meshes (new format)
+                       // Include imported STL objects
+                       (mesh.userData && mesh.userData.isImportedSTL) ||
                        // Include circles by checking userData
                        (mesh.userData && mesh.userData.shapeType === 'circle') ||
-                       // Include buildings from circles
-                       (mesh.userData && mesh.userData.shapeType === 'building' && mesh.userData.dimensions && mesh.userData.dimensions.diameterTop !== undefined) ||
+                       // Include buildings (both rectangular and circular)
+                       (mesh.userData && mesh.userData.shapeType === 'building') ||
                        // Include rectangles by checking userData
                        (mesh.userData && mesh.userData.shapeType === 'rectangle')
                    );
@@ -369,16 +373,33 @@ class SelectionManager {
             }
         }
         
-        // For tree parent nodes, get the actual child meshes
-        if (mesh.name && mesh.name.startsWith('tree_') && mesh.getChildMeshes) {
-            const childMeshes = mesh.getChildMeshes();
-            if (childMeshes.length > 0) {
-                // Return the parent node but we'll use child meshes for bounding calculation
-                return mesh;
+        // For TransformNode (trees or buildings), try to get child meshes
+        if (mesh instanceof BABYLON.TransformNode) {
+            // For trees, return the TransformNode (we'll use child meshes for bounding calculation)
+            if (mesh.name && (mesh.name.startsWith('tree_') || /^tree\d+$/.test(mesh.name))) {
+                const childMeshes = mesh.getChildMeshes();
+                if (childMeshes.length > 0) {
+                    return mesh; // Return parent node, calculateMeshBoundingBox will handle child meshes
+                }
+            }
+            
+            // For buildings that are TransformNodes, try to find the actual mesh
+            // Buildings should be regular meshes, but if they're TransformNodes, get child meshes
+            if (mesh.name && mesh.name.startsWith('building')) {
+                const childMeshes = mesh.getChildMeshes();
+                if (childMeshes.length > 0) {
+                    // Return the first child mesh (the actual building mesh)
+                    return childMeshes[0];
+                }
+                // If no child meshes, try to find the mesh in scene by name
+                const actualMesh = this.scene.getMeshByName(mesh.name);
+                if (actualMesh && actualMesh instanceof BABYLON.Mesh) {
+                    return actualMesh;
+                }
             }
         }
         
-        // For other meshes, return as-is
+        // For regular meshes, return as-is
         return mesh;
     }
 
@@ -530,6 +551,163 @@ class SelectionManager {
     }
 
     /**
+     * Zoom camera to extent of selected objects
+     * Works for both single and multiple selected objects
+     */
+    zoomToSelectedExtent() {
+        if (!this.camera) {
+            console.warn('Cannot zoom to extent: camera is null');
+            return;
+        }
+
+        const selectedObjects = this.getSelectedObjects();
+        
+        if (selectedObjects.length === 0) {
+            // No objects selected - zoom to ground
+            console.log('No objects selected, zooming to ground');
+            if (this.scene) {
+                const ground = this.scene.getMeshByName("earth");
+                if (ground) {
+                    const groundSize = 500;
+                    const halfSize = groundSize / 2;
+                    const requiredRadius = Math.sqrt(halfSize * halfSize + halfSize * halfSize) * 1.2;
+                    if (this.camera.upperRadiusLimit) {
+                        this.camera.radius = Math.min(requiredRadius, this.camera.upperRadiusLimit);
+                    } else {
+                        this.camera.radius = requiredRadius;
+                    }
+                    this.camera.setTarget(new BABYLON.Vector3(0, 0, 0));
+                }
+            }
+            return;
+        }
+
+        if (selectedObjects.length === 1) {
+            // Single object - use existing zoomToMeshExtent
+            this.zoomToMeshExtent(selectedObjects[0]);
+            return;
+        }
+
+        // Multiple objects - calculate combined bounding box
+        try {
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+            let validObjects = 0;
+
+            selectedObjects.forEach(obj => {
+                if (!obj) {
+                    console.log(`[zoomToSelectedExtent] Skipping null object`);
+                    return;
+                }
+
+                // Check if object is disposed - handle both Mesh and TransformNode
+                let isDisposed = false;
+                if (obj instanceof BABYLON.Mesh || obj instanceof BABYLON.AbstractMesh) {
+                    isDisposed = obj.isDisposed ? obj.isDisposed() : false;
+                } else if (obj instanceof BABYLON.TransformNode) {
+                    // For TransformNode, check if it's still in the scene
+                    isDisposed = !this.scene.transformNodes.includes(obj);
+                } else {
+                    // For other types, try to check if disposed method exists
+                    isDisposed = (obj.isDisposed && typeof obj.isDisposed === 'function') ? obj.isDisposed() : false;
+                }
+
+                if (isDisposed) {
+                    console.log(`[zoomToSelectedExtent] Skipping disposed object: ${obj?.name || 'unknown'}`);
+                    return;
+                }
+
+                // Get the best mesh for zoom calculation
+                const targetMesh = this.getBestMeshForZoom(obj);
+                if (!targetMesh) {
+                    console.log(`[zoomToSelectedExtent] No valid target mesh for: ${obj.name || 'unknown'}`);
+                    return;
+                }
+
+                // Calculate bounding box for this object
+                const boundingBox = this.calculateMeshBoundingBox(targetMesh);
+                if (!boundingBox) {
+                    console.log(`[zoomToSelectedExtent] Could not calculate bounding box for: ${targetMesh.name || 'unknown'}`);
+                    return;
+                }
+
+                const { center, size } = boundingBox;
+                const halfSize = size.clone().scale(0.5);
+                
+                // Calculate world-space bounds (use clone to avoid mutating center)
+                const worldMin = center.clone().subtract(halfSize);
+                const worldMax = center.clone().add(halfSize);
+
+                minX = Math.min(minX, worldMin.x);
+                minY = Math.min(minY, worldMin.y);
+                minZ = Math.min(minZ, worldMin.z);
+                maxX = Math.max(maxX, worldMax.x);
+                maxY = Math.max(maxY, worldMax.y);
+                maxZ = Math.max(maxZ, worldMax.z);
+                
+                validObjects++;
+                console.log(`[zoomToSelectedExtent] Processed object ${validObjects}: ${targetMesh.name || 'unknown'}, bounds: [${worldMin.x.toFixed(2)}, ${worldMin.y.toFixed(2)}, ${worldMin.z.toFixed(2)}] to [${worldMax.x.toFixed(2)}, ${worldMax.y.toFixed(2)}, ${worldMax.z.toFixed(2)}]`);
+            });
+
+            if (validObjects === 0) {
+                console.warn('No valid objects found for zoom');
+                return;
+            }
+
+            // Calculate combined bounding box center and size
+            const combinedCenter = new BABYLON.Vector3(
+                (minX + maxX) / 2,
+                (minY + maxY) / 2,
+                (minZ + maxZ) / 2
+            );
+            
+            const combinedSize = new BABYLON.Vector3(
+                maxX - minX,
+                maxY - minY,
+                maxZ - minZ
+            );
+            
+            const maxSize = Math.max(combinedSize.x, combinedSize.y, combinedSize.z);
+            
+            // Ensure we have valid dimensions
+            if (maxSize <= 0) {
+                console.warn('Invalid combined size, using fallback');
+                const fallbackCenter = combinedCenter || new BABYLON.Vector3(0, 0, 0);
+                this.animateCameraToTarget(fallbackCenter, 15);
+                return;
+            }
+            
+            // Calculate appropriate camera distance
+            const distance = Math.max(maxSize * 2, 3); // Minimum distance of 3 units
+            
+            // Animate camera to new position
+            this.animateCameraToTarget(combinedCenter, distance);
+            
+            console.log(`Zooming to ${validObjects} selected objects`);
+            console.log(`Combined center:`, combinedCenter);
+            console.log(`Combined size:`, combinedSize);
+            console.log(`Max size:`, maxSize);
+            console.log(`Distance:`, distance);
+            
+        } catch (error) {
+            console.error('Error zooming to selected extent:', error);
+            // Fallback: zoom to center of selected objects
+            const center = BABYLON.Vector3.Zero();
+            let count = 0;
+            selectedObjects.forEach(obj => {
+                if (obj && !obj.isDisposed && obj.position) {
+                    center.addInPlace(obj.position);
+                    count++;
+                }
+            });
+            if (count > 0) {
+                center.scaleInPlace(1 / count);
+                this.animateCameraToTarget(center, 15);
+            }
+        }
+    }
+
+    /**
      * Animate camera to target position and distance
      */
     animateCameraToTarget(target, distance) {
@@ -572,10 +750,16 @@ class SelectionManager {
         console.log(`Selecting object: ${mesh.name} (type: ${mesh.constructor.name})`);
         
         // Auto-select TransformNode parent for tree meshes
-        if (mesh.parent && mesh.parent instanceof BABYLON.TransformNode && 
-            (mesh.parent.name.includes('tree_') || mesh.parent.name.includes('simple_tree_'))) {
-            console.log(`Auto-selecting TransformNode parent: ${mesh.parent.name}`);
-            mesh = mesh.parent; // Select the parent TransformNode instead
+        // Check for both old naming (tree_, simple_tree_) and new naming (tree1, tree2, ...)
+        if (mesh.parent && mesh.parent instanceof BABYLON.TransformNode) {
+            const parentName = mesh.parent.name.toLowerCase();
+            const isOldTreeName = parentName.includes('tree_') || parentName.includes('simple_tree_');
+            const isNewTreeName = /^tree\d+$/.test(parentName);
+            
+            if (isOldTreeName || isNewTreeName) {
+                console.log(`Auto-selecting TransformNode parent: ${mesh.parent.name}`);
+                mesh = mesh.parent; // Select the parent TransformNode instead
+            }
         }
         
         // Additional debugging for different object types
@@ -1495,14 +1679,29 @@ class SelectionManager {
         });
         this.selectedObjects = [];
         
-        // Find all selectable meshes (buildings, trees, 2D shapes, polygons, etc.) but exclude ground
+        // Find all selectable meshes using the same logic as isSelectable
+        // This includes buildings, trees, 2D shapes, polygons, ground, grass, waterway, highway, and imported STL objects
         const selectableMeshes = this.scene.meshes.filter(mesh => {
             return mesh.name && 
+                   !mesh.isDisposed() &&
                    !mesh.name.includes('_wireframe') && // Exclude wireframe clones
                    !mesh.name.includes('_edge_wireframe') && // Exclude edge wireframe clones
-                   mesh.name !== 'ground' && // Exclude ground
+                   mesh.name !== 'ground' && // Exclude default ground mesh
                    (
-                       mesh.name.startsWith('building_') ||
+                       // Buildings (new format: building1, building2, ...)
+                       (mesh.name.startsWith('building') && /^\d+$/.test(mesh.name.substring(8))) ||
+                       // Ground, grass, waterway, highway (new format: ground1, grass1, waterway1, highway1, ...)
+                       (mesh.name.startsWith('ground') && /^\d+$/.test(mesh.name.substring(6))) ||
+                       (mesh.name.startsWith('waterway') && /^\d+$/.test(mesh.name.substring(8))) ||
+                       (mesh.name.startsWith('highway') && /^\d+$/.test(mesh.name.substring(7))) ||
+                       (mesh.name.startsWith('grass') && /^\d+$/.test(mesh.name.substring(5))) ||
+                       // Trees (both old format with underscore and new format without)
+                       mesh.name.startsWith('tree_') || // Include tree parent nodes (old format)
+                       (mesh.name.startsWith('tree') && /^\d+$/.test(mesh.name.substring(4))) || // Include tree parent nodes (new format: tree1, tree2, ...)
+                       mesh.name.includes('_tree_') || // Include tree meshes
+                       mesh.name.startsWith('simple_tree_') || // Include simple tree meshes (old format)
+                       (mesh.name.startsWith('simple_tree') && /^\d+$/.test(mesh.name.substring(11))) || // Include simple tree meshes (new format)
+                       // 2D shapes
                        mesh.name.includes('rectangle') ||
                        mesh.name.includes('circle') ||
                        mesh.name.includes('triangle') ||
@@ -1511,9 +1710,25 @@ class SelectionManager {
                        mesh.name.startsWith('polyline') ||
                        mesh.name.startsWith('line') ||
                        mesh.name.includes('_extrusion') || // Include extrusion meshes
-                       mesh.name.startsWith('tree_') || // Include tree parent nodes
-                       mesh.name.includes('_tree_') || // Include tree meshes
-                       mesh.name.startsWith('simple_tree_') // Include simple tree meshes
+                       // Include by userData (for shapes created via managers)
+                       (mesh.userData && mesh.userData.shapeType === 'circle') ||
+                       (mesh.userData && mesh.userData.shapeType === 'building') || // Include all buildings (both rectangular and circular)
+                       (mesh.userData && mesh.userData.shapeType === 'rectangle') ||
+                       // Include imported STL objects (including STL trees)
+                       (mesh.userData && mesh.userData.isImportedSTL)
+                   );
+        });
+        
+        // Also include TransformNodes that are STL objects or trees
+        const selectableTransformNodes = this.scene.transformNodes.filter(transformNode => {
+            return transformNode.name && 
+                   !transformNode.isDisposed() &&
+                   (
+                       // Regular trees (TransformNodes)
+                       transformNode.name.startsWith('tree_') ||
+                       (transformNode.name.startsWith('tree') && /^\d+$/.test(transformNode.name.substring(4))) ||
+                       // STL trees stored as TransformNodes
+                       (transformNode.userData && transformNode.userData.isImportedSTL)
                    );
         });
         
@@ -1521,6 +1736,12 @@ class SelectionManager {
         selectableMeshes.forEach(mesh => {
             this.selectedObjects.push(mesh);
             this.highlightObject(mesh);
+        });
+        
+        // Add all selectable TransformNodes to selection
+        selectableTransformNodes.forEach(transformNode => {
+            this.selectedObjects.push(transformNode);
+            this.highlightObject(transformNode);
         });
         
         // Notify that selection has changed (only once at the end)
@@ -1549,7 +1770,7 @@ class SelectionManager {
         
         // Find all building meshes
         const buildingMeshes = this.scene.meshes.filter(mesh => 
-            mesh.name && mesh.name.startsWith('building_')
+            mesh.name && mesh.name.startsWith('building') && /^\d+$/.test(mesh.name.substring(8))
         );
         
         if (buildingMeshes.length > 0) {

@@ -1,0 +1,7 @@
+﻿waterType,albedo,emissivity,specificHeatCapacity,density,depth
+default,0.06,0.96,4190,1000,50
+clear_lake,0.06,0.96,4190,1000,50
+turbid_river,0.1,0.95,4190,1000,5
+frozen_lake,0.5,0.96,2100,917,50
+snow_covered_lake,0.85,0.99,2090,300,50
+ice_with_frost,0.55,0.96,2100,917,50
