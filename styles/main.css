@@ -837,7 +837,7 @@ input[type="range"]::-moz-range-thumb {
 /* Measurement Tools Panel Styles */
 .measurement-panel {
     position: fixed;
-    top: 140px; /* Below drawing panel (40px + 60px panel height + 40px gap) */
+    top: 250px; /* Below drawing panel: 40px (start) + ~200px (panel height) + 10px (gap) */
     left: 20px;
     width: 60px;
     background: rgba(20, 20, 20, 0.95);
@@ -896,14 +896,14 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 768px) {
     .measurement-panel {
         width: 70px;
-        top: 150px;
+        top: 260px;
     }
 }
 
 @media (max-width: 480px) {
     .measurement-panel {
         width: 100px;
-        top: 160px;
+        top: 270px;
     }
 }
 

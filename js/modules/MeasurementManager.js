@@ -44,7 +44,10 @@ class MeasurementManager {
      * @param {string} toolName - 'distance' or 'area'
      */
     activateTool(toolName) {
+        console.log(`[MEASUREMENT] activateTool called with: ${toolName}`);
+        
         if (this.isActive && this.activeTool === toolName) {
+            console.log('[MEASUREMENT] Tool already active, returning');
             return; // Already active
         }
         
@@ -54,16 +57,22 @@ class MeasurementManager {
         this.activeTool = toolName;
         this.isActive = true;
         
+        console.log(`[MEASUREMENT] Tool state set - activeTool: ${this.activeTool}, isActive: ${this.isActive}`);
+        
         // Disable camera controls when measurement tool is active
         if (this.camera && this.camera.inputs) {
-            this.camera.inputs.attached.keyboard.detachControls();
-            this.camera.inputs.attached.mousewheel.detachControls();
+            if (this.camera.inputs.attached.keyboard) {
+                this.camera.inputs.attached.keyboard.detachControls();
+            }
+            if (this.camera.inputs.attached.mousewheel) {
+                this.camera.inputs.attached.mousewheel.detachControls();
+            }
         }
         
         // Attach event listeners
         this.attachEventListeners();
         
-        console.log(`Measurement tool activated: ${toolName}`);
+        console.log(`[MEASUREMENT] Measurement tool activated: ${toolName}`);
     }
     
     /**
@@ -93,6 +102,8 @@ class MeasurementManager {
      * Attach event listeners
      */
     attachEventListeners() {
+        console.log('[MEASUREMENT] Attaching event listeners');
+        
         this.onPointerDown = (event) => this.handlePointerDown(event);
         this.onPointerMove = (event) => this.handlePointerMove(event);
         this.onPointerUp = (event) => this.handlePointerUp(event);
@@ -102,6 +113,8 @@ class MeasurementManager {
         this.canvas.addEventListener('pointermove', this.onPointerMove);
         this.canvas.addEventListener('pointerup', this.onPointerUp);
         document.addEventListener('keydown', this.onKeyDown);
+        
+        console.log('[MEASUREMENT] Event listeners attached');
     }
     
     /**
@@ -131,24 +144,42 @@ class MeasurementManager {
      * Handle pointer down event
      */
     handlePointerDown(event) {
-        if (!this.isActive) return;
+        if (!this.isActive) {
+            console.log('[MEASUREMENT] Tool not active, ignoring pointer down');
+            return;
+        }
         
-        // Get pick result
+        console.log('[MEASUREMENT] Pointer down event:', event.offsetX, event.offsetY);
+        
+        // Get pick result - try picking any mesh first to debug
         const pickResult = this.scene.pick(
             event.offsetX || event.clientX,
             event.offsetY || event.clientY,
             (mesh) => {
                 // Only pick ground plane
-                return mesh.name === 'earth' || mesh.name === 'ground';
+                const isGround = mesh.name === 'earth' || mesh.name === 'ground';
+                if (isGround) {
+                    console.log('[MEASUREMENT] Picked ground mesh:', mesh.name);
+                }
+                return isGround;
             }
         );
         
+        console.log('[MEASUREMENT] Pick result:', {
+            hit: pickResult.hit,
+            pickedPoint: pickResult.pickedPoint,
+            pickedMesh: pickResult.pickedMesh ? pickResult.pickedMesh.name : null
+        });
+        
         if (pickResult.hit && pickResult.pickedPoint) {
+            console.log('[MEASUREMENT] Adding point:', pickResult.pickedPoint);
             if (this.activeTool === 'distance') {
                 this.addDistancePoint(pickResult.pickedPoint);
             } else if (this.activeTool === 'area') {
                 this.addAreaPoint(pickResult.pickedPoint);
             }
+        } else {
+            console.log('[MEASUREMENT] No hit or no picked point');
         }
     }
     
@@ -215,7 +246,9 @@ class MeasurementManager {
      * Add distance measurement point
      */
     addDistancePoint(point) {
+        console.log('[MEASUREMENT] Adding distance point:', point);
         this.distancePoints.push(point.clone());
+        console.log('[MEASUREMENT] Total distance points:', this.distancePoints.length);
         
         // Update lines and labels
         this.updateDistanceMeasurement();
@@ -235,10 +268,13 @@ class MeasurementManager {
      * Update distance measurement display
      */
     updateDistanceMeasurement() {
+        console.log('[MEASUREMENT] Updating distance measurement, points:', this.distancePoints.length);
+        
         // Clear existing lines and labels
         this.clearDistanceLines();
         
         if (this.distancePoints.length < 2) {
+            console.log('[MEASUREMENT] Not enough points for distance measurement');
             return;
         }
         
@@ -247,6 +283,8 @@ class MeasurementManager {
             const start = this.distancePoints[i];
             const end = this.distancePoints[i + 1];
             
+            console.log(`[MEASUREMENT] Creating line ${i} from`, start, 'to', end);
+            
             // Create line
             const line = BABYLON.MeshBuilder.CreateLines(`distance_line_${i}`, {
                 points: [start, end],
@@ -254,6 +292,8 @@ class MeasurementManager {
             }, this.scene);
             line.color = new BABYLON.Color3(1, 1, 0); // Yellow
             this.distanceLines.push(line);
+            
+            console.log(`[MEASUREMENT] Line ${i} created:`, line.name, 'visible:', line.isVisible);
             
             // Calculate distance
             const distance = BABYLON.Vector3.Distance(start, end);
@@ -271,7 +311,7 @@ class MeasurementManager {
         }
         
         // Show total distance in console or UI
-        console.log(`Total distance: ${totalDistance.toFixed(2)} units`);
+        console.log(`[MEASUREMENT] Total distance: ${totalDistance.toFixed(2)} units`);
     }
     
     /**

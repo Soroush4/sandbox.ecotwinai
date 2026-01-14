@@ -212,8 +212,18 @@
                         this.classList.add('active');
                         
                         // Activate measurement tool
+                        console.log('[HTML] Checking window.uiManager:', !!window.uiManager);
                         if (window.uiManager && window.uiManager.activateMeasurementTool) {
+                            console.log('[HTML] Calling activateMeasurementTool');
                             window.uiManager.activateMeasurementTool(toolName);
+                        } else {
+                            console.error('[HTML] window.uiManager or activateMeasurementTool not available!');
+                            console.log('[HTML] window.uiManager:', window.uiManager);
+                            console.log('[HTML] window.digitalTwinApp:', window.digitalTwinApp);
+                            if (window.digitalTwinApp && window.digitalTwinApp.uiManager) {
+                                console.log('[HTML] Using window.digitalTwinApp.uiManager');
+                                window.digitalTwinApp.uiManager.activateMeasurementTool(toolName);
+                            }
                         }
                     });
                 });

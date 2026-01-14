@@ -207,6 +207,17 @@ class DigitalTwinApp {
                 this.uiManager.transformInputManager = this.transformInputManager;
             }
             
+            // Set MeasurementManager reference in UI manager
+            if (this.uiManager && this.measurementManager) {
+                this.uiManager.measurementManager = this.measurementManager;
+                console.log('[APP] MeasurementManager assigned to UIManager');
+            } else {
+                console.error('[APP] Failed to assign MeasurementManager to UIManager:', {
+                    hasUIManager: !!this.uiManager,
+                    hasMeasurementManager: !!this.measurementManager
+                });
+            }
+            
             // Initialize SurfaceTypesManager
             this.surfaceTypesManager = new SurfaceTypesManager();
             await this.surfaceTypesManager.init();
@@ -287,6 +298,11 @@ class DigitalTwinApp {
             }, 1000);
             
             this.isInitialized = true;
+            
+            // Make uiManager globally accessible
+            if (this.uiManager) {
+                window.uiManager = this.uiManager;
+            }
             
         } catch (error) {
             this.showLoading(false);

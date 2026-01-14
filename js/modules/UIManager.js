@@ -10858,6 +10858,9 @@ Transform your 3D models into powerful energy analysis tools.`;
      * @param {string} toolName - 'distance' or 'area'
      */
     activateMeasurementTool(toolName) {
+        console.log('[UIMANAGER] activateMeasurementTool called with:', toolName);
+        console.log('[UIMANAGER] measurementManager exists:', !!this.measurementManager);
+        
         // Deactivate all drawing tools first
         this.deactivateAllDrawingTools();
         
@@ -10869,6 +10872,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Activate measurement tool
         if (this.measurementManager) {
             this.measurementManager.activateTool(toolName);
+        } else {
+            console.error('[UIMANAGER] measurementManager is null!');
         }
         
         // Disable camera controls when measurement tool is active
