@@ -780,6 +780,13 @@ class LightingManager {
         let shadowReceivers = 0;
         
         this.scene.meshes.forEach(mesh => {
+            // IMPORTANT: Handle grid separately since it's excluded from isSolidObject
+            if (mesh.name === 'grid') {
+                mesh.receiveShadows = true;
+                shadowReceivers++;
+                return; // Grid doesn't cast shadows, only receives them
+            }
+            
             if (this.isSolidObject(mesh)) {
                 if (this.objectShadowsEnabled) {
                     // Object shadows enabled - enable both casting and receiving
@@ -817,9 +824,10 @@ class LightingManager {
                 this.shadowGenerator.addShadowCaster(mesh, true);
             } else {
                 // Object shadows disabled - objects cast shadows on ground, but don't receive shadows
-                if (mesh.name === 'earth') {
+                if (mesh.name === 'earth' || mesh.name === 'grid') {
+                    // Both ground (earth) and grid should receive shadows
                     mesh.receiveShadows = true;
-                    // Ground doesn't cast shadows
+                    // Ground and grid don't cast shadows
                 } else {
                     mesh.receiveShadows = false;
                     this.shadowGenerator.addShadowCaster(mesh, true);
@@ -991,7 +999,7 @@ class LightingManager {
         );
         
         if (meshes.length === 0 && transformNodes.length === 0) {
-            console.warn('No meshes or transform nodes found for shadow frustum adjustment');
+            // console.warn('No meshes or transform nodes found for shadow frustum adjustment');
             return;
         }
         
@@ -1131,18 +1139,10 @@ class LightingManager {
             }
         }
         
-        console.log(`Auto-adjusted shadow frustum: ${frustumSize.toFixed(2)}m (scene radius: ${sceneRadius.toFixed(2)}m, center: X=${sceneCenterX.toFixed(2)}, Z=${sceneCenterZ.toFixed(2)})`);
-        console.log(`Scene bounds: X[${minX.toFixed(2)}, ${maxX.toFixed(2)}] Z[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}]`);
-        console.log(`Scene size: ${sceneWidth.toFixed(2)}m x ${sceneDepth.toFixed(2)}m`);
-        console.log(`Diagonal distance: ${diagonalDistance.toFixed(2)}m`);
-        console.log(`Shadow coverage: ${frustumSize.toFixed(2)}m x ${frustumSize.toFixed(2)}m`);
-        
         // Warn if coverage might be insufficient
         if (frustumSize < diagonalDistance * 1.2) {
             console.warn(`⚠️ Shadow frustum might be too small! Frustum: ${frustumSize.toFixed(2)}m, Diagonal: ${diagonalDistance.toFixed(2)}m`);
             console.warn(`   Recommended: Increase frustum size to at least ${(diagonalDistance * 1.4).toFixed(0)}m`);
-        } else {
-            console.log(`✓ Shadow frustum is sufficient to cover the entire scene`);
         }
     }
 
@@ -1290,7 +1290,7 @@ class LightingManager {
             this.shadowGenerator.removeShadowCaster(arrowHead);
         }
         
-        console.log('Light helper created at position:', this.directionalLight.position);
+        // console.log('Light helper created at position:', this.directionalLight.position);
     }
     
     /**

@@ -11,7 +11,7 @@ class GridManager {
     }
 
     /**
-     * Create the grid
+     * Create the grid with infinite/extremely large size
      */
     createGrid() {
         // Create grid material
@@ -21,17 +21,28 @@ class GridManager {
         gridMaterial.alpha = 0.8;
         gridMaterial.wireframe = true;
 
-        // Create grid mesh
+        // Create extremely large grid mesh (effectively infinite for practical purposes)
+        // Using 50000 units (50km) which should cover any reasonable zoom out distance
+        // Subdivisions are kept reasonable to maintain performance
+        const gridSize = 50000; // 50km - effectively infinite for most use cases
+        const gridSubdivisions = 500; // More subdivisions for better grid detail at large scale
+        
         this.grid = BABYLON.MeshBuilder.CreateGround("grid", {
-            width: 100,
-            height: 100,
-            subdivisions: 50
+            width: gridSize,
+            height: gridSize,
+            subdivisions: gridSubdivisions
         }, this.scene);
 
         this.grid.material = gridMaterial;
         this.grid.position.y = 0.01; // Slightly above ground to avoid z-fighting
         this.grid.isPickable = false;
+        // IMPORTANT: Enable shadow receiving for grid
+        this.grid.receiveShadows = true;
+        // Set rendering priority to lowest (grid)
+        this.grid.renderingGroupId = SceneManager.getRenderingGroupId('grid');
         this.grid.setEnabled(this.isVisible); // Set initial visibility
+        
+        // console.log(`Created infinite grid: ${gridSize}x${gridSize} units (${gridSize/1000}km)`);
     }
 
     /**
@@ -84,8 +95,10 @@ class GridManager {
 
     /**
      * Update grid properties
+     * @param {number} size - Grid size in units (default: 50000 for infinite-like grid)
+     * @param {number} subdivisions - Number of subdivisions (default: 500 for large grids)
      */
-    updateGrid(size = 100, subdivisions = 50) {
+    updateGrid(size = 50000, subdivisions = 500) {
         if (this.grid) {
             this.grid.dispose();
         }
@@ -97,16 +110,27 @@ class GridManager {
         gridMaterial.alpha = 0.8;
         gridMaterial.wireframe = true;
 
+        // Ensure minimum size for infinite-like behavior
+        const gridSize = Math.max(size, 50000);
+        // Adjust subdivisions based on size to maintain reasonable detail
+        const gridSubdivisions = Math.min(subdivisions, Math.max(500, Math.floor(gridSize / 100)));
+
         this.grid = BABYLON.MeshBuilder.CreateGround("grid", {
-            width: size,
-            height: size,
-            subdivisions: subdivisions
+            width: gridSize,
+            height: gridSize,
+            subdivisions: gridSubdivisions
         }, this.scene);
 
         this.grid.material = gridMaterial;
         this.grid.position.y = 0.01;
         this.grid.isPickable = false;
+        // IMPORTANT: Enable shadow receiving for grid
+        this.grid.receiveShadows = true;
+        // Set rendering priority to lowest (grid)
+        this.grid.renderingGroupId = SceneManager.getRenderingGroupId('grid');
         this.grid.setEnabled(this.isVisible);
+        
+        console.log(`Updated grid: ${gridSize}x${gridSize} units (${gridSize/1000}km) with ${gridSubdivisions} subdivisions`);
     }
 
     /**

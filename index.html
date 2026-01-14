@@ -16,11 +16,11 @@
             box-shadow: 0 0 10px rgba(52, 152, 219, 0.3) !important;
         }
 
-        /* Circle tool active state - Green */
+        /* Circle tool active state - Purple */
         #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active {
-            background: rgba(46, 204, 113, 0.3) !important;
-            border-color: rgba(46, 204, 113, 0.6) !important;
-            box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
+            background: rgba(155, 89, 182, 0.3) !important;
+            border-color: rgba(155, 89, 182, 0.6) !important;
+            box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
         }
 
         /* Polygon tool active state - Orange */
@@ -30,11 +30,11 @@
             box-shadow: 0 0 10px rgba(230, 126, 34, 0.3) !important;
         }
 
-        /* Tree tool active state - Purple */
+        /* Tree tool active state - Green */
         #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active {
-            background: rgba(155, 89, 182, 0.3) !important;
-            border-color: rgba(155, 89, 182, 0.6) !important;
-            box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
+            background: rgba(46, 204, 113, 0.3) !important;
+            border-color: rgba(46, 204, 113, 0.6) !important;
+            box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
         }
 
         /* Rectangle tool icon active state - Blue */
@@ -42,9 +42,9 @@
             filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%) !important;
         }
 
-        /* Circle tool icon active state - Green */
+        /* Circle tool icon active state - Purple */
         #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active .tool-icon {
-            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
+            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
         }
 
         /* Polygon tool icon active state - Orange */
@@ -52,9 +52,9 @@
             filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%) !important;
         }
 
-        /* Tree tool icon active state - Purple */
+        /* Tree tool icon active state - Green */
         #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active .tool-icon {
-            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
+            filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
         }
     </style>
     <script>
@@ -69,9 +69,9 @@
                     box-shadow: 0 0 10px rgba(52, 152, 219, 0.3) !important;
                 }
                 body #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active {
-                    background: rgba(46, 204, 113, 0.3) !important;
-                    border-color: rgba(46, 204, 113, 0.6) !important;
-                    box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
+                    background: rgba(155, 89, 182, 0.3) !important;
+                    border-color: rgba(155, 89, 182, 0.6) !important;
+                    box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
                 }
                 body #drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active {
                     background: rgba(230, 126, 34, 0.3) !important;
@@ -79,25 +79,25 @@
                     box-shadow: 0 0 10px rgba(230, 126, 34, 0.3) !important;
                 }
                 body #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active {
-                    background: rgba(155, 89, 182, 0.3) !important;
-                    border-color: rgba(155, 89, 182, 0.6) !important;
-                    box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
+                    background: rgba(46, 204, 113, 0.3) !important;
+                    border-color: rgba(46, 204, 113, 0.6) !important;
+                    box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
                 }
                 body #drawingPanel .drawing-tools .tool-item[data-tool="rectangle"].active .tool-icon {
                     filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%) !important;
                 }
                 body #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active .tool-icon {
-                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
+                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
                 }
                 body #drawingPanel .drawing-tools .tool-item[data-tool="polygon"].active .tool-icon {
                     filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%) !important;
                 }
                 body #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active .tool-icon {
-                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
+                    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
                 }
             `;
             document.head.appendChild(style);
-            console.log('CSS injected via JavaScript with higher specificity');
+            // console.log('CSS injected via JavaScript with higher specificity');
             
             // Also add event listeners to force styles
             setTimeout(function() {
@@ -143,11 +143,11 @@
                         const icon = tool.querySelector('.tool-icon');
                         if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%)';
                     } else if (toolName === 'circle') {
-                        tool.style.background = 'rgba(46, 204, 113, 0.3)';
-                        tool.style.borderColor = 'rgba(46, 204, 113, 0.6)';
-                        tool.style.boxShadow = '0 0 10px rgba(46, 204, 113, 0.3)';
+                        tool.style.background = 'rgba(155, 89, 182, 0.3)';
+                        tool.style.borderColor = 'rgba(155, 89, 182, 0.6)';
+                        tool.style.boxShadow = '0 0 10px rgba(155, 89, 182, 0.3)';
                         const icon = tool.querySelector('.tool-icon');
-                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%)';
+                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%)';
                     } else if (toolName === 'polygon') {
                         tool.style.background = 'rgba(230, 126, 34, 0.3)';
                         tool.style.borderColor = 'rgba(230, 126, 34, 0.6)';
@@ -155,11 +155,11 @@
                         const icon = tool.querySelector('.tool-icon');
                         if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%)';
                     } else if (toolName === 'tree') {
-                        tool.style.background = 'rgba(155, 89, 182, 0.3)';
-                        tool.style.borderColor = 'rgba(155, 89, 182, 0.6)';
-                        tool.style.boxShadow = '0 0 10px rgba(155, 89, 182, 0.3)';
+                        tool.style.background = 'rgba(46, 204, 113, 0.3)';
+                        tool.style.borderColor = 'rgba(46, 204, 113, 0.6)';
+                        tool.style.boxShadow = '0 0 10px rgba(46, 204, 113, 0.3)';
                         const icon = tool.querySelector('.tool-icon');
-                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%)';
+                        if (icon) icon.style.filter = 'brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%)';
                     }
                 }
                 
@@ -167,7 +167,6 @@
                 drawingTools.forEach(tool => {
                     tool.addEventListener('click', function() {
                         const toolName = this.getAttribute('data-tool');
-                        console.log('Drawing tool clicked:', toolName);
                         
                         // Reset all drawing tools first
                         resetAllDrawingTools();
@@ -181,7 +180,6 @@
                         // Apply active styles to clicked tool
                         applyActiveStyles(this, toolName);
                         
-                        console.log('Styles applied via JavaScript for:', toolName);
                     });
                 });
                 
@@ -298,8 +296,9 @@
                 <div class="tool-item" data-tool="polygon" title="Polygon">
                     <img src="icons/polygon.svg" alt="Polygon" class="tool-icon">
                 </div>
-                <div class="tool-item" data-tool="tree" title="Tree" id="treeTool">
+                <div class="tool-item" data-tool="tree" title="Click and hold to open tree menu" id="treeTool">
                     <img src="icons/tree.svg" alt="Tree" class="tool-icon">
+                    <span class="tree-submenu-indicator"></span>
                 </div>
             </div>
             <div class="tree-submenu" id="treeSubmenu" style="display: none;">
@@ -926,21 +925,21 @@
                     <option value="building">Building</option>
                 </select>
             </div>
-            <div class="property-group">
+            <div class="property-group" style="display: none;">
                 <label>Color:</label>
                 <input type="color" id="shapeColor">
             </div>
             <div class="property-group">
                 <label>Length:</label>
-                <input type="number" id="shapeLength" step="0.1" min="0.1" value="1.0">
+                <input type="number" id="shapeLength" step="0.1" min="0" value="1.0">
             </div>
             <div class="property-group">
                 <label>Width:</label>
-                <input type="number" id="shapeWidth" step="0.1" min="0.1" value="1.0">
+                <input type="number" id="shapeWidth" step="0.1" min="0" value="1.0">
             </div>
             <div class="property-group" id="heightGroup" style="display: flex;">
                 <label>Height:</label>
-                <input type="number" id="shapeHeight" step="0.1" min="0.1" value="0.1">
+                <input type="number" id="shapeHeight" step="0.1" min="0" value="0.1">
             </div>
             <!-- Year of Construction (for buildings only) -->
             <div class="property-group" id="buildingYearOfConstructionGroup" style="display: none;">
@@ -1756,7 +1755,7 @@
                     <option value="building">Building</option>
                 </select>
             </div>
-            <div class="property-group">
+            <div class="property-group" style="display: none;">
                 <label>Color:</label>
                 <input type="color" id="circleColor" value="#663300">
             </div>
@@ -2569,7 +2568,7 @@
                     <option value="building">Building</option>
                 </select>
             </div>
-            <div class="property-group">
+            <div class="property-group" style="display: none;">
                 <label>Color:</label>
                 <input type="color" id="polygonColor" value="#8B4513">
             </div>

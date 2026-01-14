@@ -132,6 +132,47 @@ class PropertiesPopupManager {
      * Handle type change - show/hide highway road type dropdown and waterway water type dropdown
      */
     handleTypeChange(type, prefix) {
+        // Handle height field visibility based on type
+        // For ground, grass, waterway, highway: height should be 0 (2D, no height field)
+        // For building: height field should be visible and editable
+        const flatTypes = ['ground', 'grass', 'waterway', 'highway'];
+        const isFlatType = flatTypes.includes(type.toLowerCase());
+        
+        // Get height field elements based on prefix
+        let heightGroup, heightInput;
+        if (prefix === 'circle') {
+            heightGroup = document.getElementById('circleHeightGroup');
+            heightInput = document.getElementById('circleHeight');
+        } else if (prefix === 'polygon') {
+            heightGroup = document.getElementById('polygonHeightGroup');
+            heightInput = document.getElementById('polygonHeight');
+        } else {
+            // Rectangle or default
+            heightGroup = document.getElementById('heightGroup');
+            heightInput = document.getElementById('shapeHeight');
+        }
+        
+        // Show/hide height field based on type
+        if (heightGroup) {
+            if (type === 'building') {
+                // For polygon, use 'block', for others use 'flex'
+                heightGroup.style.display = (prefix === 'polygon') ? 'block' : 'flex';
+                // Set minimum height for building if it's currently 0
+                if (heightInput && parseFloat(heightInput.value) <= 0) {
+                    heightInput.value = 0.1;
+                }
+            } else if (isFlatType) {
+                heightGroup.style.display = 'none';
+                // Set height to 0 for flat types
+                if (heightInput) {
+                    heightInput.value = 0;
+                }
+            } else {
+                // For other types, show height field
+                heightGroup.style.display = (prefix === 'polygon') ? 'block' : 'flex';
+            }
+        }
+        
         // Handle highway
         const roadTypeGroup = document.getElementById(prefix ? `${prefix}HighwayRoadTypeGroup` : 'highwayRoadTypeGroup');
         const highwayCustomizeGroup = document.getElementById(prefix ? `${prefix}HighwayCustomizeGroup` : 'highwayCustomizeGroup');
@@ -1654,15 +1695,31 @@ class PropertiesPopupManager {
         shapeTypeSelect.value = properties.type;
         // Store the initial type value for change detection
         shapeTypeSelect.setAttribute('data-previous-value', properties.type);
-        document.getElementById('shapeColor').value = displayColor;
+        // Color is now automatically determined by type (no color picker)
         document.getElementById('shapeLength').value = properties.length;
         document.getElementById('shapeWidth').value = properties.width;
         
-        // Set height value for all types
-        document.getElementById('shapeHeight').value = properties.height || 0.1;
+        // Set height value based on type
+        // For flat types (ground, grass, waterway, highway), height should be 0
+        const flatTypes = ['ground', 'grass', 'waterway', 'highway'];
+        const isFlatType = flatTypes.includes(properties.type?.toLowerCase());
+        const heightValue = isFlatType ? 0 : (properties.height || 0.1);
+        document.getElementById('shapeHeight').value = heightValue;
         
         // Show/hide fields based on shape type
         this.uiManager.updatePropertiesFields(properties.type);
+        
+        // Show/hide height field based on type
+        const heightGroup = document.getElementById('heightGroup');
+        if (heightGroup) {
+            if (properties.type === 'building') {
+                heightGroup.style.display = 'flex';
+            } else if (isFlatType) {
+                heightGroup.style.display = 'none';
+            } else {
+                heightGroup.style.display = 'flex';
+            }
+        }
         
         // Set radius value for shapes that have radius
         if (properties.shapeType === 'circle') {
@@ -1686,6 +1743,26 @@ class PropertiesPopupManager {
             }
             // Setup event listener to save Year of Construction
             this.setupYearOfConstructionListener('');
+        } else {
+            // IMPORTANT: Hide all building-related groups when type is not building
+            // This includes period groups which should only be visible for buildings
+            const archetypePeriodGroup = document.getElementById('buildingArchetypePeriodGroup');
+            const groupPeriodGroup = document.getElementById('buildingGroupPeriodGroup');
+            const envelopePropertiesGroup = document.getElementById('buildingEnvelopePropertiesGroup');
+            const archytypesGroup = document.getElementById('buildingArchytypesGroup');
+            const groupsGroup = document.getElementById('buildingGroupsGroup');
+            const readonlyGroup = document.getElementById('buildingEnvelopeReadonlyValuesGroup');
+            const customSpecGroup = document.getElementById('buildingCustomSpecGroup');
+            const yearOfConstructionGroup = document.getElementById('buildingYearOfConstructionGroup');
+            
+            if (archetypePeriodGroup) archetypePeriodGroup.style.display = 'none';
+            if (groupPeriodGroup) groupPeriodGroup.style.display = 'none';
+            if (envelopePropertiesGroup) envelopePropertiesGroup.style.display = 'none';
+            if (archytypesGroup) archytypesGroup.style.display = 'none';
+            if (groupsGroup) groupsGroup.style.display = 'none';
+            if (readonlyGroup) readonlyGroup.style.display = 'none';
+            if (customSpecGroup) customSpecGroup.style.display = 'none';
+            if (yearOfConstructionGroup) yearOfConstructionGroup.style.display = 'none';
         }
         
         // Show popup
@@ -1732,11 +1809,29 @@ class PropertiesPopupManager {
         // Fill form fields
         document.getElementById('circleName').value = properties.name;
         document.getElementById('circleType').value = properties.type;
-        document.getElementById('circleColor').value = displayColor;
+        // Color is now automatically determined by type (no color picker)
         
         // Set values for diameter and height
         document.getElementById('circleDiameter').value = properties.diameterTop || 0.1;
-        document.getElementById('circleHeight').value = properties.height || 0.1;
+        
+        // Set height value based on type
+        // For flat types (ground, grass, waterway, highway), height should be 0
+        const flatTypes = ['ground', 'grass', 'waterway', 'highway'];
+        const isFlatType = flatTypes.includes(properties.type?.toLowerCase());
+        const heightValue = isFlatType ? 0 : (properties.height || 0.1);
+        document.getElementById('circleHeight').value = heightValue;
+        
+        // Show/hide height field based on type
+        const heightGroup = document.getElementById('circleHeightGroup');
+        if (heightGroup) {
+            if (properties.type === 'building') {
+                heightGroup.style.display = 'flex';
+            } else if (isFlatType) {
+                heightGroup.style.display = 'none';
+            } else {
+                heightGroup.style.display = 'flex';
+            }
+        }
         
         // Setup highway road type dropdown if type is highway
         if (properties.type === 'highway') {
@@ -1755,6 +1850,26 @@ class PropertiesPopupManager {
             }
             // Setup event listener to save Year of Construction
             this.setupYearOfConstructionListener('circle');
+        } else {
+            // IMPORTANT: Hide all building-related groups when type is not building
+            // This includes period groups which should only be visible for buildings
+            const archetypePeriodGroup = document.getElementById('circleBuildingArchetypePeriodGroup');
+            const groupPeriodGroup = document.getElementById('circleBuildingGroupPeriodGroup');
+            const envelopePropertiesGroup = document.getElementById('circleBuildingEnvelopePropertiesGroup');
+            const archytypesGroup = document.getElementById('circleBuildingArchytypesGroup');
+            const groupsGroup = document.getElementById('circleBuildingGroupsGroup');
+            const readonlyGroup = document.getElementById('circleBuildingEnvelopeReadonlyValuesGroup');
+            const customSpecGroup = document.getElementById('circleBuildingCustomSpecGroup');
+            const yearOfConstructionGroup = document.getElementById('circleBuildingYearOfConstructionGroup');
+            
+            if (archetypePeriodGroup) archetypePeriodGroup.style.display = 'none';
+            if (groupPeriodGroup) groupPeriodGroup.style.display = 'none';
+            if (envelopePropertiesGroup) envelopePropertiesGroup.style.display = 'none';
+            if (archytypesGroup) archytypesGroup.style.display = 'none';
+            if (groupsGroup) groupsGroup.style.display = 'none';
+            if (readonlyGroup) readonlyGroup.style.display = 'none';
+            if (customSpecGroup) customSpecGroup.style.display = 'none';
+            if (yearOfConstructionGroup) yearOfConstructionGroup.style.display = 'none';
         }
         
         // Show popup
@@ -1970,6 +2085,11 @@ class PropertiesPopupManager {
         this.uiManager.currentPolygon = polygon;
         
         // Store original values for cancel functionality
+        // IMPORTANT: Ensure userData exists before setting properties
+        if (!polygon.userData) {
+            polygon.userData = {};
+        }
+        
         const type = polygon.userData?.type || 'ground';
         const color = this.uiManager.getShapeColor(polygon);
         
@@ -1988,17 +2108,27 @@ class PropertiesPopupManager {
         document.getElementById('polygonName').value = polygon.name;
         
         // Set color
-        document.getElementById('polygonColor').value = color;
+        // Color is now automatically determined by type (no color picker)
         
         // Show/hide height field based on type
+        // Only 'building' type can have height > 0, all other types should have height = 0
+        const isBuilding = type?.toLowerCase() === 'building';
         const heightGroup = document.getElementById('polygonHeightGroup');
-        if (type === 'building') {
+        const heightInput = document.getElementById('polygonHeight');
+        
+        if (isBuilding) {
             heightGroup.style.display = 'block';
             // Set current height for building
             const currentHeight = polygon.userData?.currentHeight || 1;
-            document.getElementById('polygonHeight').value = currentHeight;
+            if (heightInput) {
+                heightInput.value = currentHeight;
+            }
         } else {
+            // For all non-building types, hide height input and set height to 0
             heightGroup.style.display = 'none';
+            if (heightInput) {
+                heightInput.value = 0;
+            }
         }
         
         // Set triangle count
@@ -2022,6 +2152,26 @@ class PropertiesPopupManager {
             }
             // Setup event listener to save Year of Construction
             this.setupYearOfConstructionListener('polygon');
+        } else {
+            // IMPORTANT: Hide all building-related groups when type is not building
+            // This includes period groups which should only be visible for buildings
+            const archetypePeriodGroup = document.getElementById('polygonBuildingArchetypePeriodGroup');
+            const groupPeriodGroup = document.getElementById('polygonBuildingGroupPeriodGroup');
+            const envelopePropertiesGroup = document.getElementById('polygonBuildingEnvelopePropertiesGroup');
+            const archytypesGroup = document.getElementById('polygonBuildingArchytypesGroup');
+            const groupsGroup = document.getElementById('polygonBuildingGroupsGroup');
+            const readonlyGroup = document.getElementById('polygonBuildingEnvelopeReadonlyValuesGroup');
+            const customSpecGroup = document.getElementById('polygonBuildingCustomSpecGroup');
+            const yearOfConstructionGroup = document.getElementById('polygonBuildingYearOfConstructionGroup');
+            
+            if (archetypePeriodGroup) archetypePeriodGroup.style.display = 'none';
+            if (groupPeriodGroup) groupPeriodGroup.style.display = 'none';
+            if (envelopePropertiesGroup) envelopePropertiesGroup.style.display = 'none';
+            if (archytypesGroup) archytypesGroup.style.display = 'none';
+            if (groupsGroup) groupsGroup.style.display = 'none';
+            if (readonlyGroup) readonlyGroup.style.display = 'none';
+            if (customSpecGroup) customSpecGroup.style.display = 'none';
+            if (yearOfConstructionGroup) yearOfConstructionGroup.style.display = 'none';
         }
         
         // Show popup
@@ -2040,6 +2190,14 @@ class PropertiesPopupManager {
         // Also clear in UIManager for compatibility
         this.uiManager.currentShape = null;
         this.uiManager.currentPolygon = null;
+        
+        // IMPORTANT: Reset polygonType dropdown to 'ground' so new polygons default to ground
+        // This prevents new polygons from inheriting the type of the previously edited polygon
+        const polygonTypeSelect = document.getElementById('polygonType');
+        if (polygonTypeSelect) {
+            polygonTypeSelect.value = 'ground';
+            polygonTypeSelect.removeAttribute('data-previous-value');
+        }
     }
     
     /**

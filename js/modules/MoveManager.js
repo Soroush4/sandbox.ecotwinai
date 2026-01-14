@@ -408,7 +408,8 @@ class MoveManager {
                             material.alphaMode = BABYLON.Material.MATERIAL_ALPHABLEND;
                         }
                         // Ensure back face culling is disabled for transparency to work properly
-                        material.backFaceCulling = false;
+                        material.backFaceCulling = false; // 2-sided
+                        material.twoSidedLighting = true; // Enable lighting on both sides
                         // Force material to be recompiled
                         material.markAsDirty(BABYLON.Material.AllDirtyFlag);
                     }

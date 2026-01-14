@@ -10,6 +10,11 @@ class CameraController {
         this.initialTarget = null;
         this.cameraControlsDisabled = false;
         
+        // Pan sensitivity settings
+        // Note: In Babylon.js, LOWER panningSensibility = FASTER pan movement
+        this.basePanningSensibility = 200;  // Base sensitivity at base radius
+        this.baseRadius = 100;  // Reference radius for pan sensitivity calculation
+        
         this.setupCamera();
         this.setupControls();
     }
@@ -23,15 +28,15 @@ class CameraController {
             Math.PI, Math.PI / 2.5, 100, 
             new BABYLON.Vector3(0, 0, 0), this.scene);
 
-        // Set camera limits - increased zoom out for large ground
+        // Set camera limits - unlimited zoom out capability
         this.camera.lowerRadiusLimit = 1;
-        this.camera.upperRadiusLimit = 1000; // Much larger zoom out capability
+        this.camera.upperRadiusLimit = null; // No upper limit - infinite zoom out capability
         
-        console.log('Camera zoom limits set:', {
-            minZoom: this.camera.lowerRadiusLimit,
-            maxZoom: this.camera.upperRadiusLimit,
-            improvement: '5x increase in zoom out capability'
-        });
+        // console.log('Camera zoom limits set:', {
+        //     minZoom: this.camera.lowerRadiusLimit,
+        //     maxZoom: 'unlimited (infinity)',
+        //     improvement: 'Unlimited zoom out capability'
+        // });
         this.camera.minZ = 0.01; // Very close near clipping plane for extreme close-up viewing
 
         // Enable mouse controls
@@ -64,6 +69,9 @@ class CameraController {
         this.camera.panningAxis = new BABYLON.Vector3(1, 1, 0);
         this.camera.panningInertia = 0.9;
 
+        // Setup dynamic pan sensitivity based on camera distance
+        this.setupDynamicPanSensitivity();
+
         // Setup mouse controls
         this.setupMouseControls();
         
@@ -94,6 +102,45 @@ class CameraController {
     }
 
     /**
+     * Setup dynamic pan sensitivity based on camera distance to target
+     * Pan speed increases with distance: farther = faster pan, closer = slower pan
+     * IMPORTANT: In Babylon.js, LOWER panningSensibility = FASTER pan movement
+     */
+    setupDynamicPanSensitivity() {
+        // Update panning sensitivity based on camera radius (distance to target)
+        // Use inverse scaling: farther camera = LOWER sensitivity = FASTER pan movement
+        // Formula: panningSensibility = basePanningSensibility / (radius / baseRadius)^power
+        // This means: farther camera = lower sensitivity = faster pan movement
+        this.scene.onBeforeRenderObservable.add(() => {
+            if (this.camera && this.camera.radius !== undefined) {
+                // Calculate dynamic sensitivity based on distance
+                // Use inverse non-linear scaling: sensitivity DECREASES with distance
+                const radiusRatio = this.camera.radius / this.baseRadius;
+                
+                // Apply inverse non-linear scaling for better responsiveness at far distances
+                // Use inverse power function: 1 / ratio^power
+                // This gives much faster pan at far distances while keeping smooth at close distances
+                // Examples:
+                //   radius=10: ratio=0.1, scaled=10^1.5=31.6, inverse=0.032 (very slow pan)
+                //   radius=100: ratio=1.0, scaled=1.0, inverse=1.0 (normal pan)
+                //   radius=500: ratio=5.0, scaled=11.2, inverse=0.089 (fast pan)
+                //   radius=1000: ratio=10.0, scaled=31.6, inverse=0.032 (very fast pan)
+                const powerExponent = 1.5;
+                const nonLinearRatio = Math.pow(radiusRatio, powerExponent);
+                
+                // Apply inverse scaling: divide base sensitivity by the ratio
+                // Clamp the ratio to prevent division by zero or extreme values
+                const minRatio = 0.1;   // Minimum ratio to prevent extreme values
+                const maxRatio = 100;   // Maximum ratio for very far distances
+                const clampedRatio = Math.max(minRatio, Math.min(maxRatio, nonLinearRatio));
+                
+                // LOWER panningSensibility = FASTER pan, so we DIVIDE by the ratio
+                this.camera.panningSensibility = this.basePanningSensibility / clampedRatio;
+            }
+        });
+    }
+
+    /**
      * Setup mouse controls
      */
     setupMouseControls() {
@@ -103,19 +150,40 @@ class CameraController {
         }, { passive: false });
 
         // Ensure canvas can receive mouse events
-        this.canvas.style.cursor = 'grab';
+        // Only set grab cursor if not in drawing mode
+        if (!this.canvas.classList.contains('drawing-mode')) {
+            this.canvas.style.cursor = 'grab';
+        }
         
         // Add mouse cursor feedback
         this.canvas.addEventListener('mousedown', () => {
-            this.canvas.style.cursor = 'grabbing';
+            // Don't change cursor if in drawing mode
+            if (!this.canvas.classList.contains('drawing-mode')) {
+                console.log('[CAMERA] mousedown: Setting cursor to grabbing');
+                this.canvas.style.cursor = 'grabbing';
+            } else {
+                console.log('[CAMERA] mousedown: Drawing mode active, skipping cursor change');
+            }
         });
 
         this.canvas.addEventListener('mouseup', () => {
-            this.canvas.style.cursor = 'grab';
+            // Don't change cursor if in drawing mode
+            if (!this.canvas.classList.contains('drawing-mode')) {
+                console.log('[CAMERA] mouseup: Setting cursor to grab');
+                this.canvas.style.cursor = 'grab';
+            } else {
+                console.log('[CAMERA] mouseup: Drawing mode active, skipping cursor change');
+            }
         });
 
         this.canvas.addEventListener('mouseleave', () => {
-            this.canvas.style.cursor = 'grab';
+            // Don't change cursor if in drawing mode
+            if (!this.canvas.classList.contains('drawing-mode')) {
+                console.log('[CAMERA] mouseleave: Setting cursor to grab');
+                this.canvas.style.cursor = 'grab';
+            } else {
+                console.log('[CAMERA] mouseleave: Drawing mode active, skipping cursor change');
+            }
         });
 
         // Add keyboard controls
@@ -178,12 +246,19 @@ class CameraController {
                 return; // Don't allow camera interaction when tree placement is active
             }
 
+            // Don't change cursor if in drawing mode
+            if (this.canvas.classList.contains('drawing-mode')) {
+                console.log('[CAMERA] pointerdown: Drawing mode active, skipping cursor change');
+                return;
+            }
+
             event.preventDefault();
             event.stopPropagation();
             
             isPointerDown = true;
             lastPointerX = event.clientX;
             lastPointerY = event.clientY;
+            console.log('[CAMERA] pointerdown: Setting cursor to grabbing');
             this.canvas.style.cursor = 'grabbing';
             
             if (event.button === 0) {
@@ -234,13 +309,25 @@ class CameraController {
             event.stopPropagation();
             
             isPointerDown = false;
-            this.canvas.style.cursor = 'grab';
+            // Don't change cursor if in drawing mode
+            if (!this.canvas.classList.contains('drawing-mode')) {
+                console.log('[CAMERA] pointerup: Setting cursor to grab');
+                this.canvas.style.cursor = 'grab';
+            } else {
+                console.log('[CAMERA] pointerup: Drawing mode active, skipping cursor change');
+            }
         });
         
         // Pointer leave event
         this.canvas.addEventListener('pointerleave', () => {
             isPointerDown = false;
-            this.canvas.style.cursor = 'grab';
+            // Don't change cursor if in drawing mode
+            if (!this.canvas.classList.contains('drawing-mode')) {
+                console.log('[CAMERA] pointerleave: Setting cursor to grab');
+                this.canvas.style.cursor = 'grab';
+            } else {
+                console.log('[CAMERA] pointerleave: Drawing mode active, skipping cursor change');
+            }
         });
     }
 
@@ -397,9 +484,10 @@ class CameraController {
                 
                 // Set radius to show entire ground with some margin
                 const requiredRadius = Math.sqrt(halfSize * halfSize + halfSize * halfSize) * 1.2; // 20% margin
-                this.camera.radius = Math.min(requiredRadius, this.camera.upperRadiusLimit);
+                // No upper limit check - allow unlimited zoom out
+                this.camera.radius = requiredRadius;
                 
-                console.log(`Zoomed to fit ground: radius = ${this.camera.radius}`);
+                // console.log(`Zoomed to fit ground: radius = ${this.camera.radius}`);
             }
         }
     }
@@ -414,7 +502,18 @@ class CameraController {
                 this.camera.angularSensibilityY = rotation;
             }
             if (panning !== undefined) {
-                this.camera.panningSensibility = panning;
+                // Update base panning sensitivity, which will be scaled by distance
+                this.basePanningSensibility = panning;
+                // Also update current panning sensitivity immediately
+                // IMPORTANT: LOWER panningSensibility = FASTER pan, so we DIVIDE by the ratio
+                const radiusRatio = this.camera.radius / this.baseRadius;
+                // Use same inverse non-linear scaling as in setupDynamicPanSensitivity
+                const powerExponent = 1.5;
+                const nonLinearRatio = Math.pow(radiusRatio, powerExponent);
+                const minRatio = 0.1;   // Minimum ratio to prevent extreme values
+                const maxRatio = 100;   // Maximum ratio for very far distances
+                const clampedRatio = Math.max(minRatio, Math.min(maxRatio, nonLinearRatio));
+                this.camera.panningSensibility = this.basePanningSensibility / clampedRatio;
             }
             if (zoom !== undefined) {
                 this.camera.wheelDeltaPercentage = zoom;

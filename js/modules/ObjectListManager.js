@@ -134,7 +134,9 @@ class ObjectListManager {
      * Update the object list with current scene objects
      */
     updateObjectList() {
-        if (!this.objectListContainer) return;
+        if (!this.objectListContainer) {
+            return;
+        }
 
         // Clear existing content
         this.objectListContainer.innerHTML = '';
@@ -172,6 +174,33 @@ class ObjectListManager {
                 mesh.name.includes('grid') || 
                 mesh.name === 'earth') {
                 return false;
+            }
+            
+            // IMPORTANT: For polygon extrusions (buildings), include them in the list
+            // Extrusions that are independent (not parented) should be shown
+            // Only exclude extrusions that are children of visible polygons
+            if (mesh.name.includes('_extrusion')) {
+                // Check if this extrusion has a parent polygon
+                const hasParentPolygon = mesh.parent && 
+                                       mesh.parent.userData && 
+                                       mesh.parent.userData.shapeType === 'polygon';
+                
+                // If parent polygon is visible and enabled, exclude extrusion (show parent instead)
+                // If parent polygon is hidden (building type), include extrusion (it's the visible object)
+                if (hasParentPolygon && mesh.parent.isVisible && mesh.parent.isEnabled()) {
+                    return false; // Exclude extrusion, show parent polygon instead
+                }
+                // Otherwise, include extrusion (it's the visible object when polygon is hidden)
+                // This allows building extrusions to appear in the object list
+            }
+            
+            // Exclude meshes that are children of other meshes (unless they're extrusions handled above)
+            if (mesh.parent && mesh.parent !== null && !mesh.parent.name.includes('__root__')) {
+                // Only exclude if parent is a visible polygon (extrusion is child of visible polygon)
+                if (mesh.parent.userData && mesh.parent.userData.shapeType === 'polygon' && 
+                    mesh.parent.isVisible && mesh.parent.isEnabled()) {
+                    return false;
+                }
             }
             
             // Exclude buildings (they're handled separately)
@@ -243,7 +272,10 @@ class ObjectListManager {
         if (mesh.userData && mesh.userData.type) {
             const type = mesh.userData.type.toLowerCase();
             if (this.categories[type]) {
+                console.log(`[OBJECT_LIST] Categorizing "${mesh.name}" as "${type}" based on userData.type`);
                 return type;
+            } else {
+                console.warn(`[OBJECT_LIST] Type "${type}" not found in categories for "${mesh.name}", falling back to name-based categorization`);
             }
         }
 
@@ -419,10 +451,18 @@ class ObjectListManager {
         // Object icon based on type
         const icon = this.getObjectIcon(mesh);
         
+        // IMPORTANT: For extrusions (buildings converted from polygons), 
+        // display the base polygon name without "_extrusion" suffix
+        let displayName = mesh.name || `Object ${mesh.id}`;
+        if (mesh.name && mesh.name.includes('_extrusion')) {
+            // Remove "_extrusion" suffix to show the original polygon name
+            displayName = mesh.name.replace('_extrusion', '');
+        }
+        
         // Object name and info
         const name = document.createElement('span');
         name.className = 'object-name';
-        name.textContent = mesh.name || `Object ${mesh.id}`;
+        name.textContent = displayName;
 
         // Object type indicator
         const type = document.createElement('span');
@@ -432,7 +472,7 @@ class ObjectListManager {
         item.innerHTML = `
             <span class="object-icon">${icon}</span>
             <span class="object-info">
-                <span class="object-name">${mesh.name || `Object ${mesh.id}`}</span>
+                <span class="object-name">${displayName}</span>
                 <span class="object-type">${this.getObjectType(mesh)}</span>
             </span>
         `;

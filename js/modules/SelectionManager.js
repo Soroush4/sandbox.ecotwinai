@@ -79,7 +79,8 @@ class SelectionManager {
         const edgeMaterial = new BABYLON.StandardMaterial("edgeWireframeMaterial", this.scene);
         edgeMaterial.diffuseColor = new BABYLON.Color3(0.0, 0.8, 1.0); // Bright blue edges
         edgeMaterial.wireframe = true;
-        edgeMaterial.backFaceCulling = true;
+        edgeMaterial.backFaceCulling = false; // 2-sided for wireframe visibility
+        edgeMaterial.twoSidedLighting = true;
         edgeMaterial.cullBackFaces = true;
         
         // Use wireframe fill mode to show only edges
@@ -97,8 +98,28 @@ class SelectionManager {
      */
     addSelectableObject(object) {
         if (object && !this.selectableObjects.includes(object)) {
+            // IMPORTANT: Allow extrusions to be selectable ONLY if their parent polygon is hidden
+            // When a polygon is converted to building type, the 2D polygon is hidden and the 3D extrusion should be selectable
+            if (object.name && object.name.includes('_extrusion')) {
+                // Check if this extrusion has a parent polygon
+                const basePolygon = object.basePolygon || (object.parent && object.parent.name && !object.parent.name.includes('_extrusion') ? object.parent : null);
+                
+                if (basePolygon) {
+                    // Only allow extrusion to be selectable if parent polygon is hidden/disabled
+                    if (basePolygon.isVisible && basePolygon.isEnabled()) {
+                        console.log('Skipping extrusion from selectable objects (parent polygon is visible):', object.name);
+                        return;
+                    } else {
+                        // Parent polygon is hidden, so extrusion should be selectable
+                        console.log('Adding extrusion to selectable objects (parent polygon is hidden):', object.name);
+                    }
+                } else {
+                    // No parent found, allow it to be selectable (might be standalone extrusion)
+                    console.log('Adding extrusion to selectable objects (no parent found):', object.name);
+                }
+            }
+            
             this.selectableObjects.push(object);
-            console.log('Added selectable object:', object.name);
         }
     }
 
@@ -213,17 +234,60 @@ class SelectionManager {
 
         // Perform raycast
         const pickResult = this.scene.pick(x, y, (mesh) => {
+            // IMPORTANT: Only process meshes, not TransformNodes or other node types
+            // TransformNodes don't have geometry and can't be picked directly
+            if (!(mesh instanceof BABYLON.Mesh)) {
+                return false;
+            }
+            
+            // IMPORTANT: Skip meshes that are explicitly non-pickable
+            if (mesh.isPickable === false) {
+                return false;
+            }
+            
             // Check if mesh is in selectableObjects array
             if (this.selectableObjects.includes(mesh)) {
+                // IMPORTANT: For extrusions, also verify that parent/basePolygon is hidden
+                if (mesh.name && mesh.name.includes('_extrusion')) {
+                    const basePolygon = mesh.basePolygon || (mesh.parent && mesh.parent.name && !mesh.parent.name.includes('_extrusion') ? mesh.parent : null);
+                    if (basePolygon && basePolygon.isVisible && basePolygon.isEnabled()) {
+                        // Parent is visible, skip this extrusion
+                        return false;
+                    }
+                }
                 return true;
             }
             
-            // Fallback: Select building meshes, 2D shapes, extrusions, and trees, not ground or other utility meshes
+            // Fallback: Select building meshes, 2D shapes, and trees, not ground or other utility meshes
+            // IMPORTANT: Allow extrusions to be selected if their parent polygon is hidden
             // Exclude wireframe clones from selection
             return mesh.name && 
                    !mesh.name.includes('_wireframe') && // Exclude wireframe clones
                    !mesh.name.includes('_edge_wireframe') && // Exclude edge wireframe clones
+                   // IMPORTANT: Allow polygon extrusions to be selected (they're independent meshes when polygon is hidden)
+                   // Only exclude extrusions that are children of visible polygons
+                   // Check both parent and basePolygon to determine if extrusion should be selectable
+                   (!mesh.name.includes('_extrusion') || 
+                    (mesh.name.includes('_extrusion') && 
+                     (() => {
+                         // Check parent (if exists)
+                         const parent = mesh.parent;
+                         const parentVisible = parent && parent.isVisible && parent.isEnabled();
+                         
+                         // Check basePolygon (if exists)
+                         const basePolygon = mesh.basePolygon;
+                         const basePolygonVisible = basePolygon && basePolygon.isVisible && basePolygon.isEnabled();
+                         
+                         // Allow selection if neither parent nor basePolygon is visible
+                         return !parentVisible && !basePolygonVisible;
+                     })())) &&
                    (
+                       // Include extrusions that are buildings (when parent is hidden)
+                       (mesh.name.includes('_extrusion') && 
+                        (() => {
+                            const basePolygon = mesh.basePolygon || (mesh.parent && mesh.parent instanceof BABYLON.Mesh ? mesh.parent : null);
+                            return !basePolygon || (!basePolygon.isVisible || !basePolygon.isEnabled());
+                        })()) ||
                        (mesh.name.startsWith('building') && /^\d+$/.test(mesh.name.substring(8))) ||
                        (mesh.name.startsWith('ground') && /^\d+$/.test(mesh.name.substring(6))) ||
                        (mesh.name.startsWith('waterway') && /^\d+$/.test(mesh.name.substring(8))) ||
@@ -236,10 +300,7 @@ class SelectionManager {
                        mesh.name.includes('polygon') ||
                        mesh.name.startsWith('polyline') ||
                        mesh.name.startsWith('line') ||
-                       mesh.name.includes('_extrusion') || // Include extrusion meshes
-                       mesh.name.startsWith('tree_') || // Include tree parent nodes (old format)
-                       (mesh.name.startsWith('tree') && /^\d+$/.test(mesh.name.substring(4))) || // Include tree parent nodes (new format: tree1, tree2, ...)
-                       mesh.name.includes('_tree_') || // Include tree meshes
+                       mesh.name.includes('_tree_') || // Include tree meshes (child meshes of TransformNode)
                        mesh.name.startsWith('simple_tree_') || // Include simple tree meshes (old format)
                        (mesh.name.startsWith('simple_tree') && /^\d+$/.test(mesh.name.substring(11))) || // Include simple tree meshes (new format)
                        // Include imported STL objects
@@ -255,14 +316,28 @@ class SelectionManager {
 
         if (pickResult.hit) {
             
-            // If extrusion is selected, select the parent shape instead
+            // IMPORTANT: For extrusions, check if parent polygon is hidden
+            // If parent is hidden, select the extrusion itself (it's the visible object)
+            // If parent is visible, select the parent (extrusion shouldn't be visible in this case)
             let selectedObject = pickResult.pickedMesh;
-            if (selectedObject.name.includes('_extrusion')) {
-                // Find the parent shape
-                const baseShapeName = selectedObject.name.replace('_extrusion', '');
-                const baseShape = this.scene.getMeshByName(baseShapeName);
-                if (baseShape) {
-                    selectedObject = baseShape;
+            if (selectedObject.name && selectedObject.name.includes('_extrusion')) {
+                // Check if this extrusion has a base polygon
+                const basePolygon = selectedObject.basePolygon || 
+                    (selectedObject.parent && selectedObject.parent instanceof BABYLON.Mesh ? selectedObject.parent : null);
+                
+                if (basePolygon) {
+                    // If parent polygon is hidden/disabled, select the extrusion itself
+                    // If parent polygon is visible, select the parent (though this shouldn't happen)
+                    if (!basePolygon.isVisible || !basePolygon.isEnabled()) {
+                        // Parent is hidden, so extrusion is the visible object - select extrusion itself
+                        selectedObject = pickResult.pickedMesh;
+                    } else {
+                        // Parent is visible, select parent instead (extrusion shouldn't be visible)
+                        selectedObject = basePolygon;
+                    }
+                } else {
+                    // No parent found, select extrusion itself
+                    selectedObject = pickResult.pickedMesh;
                 }
             }
             
@@ -571,11 +646,8 @@ class SelectionManager {
                     const groundSize = 500;
                     const halfSize = groundSize / 2;
                     const requiredRadius = Math.sqrt(halfSize * halfSize + halfSize * halfSize) * 1.2;
-                    if (this.camera.upperRadiusLimit) {
-                        this.camera.radius = Math.min(requiredRadius, this.camera.upperRadiusLimit);
-                    } else {
-                        this.camera.radius = requiredRadius;
-                    }
+                    // No upper limit check - allow unlimited zoom out
+                    this.camera.radius = requiredRadius;
                     this.camera.setTarget(new BABYLON.Vector3(0, 0, 0));
                 }
             }
@@ -747,7 +819,6 @@ class SelectionManager {
      * Select an object
      */
     selectObject(mesh, isMultiSelect = false, includeExtrusion = true) {
-        console.log(`Selecting object: ${mesh.name} (type: ${mesh.constructor.name})`);
         
         // Auto-select TransformNode parent for tree meshes
         // Check for both old naming (tree_, simple_tree_) and new naming (tree1, tree2, ...)
@@ -764,18 +835,10 @@ class SelectionManager {
         
         // Additional debugging for different object types
         if (mesh instanceof BABYLON.TransformNode) {
-            console.log(`TransformNode details:`, {
-                name: mesh.name,
-                position: mesh.position,
-                rotation: mesh.rotation,
-                scaling: mesh.scaling,
-                hasGetChildMeshes: typeof mesh.getChildMeshes === 'function'
-            });
             
             // Try to get child meshes immediately
             try {
                 const childMeshes = mesh.getChildMeshes();
-                console.log(`Child meshes found: ${childMeshes.length}`, childMeshes.map(m => m.name));
             } catch (error) {
                 console.error('Error getting child meshes:', error);
             }
@@ -797,13 +860,61 @@ class SelectionManager {
 
         // Add to selection if not already selected
         if (!this.selectedObjects.includes(mesh)) {
+            // IMPORTANT: Ensure mesh is visible and enabled before selecting
+            if (!mesh.isVisible) {
+                console.warn(`[SELECT] Mesh ${mesh.name} is not visible, fixing...`);
+                mesh.isVisible = true;
+            }
+            if (!mesh.isEnabled()) {
+                console.warn(`[SELECT] Mesh ${mesh.name} is not enabled, fixing...`);
+                mesh.setEnabled(true);
+            }
+            
+            // IMPORTANT: TransformNodes cannot be added with addMesh, they're already in the scene
+            if (mesh instanceof BABYLON.TransformNode) {
+                // TransformNodes are already in scene.transformNodes, don't try to add them
+                if (!this.scene.transformNodes.includes(mesh)) {
+                    console.warn(`[SELECT] TransformNode ${mesh.name} is not in scene.transformNodes, but this shouldn't happen`);
+                }
+            } else if (mesh instanceof BABYLON.Mesh) {
+                // Only check and add regular meshes
+                if (!this.scene.meshes.includes(mesh)) {
+                    console.warn(`[SELECT] Mesh ${mesh.name} is not in scene, adding...`);
+                    this.scene.addMesh(mesh);
+                }
+            }
+            
             this.selectedObjects.push(mesh);
             this.highlightObject(mesh);
             
-            // If this is a 2D shape with extrusion and includeExtrusion is true, also select the extrusion
+            // IMPORTANT: Only add extrusion separately if it's NOT parented to the mesh
+            // If extrusion is a child of the mesh (via setParent), it will be selected automatically
+            // Adding it separately causes duplicate selection issues
             if (includeExtrusion && mesh.extrusion && !this.selectedObjects.includes(mesh.extrusion)) {
-                this.selectedObjects.push(mesh.extrusion);
-                this.highlightObject(mesh.extrusion);
+                // Check if extrusion is parented to mesh
+                const isExtrusionParented = mesh.extrusion.parent === mesh;
+                
+                // Only add extrusion separately if it's NOT parented
+                // If it's parented, the gizmo will work with the parent and child automatically
+                if (!isExtrusionParented) {
+                    // IMPORTANT: Ensure extrusion is visible and enabled before selecting
+                    if (!mesh.extrusion.isVisible) {
+                        console.warn(`[SELECT] Extrusion ${mesh.extrusion.name} is not visible, fixing...`);
+                        mesh.extrusion.isVisible = true;
+                    }
+                    if (!mesh.extrusion.isEnabled()) {
+                        console.warn(`[SELECT] Extrusion ${mesh.extrusion.name} is not enabled, fixing...`);
+                        mesh.extrusion.setEnabled(true);
+                    }
+                    // Extrusions are always meshes, not TransformNodes
+                    if (mesh.extrusion instanceof BABYLON.Mesh && !this.scene.meshes.includes(mesh.extrusion)) {
+                        console.warn(`[SELECT] Extrusion ${mesh.extrusion.name} is not in scene, adding...`);
+                        this.scene.addMesh(mesh.extrusion);
+                    }
+                    
+                    this.selectedObjects.push(mesh.extrusion);
+                    this.highlightObject(mesh.extrusion);
+                }
             }
         }
 
@@ -836,13 +947,11 @@ class SelectionManager {
      * Clear all selections
      */
     clearSelection() {
-        console.log(`Clearing selection of ${this.selectedObjects.length} objects`);
         this.selectedObjects.forEach(mesh => {
             this.removeHighlight(mesh);
         });
         this.selectedObjects = [];
         this.onSelectionChanged();
-        console.log('Selection cleared');
     }
     
     /**
@@ -872,7 +981,7 @@ class SelectionManager {
     }
 
     /**
-     * Highlight an object with edge-only wireframe overlay (dual rendering)
+     * Highlight an object by changing its material to shaded + wireframe
      */
     highlightObject(mesh) {
         if (!mesh) {
@@ -880,45 +989,204 @@ class SelectionManager {
             return;
         }
         
-        // Don't create wireframe if one already exists
-        if (mesh.wireframeClone) {
-            console.log(`Wireframe already exists for ${mesh.name}, skipping`);
+        // IMPORTANT: Ensure mesh is visible and enabled
+        if (!mesh.isVisible) {
+            console.warn(`Cannot highlight: mesh ${mesh.name} is not visible`);
+            mesh.isVisible = true;
+        }
+        if (!mesh.isEnabled()) {
+            console.warn(`Cannot highlight: mesh ${mesh.name} is not enabled`);
+            mesh.setEnabled(true);
+        }
+        
+        // IMPORTANT: Ensure mesh is in the scene
+        // IMPORTANT: In Babylon.js, Mesh extends TransformNode, so we need to check if it's actually a Mesh
+        // A Mesh is both instanceof Mesh AND instanceof TransformNode, but a pure TransformNode is NOT instanceof Mesh
+        const isActuallyMesh = mesh instanceof BABYLON.Mesh;
+        const isPureTransformNode = mesh instanceof BABYLON.TransformNode && !(mesh instanceof BABYLON.Mesh);
+        
+        console.log(`[SELECT] Type check for ${mesh.name}: isActuallyMesh=${isActuallyMesh}, isPureTransformNode=${isPureTransformNode}, constructor=${mesh.constructor.name}`);
+        
+        if (isPureTransformNode) {
+            // Pure TransformNodes (not Meshes) are already in scene.transformNodes
+            if (!this.scene.transformNodes.includes(mesh)) {
+                console.warn(`[SELECT] Cannot highlight: TransformNode ${mesh.name} is not in scene.transformNodes, but this shouldn't happen`);
+            }
+        } else if (isActuallyMesh) {
+            // Meshes are in scene.meshes
+            if (!this.scene.meshes.includes(mesh)) {
+                console.warn(`[SELECT] Cannot highlight: mesh ${mesh.name} is not in scene, adding it`);
+                this.scene.addMesh(mesh);
+            }
+        } else {
+            // If it's neither Mesh nor TransformNode, log a warning
+            console.warn(`[SELECT] Cannot highlight: ${mesh.name} is neither Mesh nor TransformNode, type: ${mesh.constructor.name}`);
+        }
+        
+        // Don't modify material if already highlighted
+        // But first check if wireframe clone exists (it should if already highlighted)
+        if (this.originalMaterials.has(mesh)) {
+            // If wireframe clone doesn't exist but mesh is marked as highlighted, something went wrong
+            if (!mesh.wireframeClone) {
+                console.warn(`Mesh ${mesh.name} is marked as highlighted but has no wireframe clone, cleaning up and re-highlighting`);
+                this.originalMaterials.delete(mesh);
+                // Continue to create new highlight
+            } else {
+                console.log(`Mesh ${mesh.name} is already highlighted, skipping`);
+                return;
+            }
+        }
+        
+        // Handle TransformNodes (like tree parents) by highlighting their children
+        // IMPORTANT: Check if it's actually a pure TransformNode (not a Mesh)
+        // In Babylon.js, Mesh extends TransformNode, so we need to check if it's NOT a Mesh
+        // Use the already checked variables from above
+        console.log(`[SELECT] TransformNode check for ${mesh.name}: isActuallyMesh=${isActuallyMesh}, isPureTransformNode=${isPureTransformNode}`);
+        
+        if (isPureTransformNode) {
+            // Check if it has child meshes
+            let childMeshes = [];
+            if (mesh.getChildMeshes) {
+                try {
+                    childMeshes = mesh.getChildMeshes();
+                } catch (error) {
+                    console.warn(`Error getting child meshes for TransformNode ${mesh.name}:`, error);
+                }
+            }
+            
+            // Also try alternative method to find child meshes
+            if (childMeshes.length === 0) {
+                childMeshes = this.scene.meshes.filter(m => 
+                    m.parent === mesh && m instanceof BABYLON.Mesh
+                );
+            }
+            
+            if (childMeshes.length > 0) {
+                console.log(`TransformNode ${mesh.name} has ${childMeshes.length} child meshes, highlighting them`);
+                this.highlightTransformNode(mesh);
+                return;
+            } else {
+                console.warn(`TransformNode ${mesh.name} has no child meshes to highlight`);
+                return; // Can't highlight a TransformNode without children
+            }
+        }
+        
+        // If it's a Mesh (even if it was incorrectly identified as TransformNode), continue with normal highlighting
+        
+        // IMPORTANT: For extrusions and buildings, ensure they have material
+        if (!mesh.material) {
+            const isExtrusion = mesh.name && mesh.name.includes('_extrusion');
+            const isBuilding = mesh.userData?.type === 'building' || mesh.userData?.shapeType === 'building';
+            
+            if (isExtrusion || isBuilding) {
+                console.warn(`Mesh ${mesh.name} (${isExtrusion ? 'extrusion' : 'building'}) has no material, creating default material`);
+                const defaultMaterial = new BABYLON.StandardMaterial(`${mesh.name}_defaultMaterial`, this.scene);
+                defaultMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1);
+                defaultMaterial.backFaceCulling = false;
+                defaultMaterial.twoSidedLighting = true;
+                mesh.material = defaultMaterial;
+            } else {
+                console.warn(`Mesh ${mesh.name} has no material, cannot highlight`);
+                return;
+            }
+        }
+        
+        // IMPORTANT: Ensure mesh has geometry
+        if (!mesh.geometry) {
+            console.error(`Cannot highlight: mesh ${mesh.name} has no geometry`);
             return;
         }
         
-        // Skip wireframe creation for trees - they don't need wireframes
-        // if (mesh.name && (mesh.name.includes('tree_') || mesh.name.includes('simple_tree_'))) {
-        //     console.log(`Skipping wireframe creation for tree: ${mesh.name}`);
-        //     return;
-        // }
-        
-        // Handle TransformNodes (like tree parents) by creating wireframes for their children
-        // Only treat as TransformNode if it's actually a TransformNode AND has child meshes
-        if (mesh instanceof BABYLON.TransformNode && mesh.getChildMeshes && mesh.getChildMeshes().length > 0) {
-            this.highlightTransformNode(mesh);
-            return;
-        }
-        
-        // Store current material as original
+        // Store original material and renderingGroupId
         this.originalMaterials.set(mesh, mesh.material);
-
-        // Create an edge wireframe clone of the mesh
-        const wireframeClone = mesh.clone(`${mesh.name}_edge_wireframe`);
+        const originalRenderingGroupId = mesh.renderingGroupId;
         
-        // Apply edge-only wireframe shader to the clone
-        const edgeWireframeMaterial = this.edgeWireframeMaterial.clone(`edge_wireframe_${mesh.name}`);
-        wireframeClone.material = edgeWireframeMaterial;
+        // ========== LOG: وضعیت مدل اصلی قبل از highlight ==========
+        console.log(`[SELECT] ========== وضعیت مدل اصلی (${mesh.name}) قبل از highlight ==========`);
+        console.log(`[SELECT] - Material: ${mesh.material ? mesh.material.name : 'null'}`);
+        console.log(`[SELECT] - Material type: ${mesh.material ? mesh.material.constructor.name : 'null'}`);
+        if (mesh.material instanceof BABYLON.StandardMaterial) {
+            console.log(`[SELECT] - Material wireframe: ${mesh.material.wireframe}`);
+            console.log(`[SELECT] - Material diffuseColor:`, mesh.material.diffuseColor);
+        }
+        console.log(`[SELECT] - isVisible: ${mesh.isVisible}`);
+        console.log(`[SELECT] - isEnabled: ${mesh.isEnabled()}`);
+        console.log(`[SELECT] - renderingGroupId: ${mesh.renderingGroupId}`);
+        console.log(`[SELECT] - in scene.meshes: ${this.scene.meshes.includes(mesh)}`);
+        console.log(`[SELECT] ==========================================================`);
         
-        // Set the wireframe clone to render in a different rendering group
-        wireframeClone.renderingGroupId = mesh.renderingGroupId + 1;
-        
-        // Make the wireframe clone slightly larger to ensure it's visible
-        wireframeClone.scaling = mesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
-        
-        // Store the wireframe clone reference
-        mesh.wireframeClone = wireframeClone;
-        
-        console.log(`Created wireframe for ${mesh.name}`);
+        // NEW APPROACH: Create a wireframe clone overlay for shaded + wireframe effect
+        // Keep the original mesh with its material (shaded), and add a wireframe clone on top
+        try {
+            // Create wireframe clone
+            const wireframeClone = mesh.clone(`${mesh.name}_wireframe_overlay`);
+            
+            // Create wireframe material
+            const wireframeMaterial = new BABYLON.StandardMaterial(`${mesh.name}_wireframe_material`, this.scene);
+            wireframeMaterial.wireframe = true;
+            wireframeMaterial.diffuseColor = new BABYLON.Color3(0, 0, 0); // Black wireframe
+            wireframeMaterial.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Slight glow
+            wireframeMaterial.backFaceCulling = false;
+            wireframeMaterial.twoSidedLighting = true;
+            wireframeMaterial.alpha = 1.0;
+            
+            // Apply wireframe material to clone
+            wireframeClone.material = wireframeMaterial;
+            
+            // Set renderingGroupId to be higher than original (so it renders on top)
+            // But keep it in the same rendering group range for consistency
+            wireframeClone.renderingGroupId = originalRenderingGroupId;
+            
+            // Make clone slightly larger to ensure it's visible
+            wireframeClone.scaling = mesh.scaling.clone();
+            
+            // Ensure clone is visible and enabled
+            wireframeClone.isVisible = true;
+            wireframeClone.setEnabled(true);
+            
+            // Store wireframe clone reference
+            mesh.wireframeClone = wireframeClone;
+            
+            // Add clone to scene
+            if (!this.scene.meshes.includes(wireframeClone)) {
+                this.scene.addMesh(wireframeClone);
+            }
+            
+            // ========== LOG: وضعیت مدل اصلی بعد از highlight ==========
+            console.log(`[SELECT] ========== وضعیت مدل اصلی (${mesh.name}) بعد از highlight ==========`);
+            console.log(`[SELECT] - Material: ${mesh.material ? mesh.material.name : 'null'}`);
+            console.log(`[SELECT] - Material type: ${mesh.material ? mesh.material.constructor.name : 'null'}`);
+            if (mesh.material instanceof BABYLON.StandardMaterial) {
+                console.log(`[SELECT] - Material wireframe: ${mesh.material.wireframe}`);
+                console.log(`[SELECT] - Material diffuseColor:`, mesh.material.diffuseColor);
+            }
+            console.log(`[SELECT] - isVisible: ${mesh.isVisible}`);
+            console.log(`[SELECT] - isEnabled: ${mesh.isEnabled()}`);
+            console.log(`[SELECT] - renderingGroupId: ${mesh.renderingGroupId}`);
+            console.log(`[SELECT] - in scene.meshes: ${this.scene.meshes.includes(mesh)}`);
+            console.log(`[SELECT] ==========================================================`);
+            
+            // ========== LOG: وضعیت clone ==========
+            console.log(`[SELECT] ========== وضعیت clone (${wireframeClone.name}) ==========`);
+            console.log(`[SELECT] - Material: ${wireframeClone.material ? wireframeClone.material.name : 'null'}`);
+            console.log(`[SELECT] - Material type: ${wireframeClone.material ? wireframeClone.material.constructor.name : 'null'}`);
+            if (wireframeClone.material instanceof BABYLON.StandardMaterial) {
+                console.log(`[SELECT] - Material wireframe: ${wireframeClone.material.wireframe}`);
+                console.log(`[SELECT] - Material diffuseColor:`, wireframeClone.material.diffuseColor);
+            }
+            console.log(`[SELECT] - isVisible: ${wireframeClone.isVisible}`);
+            console.log(`[SELECT] - isEnabled: ${wireframeClone.isEnabled()}`);
+            console.log(`[SELECT] - renderingGroupId: ${wireframeClone.renderingGroupId}`);
+            console.log(`[SELECT] - in scene.meshes: ${this.scene.meshes.includes(wireframeClone)}`);
+            console.log(`[SELECT] - position:`, wireframeClone.position);
+            console.log(`[SELECT] - scaling:`, wireframeClone.scaling);
+            console.log(`[SELECT] ==========================================================`);
+            
+            console.log(`[SELECT] ✓ Highlighted ${mesh.name} with shaded + wireframe overlay`);
+        } catch (error) {
+            console.error(`[SELECT] ✗ Failed to create wireframe clone for ${mesh.name}:`, error);
+            // Fallback: just keep the original mesh as is
+        }
     }
 
     /**
@@ -990,9 +1258,38 @@ class SelectionManager {
 
     /**
      * Create a simple bounding box wireframe for TransformNodes without child meshes
+     * NOTE: This is a fallback - normally we highlight child meshes directly
      */
     createBoundingBoxWireframe(transformNode) {
-        console.log(`Creating bounding box wireframe for TransformNode ${transformNode.name}`);
+        console.log(`Creating bounding box wireframe for TransformNode ${transformNode.name} (fallback)`);
+        
+        // Get the renderingGroupId from child meshes if available
+        let targetRenderingGroupId = 0;
+        if (transformNode.getChildMeshes) {
+            const childMeshes = transformNode.getChildMeshes();
+            if (childMeshes.length > 0) {
+                // Get renderingGroupId from first child mesh
+                const firstChild = childMeshes[0];
+                if (firstChild instanceof BABYLON.Mesh) {
+                    targetRenderingGroupId = firstChild.renderingGroupId;
+                }
+            }
+        }
+        
+        // If no child meshes, try to get from userData or determine from name
+        if (targetRenderingGroupId === 0) {
+            if (transformNode.userData && transformNode.userData.type) {
+                targetRenderingGroupId = SceneManager.getRenderingGroupId(transformNode.userData.type);
+            } else if (transformNode.name) {
+                // Try to determine from name (e.g., tree1, tree2, etc.)
+                const name = transformNode.name.toLowerCase();
+                if (name.includes('tree')) {
+                    targetRenderingGroupId = SceneManager.getRenderingGroupId('tree');
+                } else if (name.includes('building')) {
+                    targetRenderingGroupId = SceneManager.getRenderingGroupId('building');
+                }
+            }
+        }
         
         // Create a simple box wireframe as fallback
         const boxSize = 2; // Default size for trees
@@ -1004,8 +1301,8 @@ class SelectionManager {
         const edgeWireframeMaterial = this.edgeWireframeMaterial.clone(`edge_wireframe_${transformNode.name}_box`);
         wireframeBox.material = edgeWireframeMaterial;
         
-        // Set rendering group
-        wireframeBox.renderingGroupId = 2;
+        // IMPORTANT: Set rendering group to match the original mesh's renderingGroupId
+        wireframeBox.renderingGroupId = targetRenderingGroupId;
         
         // Parent to the TransformNode to inherit its transforms
         wireframeBox.setParent(transformNode);
@@ -1016,61 +1313,65 @@ class SelectionManager {
         // Store reference
         transformNode.wireframeClones = [wireframeBox];
         
-        console.log(`Created bounding box wireframe for TransformNode ${transformNode.name}`);
+        console.log(`Created bounding box wireframe for TransformNode ${transformNode.name} with renderingGroupId: ${targetRenderingGroupId} (same as original)`);
     }
 
     /**
-     * Create wireframes for a list of meshes and parent them to a TransformNode
+     * Create wireframes for a list of meshes by applying shaded + wireframe material directly
      */
     createWireframesForMeshes(transformNode, meshes) {
-        const wireframeClones = [];
         meshes.forEach(childMesh => {
             if (childMesh instanceof BABYLON.Mesh) {
-                // Store original material
+                // Don't modify if already highlighted
+                if (this.originalMaterials.has(childMesh)) {
+                    return;
+                }
+                
+                // Store original material and renderingGroupId
                 this.originalMaterials.set(childMesh, childMesh.material);
+                const originalRenderingGroupId = childMesh.renderingGroupId;
                 
-                // Create wireframe clone
-                const wireframeClone = childMesh.clone(`${childMesh.name}_edge_wireframe`);
-                
-                // Apply wireframe material
-                const edgeWireframeMaterial = this.edgeWireframeMaterial.clone(`edge_wireframe_${childMesh.name}`);
-                wireframeClone.material = edgeWireframeMaterial;
-                
-                // Set rendering group
-                wireframeClone.renderingGroupId = childMesh.renderingGroupId + 1;
-                
-                // Make slightly larger
-                wireframeClone.scaling = childMesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
-                
-                // Parent to the TransformNode to inherit its transforms
-                wireframeClone.setParent(transformNode);
-                
-                // Position wireframe to match the child mesh position relative to the parent
-                // This ensures the wireframe appears at the same location as the extrusion
-                wireframeClone.position = childMesh.position.clone();
-                
-                // Test different rotation angles to find the correct one
-                console.log(`Child mesh ${childMesh.name} rotation:`, childMesh.rotation);
-                console.log(`Child mesh ${childMesh.name} world rotation:`, childMesh.rotationQuaternion ? childMesh.rotationQuaternion.toEulerAngles() : 'No quaternion');
-                
-                // Test different rotation options - uncomment the one that works:
-                
-                // Let wireframe inherit rotation from parent TransformNode
-                // Don't set rotation at all - let parent handle it completely
-                // wireframeClone.rotation = BABYLON.Vector3.Zero();
-                
-                console.log(`Wireframe rotation set to:`, wireframeClone.rotation);
-                
-                // Store reference
-                childMesh.wireframeClone = wireframeClone;
-                wireframeClones.push(wireframeClone);
+                // NEW APPROACH: Create a wireframe clone overlay for shaded + wireframe effect
+                try {
+                    // Create wireframe clone
+                    const wireframeClone = childMesh.clone(`${childMesh.name}_wireframe_overlay`);
+                    
+                    // Create wireframe material
+                    const wireframeMaterial = new BABYLON.StandardMaterial(`${childMesh.name}_wireframe_material`, this.scene);
+                    wireframeMaterial.wireframe = true;
+                    wireframeMaterial.diffuseColor = new BABYLON.Color3(0, 0, 0); // Black wireframe
+                    wireframeMaterial.emissiveColor = new BABYLON.Color3(0.2, 0.2, 0.2); // Slight glow
+                    wireframeMaterial.backFaceCulling = false;
+                    wireframeMaterial.twoSidedLighting = true;
+                    wireframeMaterial.alpha = 1.0;
+                    
+                    // Apply wireframe material to clone
+                    wireframeClone.material = wireframeMaterial;
+                    
+                    // Set renderingGroupId to be same as original
+                    wireframeClone.renderingGroupId = originalRenderingGroupId;
+                    
+                    // Make clone slightly larger to ensure it's visible
+                    wireframeClone.scaling = childMesh.scaling.clone();
+                    
+                    // Ensure clone is visible and enabled
+                    wireframeClone.isVisible = true;
+                    wireframeClone.setEnabled(true);
+                    
+                    // Store wireframe clone reference
+                    childMesh.wireframeClone = wireframeClone;
+                    
+                    // Add clone to scene
+                    if (!this.scene.meshes.includes(wireframeClone)) {
+                        this.scene.addMesh(wireframeClone);
+                    }
+                } catch (error) {
+                    console.error(`Failed to create wireframe clone for ${childMesh.name}:`, error);
+                }
             }
         });
         
-        // Store all wireframe clones on the TransformNode for cleanup
-        transformNode.wireframeClones = wireframeClones;
-        
-        console.log(`Created wireframes for TransformNode ${transformNode.name} with ${wireframeClones.length} child meshes`);
+        console.log(`Applied shaded + wireframe material to ${meshes.length} child meshes of TransformNode ${transformNode.name} (renderingGroupId preserved)`);
     }
 
     /**
@@ -1082,93 +1383,204 @@ class SelectionManager {
             return;
         }
         
-        console.log(`Removing highlight from ${mesh.name}`);
+        console.log(`[DESELECT] ========== شروع deselect برای ${mesh.name} ==========`);
         
-        // Handle TransformNodes (like tree parents) - only if they actually have wireframe clones
-        if (mesh instanceof BABYLON.TransformNode && mesh.wireframeClones) {
-            console.log(`Removing wireframes for TransformNode ${mesh.name}`);
-            mesh.wireframeClones.forEach(wireframeClone => {
-                if (wireframeClone.material) {
-                    wireframeClone.material.dispose();
-                }
-                wireframeClone.dispose();
-            });
-            mesh.wireframeClones = null;
-            
-            // Also remove wireframe references from child meshes
-            if (mesh.getChildMeshes) {
-                const childMeshes = mesh.getChildMeshes();
-                childMeshes.forEach(childMesh => {
-                    if (childMesh.wireframeClone) {
-                        childMesh.wireframeClone = null;
-                    }
-                });
+        // ========== LOG: وضعیت قبل از deselect ==========
+        console.log(`[DESELECT] وضعیت مدل اصلی (${mesh.name}) قبل از deselect:`);
+        console.log(`[DESELECT] - Material: ${mesh.material ? mesh.material.name : 'null'}`);
+        console.log(`[DESELECT] - Material type: ${mesh.material ? mesh.material.constructor.name : 'null'}`);
+        if (mesh.material instanceof BABYLON.StandardMaterial) {
+            console.log(`[DESELECT] - Material wireframe: ${mesh.material.wireframe}`);
+            console.log(`[DESELECT] - Material diffuseColor:`, mesh.material.diffuseColor);
+        }
+        console.log(`[DESELECT] - isVisible: ${mesh.isVisible}`);
+        console.log(`[DESELECT] - isEnabled: ${mesh.isEnabled()}`);
+        console.log(`[DESELECT] - has wireframeClone: ${!!mesh.wireframeClone}`);
+        if (mesh.wireframeClone) {
+            console.log(`[DESELECT] - wireframeClone name: ${mesh.wireframeClone.name}`);
+            console.log(`[DESELECT] - wireframeClone isVisible: ${mesh.wireframeClone.isVisible}`);
+            console.log(`[DESELECT] - wireframeClone in scene: ${this.scene.meshes.includes(mesh.wireframeClone)}`);
+            if (mesh.wireframeClone.material instanceof BABYLON.StandardMaterial) {
+                console.log(`[DESELECT] - wireframeClone material wireframe: ${mesh.wireframeClone.material.wireframe}`);
             }
+        }
+        
+        // Handle TransformNodes (like tree parents) - restore materials for child meshes
+        // IMPORTANT: Check if it's actually a pure TransformNode (not a Mesh)
+        const deselectIsMesh = mesh instanceof BABYLON.Mesh;
+        const deselectIsPureTransformNode = mesh instanceof BABYLON.TransformNode && !deselectIsMesh;
+        
+        console.log(`[DESELECT] TransformNode check for ${mesh.name}: isMesh=${deselectIsMesh}, isPureTransformNode=${deselectIsPureTransformNode}`);
+        
+        if (deselectIsPureTransformNode) {
+            console.log(`[DESELECT] Removing highlight from TransformNode ${mesh.name}`);
+            
+            // Get child meshes using multiple methods
+            let childMeshes = [];
+            if (mesh.getChildMeshes) {
+                try {
+                    childMeshes = mesh.getChildMeshes();
+                } catch (error) {
+                    console.warn(`Error getting child meshes for TransformNode ${mesh.name}:`, error);
+                }
+            }
+            
+            // Also try alternative method to find child meshes
+            if (childMeshes.length === 0) {
+                childMeshes = this.scene.meshes.filter(m => 
+                    m.parent === mesh && m instanceof BABYLON.Mesh
+                );
+            }
+            
+            childMeshes.forEach(childMesh => {
+                    if (childMesh instanceof BABYLON.Mesh) {
+                        // IMPORTANT: Remove wireframe clone if it exists
+                        // This is the key step: when deselecting, we must remove the clone so only the original mesh is visible
+                        if (childMesh.wireframeClone) {
+                            console.log(`[DESELECT] Removing wireframe clone for child mesh ${childMesh.name}`);
+                            const clone = childMesh.wireframeClone;
+                            
+                            // Dispose of wireframe clone material first
+                            if (clone.material) {
+                                clone.material.dispose();
+                                clone.material = null;
+                            }
+                            
+                            // Remove from scene before disposing
+                            if (this.scene.meshes.includes(clone)) {
+                                this.scene.removeMesh(clone);
+                            }
+                            
+                            // Dispose of wireframe clone mesh
+                            if (!clone.isDisposed()) {
+                                clone.dispose();
+                            }
+                            
+                            // Clear the reference
+                            childMesh.wireframeClone = null;
+                        }
+                    
+                    const originalMaterial = this.originalMaterials.get(childMesh);
+                    if (originalMaterial) {
+                        // Only restore if material was changed (shouldn't be with new approach)
+                        if (childMesh.material && childMesh.material !== originalMaterial) {
+                            childMesh.material.dispose();
+                            childMesh.material = originalMaterial;
+                        }
+                        this.originalMaterials.delete(childMesh);
+                    }
+                }
+            });
             return;
         }
         
-        // Remove wireframe clone if it exists
+        // IMPORTANT: Remove wireframe clone if it exists
+        // This is the key step: when deselecting, we must remove the clone so only the original mesh is visible
         if (mesh.wireframeClone) {
-            console.log(`Disposing wireframe clone for ${mesh.name}`);
-            // Dispose of the wireframe clone's material
-            if (mesh.wireframeClone.material) {
-                mesh.wireframeClone.material.dispose();
+            console.log(`[DESELECT] ✓ Found wireframe clone, removing it...`);
+            const clone = mesh.wireframeClone;
+            
+            console.log(`[DESELECT] - Clone name: ${clone.name}`);
+            console.log(`[DESELECT] - Clone isVisible: ${clone.isVisible}`);
+            console.log(`[DESELECT] - Clone in scene: ${this.scene.meshes.includes(clone)}`);
+            console.log(`[DESELECT] - Clone isDisposed: ${clone.isDisposed()}`);
+            if (clone.material instanceof BABYLON.StandardMaterial) {
+                console.log(`[DESELECT] - Clone material wireframe: ${clone.material.wireframe}`);
             }
-            // Dispose of the wireframe clone mesh
-            mesh.wireframeClone.dispose();
+            
+            // Dispose of wireframe clone material first
+            if (clone.material) {
+                console.log(`[DESELECT] - Disposing clone material: ${clone.material.name}`);
+                clone.material.dispose();
+                clone.material = null;
+            }
+            
+            // Remove from scene before disposing
+            if (this.scene.meshes.includes(clone)) {
+                console.log(`[DESELECT] - Removing clone from scene`);
+                this.scene.removeMesh(clone);
+                console.log(`[DESELECT] - Clone removed from scene, still in scene: ${this.scene.meshes.includes(clone)}`);
+            }
+            
+            // Dispose of wireframe clone mesh
+            if (!clone.isDisposed()) {
+                console.log(`[DESELECT] - Disposing clone mesh`);
+                clone.dispose();
+            }
+            
+            // Clear the reference
             mesh.wireframeClone = null;
+            console.log(`[DESELECT] - Clone reference cleared`);
+        } else {
+            console.log(`[DESELECT] ⚠ No wireframe clone found for ${mesh.name}`);
         }
         
-        // Restore original material (the original mesh material should already be correct)
+        // IMPORTANT: Also check scene for any remaining wireframe clones with this name (safety check)
+        const wireframeCloneName = `${mesh.name}_wireframe_overlay`;
+        const remainingClone = this.scene.getMeshByName(wireframeCloneName);
+        if (remainingClone) {
+            console.log(`[DESELECT] ⚠ Found remaining wireframe clone ${wireframeCloneName} in scene, force removing it`);
+            if (remainingClone.material) {
+                remainingClone.material.dispose();
+            }
+            if (this.scene.meshes.includes(remainingClone)) {
+                this.scene.removeMesh(remainingClone);
+            }
+            if (!remainingClone.isDisposed()) {
+                remainingClone.dispose();
+            }
+        } else {
+            console.log(`[DESELECT] ✓ No remaining clone found in scene with name: ${wireframeCloneName}`);
+        }
+        
+        // Restore original material (mesh should already have original material, but ensure it)
         const originalMaterial = this.originalMaterials.get(mesh);
         if (originalMaterial) {
-            mesh.material = originalMaterial;
+            // Only restore if material was changed (shouldn't be with new approach, but just in case)
+            if (mesh.material && mesh.material !== originalMaterial) {
+                console.log(`[DESELECT] - Restoring original material: ${originalMaterial.name}`);
+                mesh.material.dispose();
+                mesh.material = originalMaterial;
+            }
             this.originalMaterials.delete(mesh);
+        } else {
+            console.warn(`[DESELECT] ⚠ No original material found for ${mesh.name}`);
         }
         
-        console.log(`Highlight removed from ${mesh.name}`);
+        // ========== LOG: وضعیت بعد از deselect ==========
+        console.log(`[DESELECT] وضعیت مدل اصلی (${mesh.name}) بعد از deselect:`);
+        console.log(`[DESELECT] - Material: ${mesh.material ? mesh.material.name : 'null'}`);
+        console.log(`[DESELECT] - Material type: ${mesh.material ? mesh.material.constructor.name : 'null'}`);
+        if (mesh.material instanceof BABYLON.StandardMaterial) {
+            console.log(`[DESELECT] - Material wireframe: ${mesh.material.wireframe}`);
+            console.log(`[DESELECT] - Material diffuseColor:`, mesh.material.diffuseColor);
+        }
+        console.log(`[DESELECT] - isVisible: ${mesh.isVisible}`);
+        console.log(`[DESELECT] - isEnabled: ${mesh.isEnabled()}`);
+        console.log(`[DESELECT] - has wireframeClone: ${!!mesh.wireframeClone}`);
+        const checkClone = this.scene.getMeshByName(wireframeCloneName);
+        console.log(`[DESELECT] - Clone still in scene (by name): ${checkClone !== null}`);
+        console.log(`[DESELECT] ========== پایان deselect برای ${mesh.name} ==========`);
     }
 
     /**
      * Update wireframe transforms to match the original mesh
      */
     updateWireframeTransforms(mesh) {
-        if (!mesh) {
+        if (!mesh || !mesh.wireframeClone) {
             return;
         }
         
-        // Handle TransformNodes (like tree parents) - only if they actually have wireframe clones
-        if (mesh instanceof BABYLON.TransformNode && mesh.wireframeClones) {
-            // For TransformNodes, the wireframe clones are already parented to the TransformNode
-            // so they automatically inherit the transforms. We just need to update their individual transforms.
-            if (mesh.getChildMeshes) {
-                const childMeshes = mesh.getChildMeshes();
-                childMeshes.forEach(childMesh => {
-                    if (childMesh.wireframeClone) {
-                        // Update child mesh wireframe transforms
-                        childMesh.wireframeClone.position = childMesh.position.clone();
-                        // Let wireframe inherit rotation from parent TransformNode
-                        // Don't set rotation at all - let parent handle it completely
-                        // childMesh.wireframeClone.rotation = BABYLON.Vector3.Zero();
-                        childMesh.wireframeClone.scaling = childMesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
-                    }
-                });
-            }
-            return;
+        // Sync wireframe clone transforms with original mesh
+        const clone = mesh.wireframeClone;
+        clone.position = mesh.position.clone();
+        clone.rotation = mesh.rotation.clone();
+        clone.scaling = mesh.scaling.clone();
+        
+        // Sync rotation quaternion if exists
+        if (mesh.rotationQuaternion && clone.rotationQuaternion) {
+            clone.rotationQuaternion = mesh.rotationQuaternion.clone();
         }
-        
-        // Handle regular meshes
-        if (!mesh.wireframeClone) {
-            return;
-        }
-        
-        // Update position, rotation, and scaling to match the original mesh
-        mesh.wireframeClone.position = mesh.position.clone();
-        mesh.wireframeClone.rotation = mesh.rotation.clone();
-        mesh.wireframeClone.scaling = mesh.scaling.clone();
-        
-        // Make the wireframe clone slightly larger to ensure it's visible
-        mesh.wireframeClone.scaling = mesh.scaling.multiply(new BABYLON.Vector3(1.001, 1.001, 1.001));
     }
 
     /**
@@ -1652,7 +2064,21 @@ class SelectionManager {
      * Get currently selected objects
      */
     getSelectedObjects() {
-        return [...this.selectedObjects];
+        // Filter out extrusions that are parented to another selected object
+        // This prevents duplicate selection when both parent and child are selected
+        const filtered = this.selectedObjects.filter(obj => {
+            // If this is an extrusion with a parent
+            if (obj.name && obj.name.includes('_extrusion') && obj.parent) {
+                // Check if the parent is also in selectedObjects
+                const parentIsSelected = this.selectedObjects.includes(obj.parent);
+                // If parent is selected, exclude this extrusion (it's handled by parent)
+                if (parentIsSelected) {
+                    return false;
+                }
+            }
+            return true;
+        });
+        return filtered;
     }
 
     /**

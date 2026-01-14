@@ -113,6 +113,18 @@ class DigitalTwinApp {
                 this.postProcessingManager
             );
             
+            // IMPORTANT: Update uiManager reference in managers that were created before UIManager
+            // This ensures they can use UIManager methods like generateUniqueNameByType
+            if (this.polygonManager) {
+                this.polygonManager.uiManager = this.uiManager;
+            }
+            if (this.rectangleManager) {
+                this.rectangleManager.uiManager = this.uiManager;
+            }
+            if (this.circleManager) {
+                this.circleManager.uiManager = this.uiManager;
+            }
+            
             // Initialize STL manager (after UI manager since it needs uiManager reference)
             this.stlManager = new STLManager(
                 this.sceneManager,
@@ -253,7 +265,8 @@ class DigitalTwinApp {
             }
             
             // Auto-generate buildings on page load (after tree models are loaded)
-            this.autoGenerateBuildings();
+            // DISABLED: Scene should start empty
+            // this.autoGenerateBuildings();
             
             // Hide loading
             this.showLoading(false);
@@ -263,7 +276,7 @@ class DigitalTwinApp {
             setTimeout(() => {
                 if (this.uiManager && this.uiManager.zoomToFitGround) {
                     this.uiManager.zoomToFitGround();
-                    console.log('Auto-zoomed to fit ground after scene load');
+                    // console.log('Auto-zoomed to fit ground after scene load');
                 }
             }, 1000);
             
@@ -318,11 +331,11 @@ class DigitalTwinApp {
             
             if (response.ok) {
                 const settings = await response.json();
-                console.log('Loading lighting settings from file:', settings);
+                // console.log('Loading lighting settings from file:', settings);
                 
                 if (this.uiManager && this.uiManager.loadLightingSettings) {
                     this.uiManager.loadLightingSettings(settings);
-                    console.log('Lighting settings loaded successfully from file');
+                    // console.log('Lighting settings loaded successfully from file');
                 } else {
                     console.warn('UI Manager not ready for loading settings');
                 }

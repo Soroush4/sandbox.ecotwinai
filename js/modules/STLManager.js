@@ -294,12 +294,12 @@ class STLManager {
                                 z: stlY   // STL Y becomes Babylon Z (forward)
                             };
                         } else {
-                            // STL format: (X, Y, Z) where Y=up, Z=forward (same as Babylon.js)
-                            // No conversion needed
+                            // Y-up: STL format: (X, Y, Z) where Y=up, Z=forward (same as Babylon.js)
+                            // But reverse Z axis to match export behavior (flip forward/backward direction)
                             normal = {
                                 x: stlX,
                                 y: stlY,
-                                z: stlZ
+                                z: -stlZ  // Reverse Z axis
                             };
                         }
                         
@@ -354,12 +354,12 @@ class STLManager {
                                 z: stlY   // STL Y becomes Babylon Z (forward)
                             };
                         } else {
-                            // STL format: (X, Y, Z) where Y=up, Z=forward (same as Babylon.js)
-                            // No conversion needed
+                            // Y-up: STL format: (X, Y, Z) where Y=up, Z=forward (same as Babylon.js)
+                            // But reverse Z axis to match export behavior (flip forward/backward direction)
                             vertex = {
                                 x: stlX,
                                 y: stlY,
-                                z: stlZ
+                                z: -stlZ  // Reverse Z axis
                             };
                         }
                         
@@ -388,6 +388,10 @@ class STLManager {
 
             console.log(`Created ${createdCount} meshes from STL file`);
             this.updateSTLImportLoadingStatus('Finalizing...');
+
+            // IMPORTANT: Ensure all imported meshes have correct renderingGroupId
+            // This includes checking child meshes if any exist
+            this.updateRenderingGroupsForImportedMeshes(scene, objects);
 
             // Apply 2-sided materials to all meshes after import
             if (this.uiManager && this.uiManager.apply2SidedMaterialsToAll) {
@@ -679,19 +683,19 @@ class STLManager {
         // Calculate world-space minimum Y for gizmo positioning
         const worldMinY = mesh.position.y + localMinY;
 
-        // Set mesh properties based on type
-        mesh.renderingGroupId = 1;
-
         // Create material based on type - ensure color is set correctly
         const material = new BABYLON.StandardMaterial(`${obj.name}Material`, scene);
         const color = (this.uiManager && this.uiManager.getColorByType) ? 
             this.uiManager.getColorByType(obj.type) : 
             new BABYLON.Color3(0.8, 0.8, 0.8);
         material.diffuseColor = color;
-        material.backFaceCulling = false; // 2-sided
+        // IMPORTANT: For highway and other surface types, use 2-sided material to ensure visibility
+        // This prevents issues where normals might be facing inward
+        material.backFaceCulling = false; // 2-sided for better visibility
         material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         material.roughness = 0.7;
+        material.alpha = 1.0; // Ensure full opacity
         mesh.material = material;
 
         // Enable edges rendering
@@ -776,6 +780,9 @@ class STLManager {
         }
 
         mesh.userData = userData;
+        
+        // Set rendering priority based on type (after userData is set)
+        mesh.renderingGroupId = SceneManager.getRenderingGroupId(obj.type);
 
         // Enable shadows
         mesh.receiveShadows = true;
@@ -805,7 +812,22 @@ class STLManager {
             this.lightingManager.updateShadowsForNewObject(mesh);
         }
 
-        console.log(`Created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length})`);
+        console.log(`Created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length}, renderingGroupId: ${mesh.renderingGroupId}, isVisible: ${mesh.isVisible}, isEnabled: ${mesh.isEnabled()})`);
+
+        // IMPORTANT: Log highway meshes specifically for debugging
+        if (obj.type === 'highway') {
+            console.log(`[STL Import] Highway mesh created: ${obj.name}`, {
+                type: obj.type,
+                renderingGroupId: mesh.renderingGroupId,
+                isVisible: mesh.isVisible,
+                isEnabled: mesh.isEnabled(),
+                hasMaterial: !!mesh.material,
+                materialAlpha: mesh.material?.alpha,
+                materialDiffuseColor: mesh.material?.diffuseColor,
+                position: mesh.position,
+                triangles: obj.triangles.length
+            });
+        }
 
         return mesh;
     }
@@ -1347,11 +1369,11 @@ class STLManager {
             stlV1 = convertVertex(v1);
             stlV2 = convertVertex(v2);
         } else {
-            // Y-up: Keep Babylon.js coordinate system as is
-            stlNormal = { x: normal.x, y: normal.y, z: normal.z };
-            stlV0 = { x: v0.x, y: v0.y, z: v0.z };
-            stlV1 = { x: v1.x, y: v1.y, z: v1.z };
-            stlV2 = { x: v2.x, y: v2.y, z: v2.z };
+            // Y-up: Keep Babylon.js coordinate system but reverse Z axis (flip forward/backward direction)
+            stlNormal = { x: normal.x, y: normal.y, z: -normal.z };
+            stlV0 = { x: v0.x, y: v0.y, z: -v0.z };
+            stlV1 = { x: v1.x, y: v1.y, z: -v1.z };
+            stlV2 = { x: v2.x, y: v2.y, z: -v2.z };
         }
 
         let stl = `  facet normal ${formatFloat(stlNormal.x)} ${formatFloat(stlNormal.y)} ${formatFloat(stlNormal.z)}\n`;
@@ -1428,6 +1450,190 @@ class STLManager {
      */
     setSmoothingAngleThreshold(threshold) {
         this.smoothingAngleThreshold = threshold;
+    }
+
+    /**
+     * Update rendering groups for all imported STL meshes
+     * This ensures all meshes (including child meshes) have correct renderingGroupId
+     * @param {BABYLON.Scene} scene - The scene
+     * @param {Array} objects - Array of parsed STL objects
+     */
+    updateRenderingGroupsForImportedMeshes(scene, objects) {
+        if (!scene) return;
+
+        console.log('[STL Import] Updating rendering groups for all imported meshes...');
+
+        // Get all meshes that were imported from STL
+        const importedMeshes = scene.meshes.filter(mesh => {
+            return mesh && 
+                   mesh.userData && 
+                   mesh.userData.isImportedSTL &&
+                   mesh.isEnabled() &&
+                   !mesh.isDisposed();
+        });
+
+        console.log(`[STL Import] Found ${importedMeshes.length} imported meshes to update`);
+
+        // Update renderingGroupId for each mesh based on its type
+        importedMeshes.forEach(mesh => {
+            const type = mesh.userData?.type || 'ground';
+            const expectedRenderingGroupId = SceneManager.getRenderingGroupId(type);
+            
+            // IMPORTANT: Log highway meshes specifically for debugging
+            if (type === 'highway') {
+                console.log(`[STL Import] Highway mesh found: ${mesh.name}`, {
+                    type: type,
+                    renderingGroupId: mesh.renderingGroupId,
+                    expectedRenderingGroupId: expectedRenderingGroupId,
+                    isVisible: mesh.isVisible,
+                    isEnabled: mesh.isEnabled(),
+                    hasMaterial: !!mesh.material,
+                    materialAlpha: mesh.material?.alpha,
+                    materialDiffuseColor: mesh.material?.diffuseColor,
+                    position: mesh.position,
+                    inScene: scene.meshes.includes(mesh)
+                });
+            }
+            
+            // IMPORTANT: Ensure mesh is visible and enabled
+            if (!mesh.isVisible) {
+                console.log(`[STL Import] Making mesh visible: ${mesh.name} (type: ${type})`);
+                mesh.isVisible = true;
+            }
+            if (!mesh.isEnabled()) {
+                console.log(`[STL Import] Enabling mesh: ${mesh.name} (type: ${type})`);
+                mesh.setEnabled(true);
+            }
+            
+            // Ensure mesh is in the scene
+            if (!scene.meshes.includes(mesh)) {
+                console.log(`[STL Import] Adding mesh to scene: ${mesh.name} (type: ${type})`);
+                scene.addMesh(mesh);
+            }
+            
+            // IMPORTANT: Ensure material is properly set for highway
+            if (type === 'highway' && mesh.material) {
+                // Ensure material is visible (alpha > 0)
+                if (mesh.material.alpha === undefined || mesh.material.alpha === 0) {
+                    console.log(`[STL Import] Fixing material alpha for highway ${mesh.name}: ${mesh.material.alpha} -> 1.0`);
+                    mesh.material.alpha = 1.0;
+                }
+                // Ensure material has correct color
+                const expectedColor = this.uiManager && this.uiManager.getColorByType ? 
+                    this.uiManager.getColorByType('highway') : 
+                    new BABYLON.Color3(0.3, 0.3, 0.3);
+                if (!mesh.material.diffuseColor || 
+                    Math.abs(mesh.material.diffuseColor.r - expectedColor.r) > 0.01 ||
+                    Math.abs(mesh.material.diffuseColor.g - expectedColor.g) > 0.01 ||
+                    Math.abs(mesh.material.diffuseColor.b - expectedColor.b) > 0.01) {
+                    console.log(`[STL Import] Fixing material color for highway ${mesh.name}`);
+                    mesh.material.diffuseColor = expectedColor.clone();
+                }
+            }
+            
+            // Update renderingGroupId if it's not set correctly
+            if (mesh.renderingGroupId !== expectedRenderingGroupId) {
+                console.log(`[STL Import] Updating renderingGroupId for ${mesh.name}: ${mesh.renderingGroupId} -> ${expectedRenderingGroupId} (type: ${type})`);
+                mesh.renderingGroupId = expectedRenderingGroupId;
+            }
+
+            // IMPORTANT: Check for child meshes and update their renderingGroupId too
+            // This handles cases where a mesh might have child meshes (though rare in STL)
+            if (mesh.getChildMeshes && typeof mesh.getChildMeshes === 'function') {
+                try {
+                    const childMeshes = mesh.getChildMeshes();
+                    if (childMeshes && childMeshes.length > 0) {
+                        console.log(`[STL Import] Found ${childMeshes.length} child meshes for ${mesh.name}`);
+                        childMeshes.forEach(childMesh => {
+                            if (childMesh instanceof BABYLON.Mesh && !childMesh.isDisposed()) {
+                                // Use the same renderingGroupId as parent, or determine from child's type if available
+                                const childType = childMesh.userData?.type || type;
+                                const childRenderingGroupId = SceneManager.getRenderingGroupId(childType);
+                                
+                                if (childMesh.renderingGroupId !== childRenderingGroupId) {
+                                    console.log(`[STL Import] Updating renderingGroupId for child mesh ${childMesh.name}: ${childMesh.renderingGroupId} -> ${childRenderingGroupId} (type: ${childType})`);
+                                    childMesh.renderingGroupId = childRenderingGroupId;
+                                }
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.warn(`[STL Import] Error getting child meshes for ${mesh.name}:`, error);
+                }
+            }
+        });
+
+        // Also check TransformNodes that might have been imported
+        const importedTransformNodes = scene.transformNodes.filter(node => {
+            return node && 
+                   node.userData && 
+                   node.userData.isImportedSTL &&
+                   node.isEnabled() &&
+                   !node.isDisposed();
+        });
+
+        if (importedTransformNodes.length > 0) {
+            console.log(`[STL Import] Found ${importedTransformNodes.length} imported TransformNodes`);
+            importedTransformNodes.forEach(transformNode => {
+                const type = transformNode.userData?.type || 'ground';
+                const expectedRenderingGroupId = SceneManager.getRenderingGroupId(type);
+                
+                // Update child meshes of TransformNode
+                if (transformNode.getChildMeshes && typeof transformNode.getChildMeshes === 'function') {
+                    try {
+                        const childMeshes = transformNode.getChildMeshes();
+                        if (childMeshes && childMeshes.length > 0) {
+                            console.log(`[STL Import] Found ${childMeshes.length} child meshes for TransformNode ${transformNode.name}`);
+                            childMeshes.forEach(childMesh => {
+                                if (childMesh instanceof BABYLON.Mesh && !childMesh.isDisposed()) {
+                                    // Use the same renderingGroupId as parent, or determine from child's type if available
+                                    const childType = childMesh.userData?.type || type;
+                                    const childRenderingGroupId = SceneManager.getRenderingGroupId(childType);
+                                    
+                                    if (childMesh.renderingGroupId !== childRenderingGroupId) {
+                                        console.log(`[STL Import] Updating renderingGroupId for child mesh ${childMesh.name}: ${childMesh.renderingGroupId} -> ${childRenderingGroupId} (type: ${childType})`);
+                                        childMesh.renderingGroupId = childRenderingGroupId;
+                                    }
+                                }
+                            });
+                        }
+                    } catch (error) {
+                        console.warn(`[STL Import] Error getting child meshes for TransformNode ${transformNode.name}:`, error);
+                    }
+                }
+            });
+        }
+
+        // IMPORTANT: Final check for highway meshes specifically
+        const highwayMeshes = importedMeshes.filter(mesh => mesh.userData?.type === 'highway');
+        if (highwayMeshes.length > 0) {
+            console.log(`[STL Import] Final check for ${highwayMeshes.length} highway meshes:`);
+            highwayMeshes.forEach(mesh => {
+                const issues = [];
+                if (!mesh.isVisible) issues.push('not visible');
+                if (!mesh.isEnabled()) issues.push('not enabled');
+                if (!scene.meshes.includes(mesh)) issues.push('not in scene');
+                if (mesh.renderingGroupId !== 4) issues.push(`wrong renderingGroupId (${mesh.renderingGroupId} instead of 4)`);
+                if (!mesh.material) issues.push('no material');
+                if (mesh.material && mesh.material.alpha === 0) issues.push('material alpha is 0');
+                if (mesh.material && !mesh.material.diffuseColor) issues.push('no material color');
+                
+                if (issues.length > 0) {
+                    console.warn(`[STL Import] Highway mesh ${mesh.name} has issues:`, issues);
+                } else {
+                    console.log(`[STL Import] Highway mesh ${mesh.name} is OK:`, {
+                        renderingGroupId: mesh.renderingGroupId,
+                        isVisible: mesh.isVisible,
+                        isEnabled: mesh.isEnabled(),
+                        hasMaterial: !!mesh.material,
+                        materialColor: mesh.material?.diffuseColor,
+                        position: mesh.position
+                    });
+                }
+            });
+        }
+
+        console.log('[STL Import] Rendering groups update completed');
     }
 }
 

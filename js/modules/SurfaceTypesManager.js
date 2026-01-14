@@ -61,7 +61,7 @@ class SurfaceTypesManager {
                 // Skip buildingArchyTypes and buildingGroups if they exist in localStorage (preserve user changes)
                 if ((category === 'buildingArchyTypes' || category === 'buildingGroups') && 
                     this.surfaceTypes[category] && this.surfaceTypes[category].length > 0) {
-                    console.log(`Preserving ${category} from localStorage (${this.surfaceTypes[category].length} items)`);
+                    // Preserving from localStorage
                     return;
                 }
                 
@@ -76,7 +76,7 @@ class SurfaceTypesManager {
             });
             
             if (categoriesToLoad.length > 0) {
-                console.log(`Loading ${categoriesToLoad.length} categories from CSV:`, categoriesToLoad);
+                // Loading categories from CSV
                 await Promise.all(
                     categoriesToLoad.map(category => this.loadCSVFile(category))
                 );
@@ -101,7 +101,7 @@ class SurfaceTypesManager {
                 }
             }
             
-            console.log('Surface Types Manager initialized successfully');
+            // console.log('Surface Types Manager initialized successfully');
         } catch (error) {
             console.error('Error initializing Surface Types Manager:', error);
         }
@@ -184,10 +184,7 @@ class SurfaceTypesManager {
             }
         });
 
-        console.log(`Split vegetationTypes: ${this.surfaceTypes.groundTypes.length} ground, ${this.surfaceTypes.grassTypes.length} grass, ${this.surfaceTypes.treeTypes.length} tree`);
-        console.log('Ground types:', this.surfaceTypes.groundTypes.map(item => item.vegetationType || Object.values(item)[0]));
-        console.log('Grass types:', this.surfaceTypes.grassTypes.map(item => item.vegetationType || Object.values(item)[0]));
-        console.log('Tree types:', this.surfaceTypes.treeTypes.map(item => item.vegetationType || Object.values(item)[0]));
+        // Split vegetation types into categories
     }
 
     /**
@@ -199,7 +196,7 @@ class SurfaceTypesManager {
                 const key = `surfaceTypes_${category}`;
                 localStorage.setItem(key, JSON.stringify(this.surfaceTypes[category]));
             });
-            console.log('Surface types saved to localStorage');
+            // Surface types saved to localStorage
         } catch (error) {
             console.error('Error saving to localStorage:', error);
         }
@@ -222,7 +219,7 @@ class SurfaceTypesManager {
                     if (parsed && parsed.length > 0) {
                         this.surfaceTypes[category] = parsed;
                         loaded = true;
-                        console.log(`Loaded ${category} from localStorage (${parsed.length} items)`);
+                        // Loaded from localStorage
                     } else {
                         allLoaded = false;
                         console.log(`Skipping empty ${category} in localStorage, will reload from CSV`);
@@ -268,11 +265,7 @@ class SurfaceTypesManager {
             
             this.surfaceTypes[type] = data;
             
-            console.log(`Loaded ${data.length} ${type} from ${filePath}`);
-            if (type === 'vegetationTypes' && data.length > 0) {
-                console.log(`VegetationTypes sample:`, data[0]);
-                console.log(`VegetationTypes keys:`, Object.keys(data[0]));
-            }
+            // Loaded from CSV file
         } catch (error) {
             console.error(`Error loading ${filePath}:`, error);
             // Initialize with empty array if file not found

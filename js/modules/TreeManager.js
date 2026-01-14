@@ -35,18 +35,18 @@ class TreeManager {
     async loadTreeModels() {
         const treeTypes = ['1', '2', '3', '4'];
         
-        console.log('Loading tree models...');
+        // console.log('Loading tree models...');
         for (const treeType of treeTypes) {
             try {
                 const model = await this.loadTreeModel(`assets/Models/Trees/${treeType}.glb`);
                 this.treeModels.set(treeType, model);
-                console.log(`✓ Successfully loaded tree model: ${treeType}.glb`);
+                // console.log(`✓ Successfully loaded tree model: ${treeType}.glb`);
             } catch (error) {
                 console.error(`✗ Failed to load tree model ${treeType}.glb:`, error);
             }
         }
-        console.log(`Tree models loaded: ${this.treeModels.size} out of ${treeTypes.length}`);
-        console.log(`Loaded types:`, Array.from(this.treeModels.keys()));
+        // console.log(`Tree models loaded: ${this.treeModels.size} out of ${treeTypes.length}`);
+        // console.log(`Loaded types:`, Array.from(this.treeModels.keys()));
     }
 
     /**
@@ -194,8 +194,8 @@ class TreeManager {
                 mesh.setParent(treeParent);
                 // Reset local position to 0,0,0 since parent handles positioning
                 mesh.position = BABYLON.Vector3.Zero();
-                // Set same rendering priority as buildings
-                mesh.renderingGroupId = 1;
+                // Set rendering priority for trees (same as buildings)
+                mesh.renderingGroupId = SceneManager.getRenderingGroupId('tree');
                 // Enable shadows - trees should both cast and receive shadows
                 mesh.receiveShadows = true;
                 mesh.castShadows = true;
@@ -205,8 +205,9 @@ class TreeManager {
             treeParent.rotation.y = this.getRandomTreeRotation();
             
             // Add random height scale based on min/max height parameters (uniform on all axes)
+            // Scale equals height value (e.g., if height is 1.3, scale is 1.3)
             const randomHeightScale = this.getRandomTreeHeightScale();
-            treeParent.scaling = new BABYLON.Vector3(randomHeightScale/3, randomHeightScale/3, randomHeightScale/3);
+            treeParent.scaling = new BABYLON.Vector3(randomHeightScale, randomHeightScale, randomHeightScale);
 
             // Store tree reference
             const treeData = {
@@ -285,9 +286,9 @@ class TreeManager {
             leavesMaterial.twoSidedLighting = true; // Enable lighting on both sides
             leaves.material = leavesMaterial;
             
-            // Set same rendering priority as buildings
-            trunk.renderingGroupId = 1;
-            leaves.renderingGroupId = 1;
+            // Set rendering priority for trees (same as buildings)
+            trunk.renderingGroupId = SceneManager.getRenderingGroupId('tree');
+            leaves.renderingGroupId = SceneManager.getRenderingGroupId('tree');
             
             // Enable shadows - trees should both cast and receive shadows
             trunk.receiveShadows = true;
@@ -303,8 +304,9 @@ class TreeManager {
             treeParent.rotation.y = this.getRandomTreeRotation();
             
             // Add random height scale based on min/max height parameters (uniform on all axes)
+            // Scale equals height value (e.g., if height is 1.3, scale is 1.3)
             const randomHeightScale = this.getRandomTreeHeightScale();
-            treeParent.scaling = new BABYLON.Vector3(randomHeightScale/3, randomHeightScale/3, randomHeightScale/3);
+            treeParent.scaling = new BABYLON.Vector3(randomHeightScale, randomHeightScale, randomHeightScale);
             
             // Parent meshes to tree
             trunk.setParent(treeParent);
@@ -582,7 +584,8 @@ class TreeManager {
      */
     setTreeDistance(distance) {
         this.treeDistance = Math.max(0.1, Math.min(50, distance)); // Clamp between 0.1 and 50
-        console.log(`Tree distance parameter updated: ${this.treeDistance}`);
+        // Commented out to reduce console clutter
+        // console.log(`Tree distance parameter updated: ${this.treeDistance}`);
     }
 
     /**

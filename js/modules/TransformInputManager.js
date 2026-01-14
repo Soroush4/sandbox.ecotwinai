@@ -119,9 +119,15 @@ class TransformInputManager {
             const obj = selectedObjects[0];
             const activeTool = this.getActiveTransformTool();
             
-            // For trees, if obj is a child mesh, get position/rotation/scale from TransformNode parent
+            // IMPORTANT: If extrusion is selected, use its base polygon for transform fields
+            // This ensures transform values are shown correctly even when extrusion is selected
             let targetObj = obj;
-            if (obj instanceof BABYLON.Mesh && obj.parent instanceof BABYLON.TransformNode) {
+            if (obj.name && obj.name.includes('_extrusion') && obj.basePolygon) {
+                console.log(`[UpdateTransformFields] Extrusion selected, using base polygon for transform: ${obj.basePolygon.name}`);
+                targetObj = obj.basePolygon;
+            }
+            // For trees, if obj is a child mesh, get position/rotation/scale from TransformNode parent
+            else if (obj instanceof BABYLON.Mesh && obj.parent instanceof BABYLON.TransformNode) {
                 const parentName = obj.parent.name.toLowerCase();
                 const isOldTreeName = parentName.includes('tree_') || parentName.includes('simple_tree_');
                 const isNewTreeName = /^tree\d+$/.test(parentName);
@@ -185,7 +191,21 @@ class TransformInputManager {
         const selectedObjects = this.selectionManager.getSelectedObjects();
         if (selectedObjects.length !== 1) return;
 
-        const obj = selectedObjects[0];
+        let obj = selectedObjects[0];
+        
+        // IMPORTANT: If extrusion is selected, use its base polygon for transform updates
+        // This ensures transform changes are applied to the correct object
+        let polygon = obj;
+        let extrusion = null;
+        if (obj.name && obj.name.includes('_extrusion') && obj.basePolygon) {
+            console.log(`[TransformInputChange] Extrusion selected, using base polygon for transform update: ${obj.basePolygon.name}`);
+            polygon = obj.basePolygon;
+            extrusion = obj; // The selected extrusion
+        } else if (obj.extrusion) {
+            // If polygon is selected and has extrusion, get the extrusion
+            extrusion = obj.extrusion;
+        }
+        
         const activeTool = this.getActiveTransformTool();
         
         // Set flag to prevent circular update
@@ -195,45 +215,92 @@ class TransformInputManager {
         if (activeTool === 'move') {
             // Update position
             if (axis === 'x') {
-                obj.position.x = value;
+                polygon.position.x = value;
+                // If polygon has extrusion, update extrusion position too (extrusion is independent)
+                if (extrusion) {
+                    extrusion.position.x = value;
+                }
             } else if (axis === 'y') {
-                obj.position.y = value;
+                polygon.position.y = value;
+                // If polygon has extrusion, update extrusion position too
+                // IMPORTANT: For Y axis, extrusion base should be at polygon Y, so adjust extrusion position
+                if (extrusion) {
+                    // Calculate extrusion base Y offset
+                    extrusion.computeWorldMatrix(true);
+                    const extrusionBoundingInfo = extrusion.getBoundingInfo();
+                    if (extrusionBoundingInfo && extrusionBoundingInfo.boundingBox) {
+                        const extrusionBaseY = extrusionBoundingInfo.boundingBox.minimumWorld.y;
+                        const deltaY = value - extrusionBaseY;
+                        extrusion.position.y += deltaY;
+                        extrusion.computeWorldMatrix(true);
+                    } else {
+                        extrusion.position.y = value;
+                    }
+                }
             } else if (axis === 'z') {
-                obj.position.z = value;
+                polygon.position.z = value;
+                // If polygon has extrusion, update extrusion position too (extrusion is independent)
+                if (extrusion) {
+                    extrusion.position.z = value;
+                }
             }
         } else if (activeTool === 'rotate') {
             // Update rotation (convert from degrees to radians)
             const radians = value * (Math.PI / 180);
             if (axis === 'x') {
-                obj.rotation.x = radians;
+                polygon.rotation.x = radians;
+                if (extrusion) extrusion.rotation.x = radians;
             } else if (axis === 'y') {
-                obj.rotation.y = radians;
+                polygon.rotation.y = radians;
+                if (extrusion) extrusion.rotation.y = radians;
             } else if (axis === 'z') {
-                obj.rotation.z = radians;
+                polygon.rotation.z = radians;
+                if (extrusion) extrusion.rotation.z = radians;
             }
         } else if (activeTool === 'scale') {
             // Update scale
             if (axis === 'x') {
-                obj.scaling.x = value;
+                polygon.scaling.x = value;
+                if (extrusion) extrusion.scaling.x = value;
             } else if (axis === 'y') {
-                obj.scaling.y = value;
+                polygon.scaling.y = value;
+                // IMPORTANT: For Y axis scaling, extrusion scaling is handled separately in updatePolygonMaterialByType
+                // Don't change extrusion.scaling.y here as it's used for height
             } else if (axis === 'z') {
-                obj.scaling.z = value;
+                polygon.scaling.z = value;
+                if (extrusion) extrusion.scaling.z = value;
             }
         } else {
             // Default to position
             if (axis === 'x') {
-                obj.position.x = value;
+                polygon.position.x = value;
+                if (extrusion) extrusion.position.x = value;
             } else if (axis === 'y') {
-                obj.position.y = value;
+                polygon.position.y = value;
+                if (extrusion) {
+                    extrusion.computeWorldMatrix(true);
+                    const extrusionBoundingInfo = extrusion.getBoundingInfo();
+                    if (extrusionBoundingInfo && extrusionBoundingInfo.boundingBox) {
+                        const extrusionBaseY = extrusionBoundingInfo.boundingBox.minimumWorld.y;
+                        const deltaY = value - extrusionBaseY;
+                        extrusion.position.y += deltaY;
+                        extrusion.computeWorldMatrix(true);
+                    } else {
+                        extrusion.position.y = value;
+                    }
+                }
             } else if (axis === 'z') {
-                obj.position.z = value;
+                polygon.position.z = value;
+                if (extrusion) extrusion.position.z = value;
             }
         }
         
         // Update wireframe if exists
         if (this.selectionManager) {
-            this.selectionManager.updateWireframeTransforms(obj);
+            this.selectionManager.updateWireframeTransforms(polygon);
+            if (extrusion) {
+                this.selectionManager.updateWireframeTransforms(extrusion);
+            }
         }
         
         // Reset flag after a short delay

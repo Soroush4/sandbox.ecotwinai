@@ -21,8 +21,8 @@ class RectangleManager {
         const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
         this.tempRectMaterial.diffuseColor = previewColor;
         this.tempRectMaterial.alpha = previewAlpha;
-        this.tempRectMaterial.backFaceCulling = true;
-        this.tempRectMaterial.twoSidedLighting = false; // Disable lighting on both sides
+        this.tempRectMaterial.backFaceCulling = false; // 2-sided
+        this.tempRectMaterial.twoSidedLighting = true; // Enable lighting on both sides
         this.tempRectMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Reduce specular to prevent flickering
         
         // Shape counter for unique naming
@@ -87,21 +87,52 @@ class RectangleManager {
     createRectangle(width, depth, position = new BABYLON.Vector3(0, 0, 0), color = null, height = 0.1, type = 'ground') {
         const uniqueName = this.generateUniqueNameByType(type);
         
-        // Create a 3D box instead of a 2D ground
-        const rectangle = BABYLON.MeshBuilder.CreateBox(uniqueName, {
-            width: width,
-            height: height,
-            depth: depth
-        }, this.scene);
+        // For all types except 'building', height should be 0 (use flat box)
+        const isBuilding = type.toLowerCase() === 'building';
+        const finalHeight = isBuilding ? height : 0;
         
-        // Position the rectangle so its bottom face is on the ground
-        rectangle.position = new BABYLON.Vector3(
-            position.x,
-            position.y + height / 2, // Center the box vertically
-            position.z
-        );
+        // Log height for non-building types
+        if (!isBuilding) {
+        }
         
-        rectangle.renderingGroupId = 1; // Higher rendering priority than ground
+        let rectangle;
+        if (!isBuilding) {
+            // For flat types, use CreateBox with very small height (0.001) instead of 0
+            // This ensures proper picking and rendering while appearing flat
+            const flatHeight = 0.001; // Very small height for flat appearance
+            rectangle = BABYLON.MeshBuilder.CreateBox(uniqueName, {
+                width: width,
+                height: flatHeight,
+                depth: depth
+            }, this.scene);
+            
+            // Position the box at Y=0 (centered vertically on the small height)
+            rectangle.position = new BABYLON.Vector3(
+                position.x,
+                position.y + flatHeight / 2,  // Center the box vertically
+                position.z
+            );
+            
+            // Make it pickable for drawing interactions
+            rectangle.isPickable = true;
+        } else {
+            // For 3D types (buildings), use CreateBox
+            rectangle = BABYLON.MeshBuilder.CreateBox(uniqueName, {
+                width: width,
+                height: finalHeight,
+                depth: depth
+            }, this.scene);
+            
+            // Position the rectangle so its bottom face is on the ground
+            rectangle.position = new BABYLON.Vector3(
+                position.x,
+                position.y + finalHeight / 2, // Center the box vertically
+                position.z
+            );
+        }
+        
+        // Set rendering priority based on type
+        rectangle.renderingGroupId = SceneManager.getRenderingGroupId(type);
         
         const material = new BABYLON.StandardMaterial(`${uniqueName}Material`, this.scene);
         // Use standardized color if no color provided or use UIManager's color system
@@ -128,15 +159,17 @@ class RectangleManager {
         const validType = (type && type !== undefined && type !== null && type !== '') ? type : 'ground';
         
         // Store rectangle properties in userData
+        // For non-building types, store 0 as height in userData even though mesh has 0.001 for rendering
+        const storedHeight = isBuilding ? finalHeight : 0;
         rectangle.userData = {
             type: validType,
             shapeType: 'rectangle',
             dimensions: {
                 width: width,
                 depth: depth,
-                height: height
+                height: storedHeight  // Store 0 for flat types in userData
             },
-            originalHeight: height // Store original height for reference
+            originalHeight: storedHeight // Store 0 for flat types in userData
         };
         
         // Final validation: ensure type is set
@@ -144,6 +177,9 @@ class RectangleManager {
             rectangle.userData.type = 'ground';
             console.warn(`Rectangle ${uniqueName} had no type after creation, set to 'ground'`);
         }
+        
+        // Apply depth offset based on type to ensure correct render order
+        SceneManager.applyDepthOffset(rectangle, validType);
         
         // Add to rectangles array
         this.rectangles.push(rectangle);
@@ -176,7 +212,6 @@ class RectangleManager {
         // Disable camera controls during rectangle drawing
         if (this.scene.activeCamera) {
             this.scene.activeCamera.detachControl();
-            console.log('Camera controls disabled for rectangle drawing');
         }
         
         // Add mouse event listeners
@@ -195,7 +230,6 @@ class RectangleManager {
         // Re-enable camera controls after rectangle drawing
         if (this.scene.activeCamera) {
             this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
-            console.log('Camera controls enabled after rectangle drawing');
         }
         
         // Remove mouse event listeners
@@ -234,6 +268,27 @@ class RectangleManager {
     onPointerDown = (pointerInfo) => {
         if (!this.isDrawing) return;
         
+        // IMPORTANT: Only accept left mouse button (button === 0)
+        // Right click (button === 2) and middle click (button === 1) should cancel drawing
+        const button = pointerInfo.event?.button ?? pointerInfo.event?.which ?? -1;
+        
+        // Right click: cancel drawing
+        if (button === 2) {
+            console.log('[RECTANGLE] Right click detected - canceling drawing');
+            this.stopInteractiveDrawing();
+            return;
+        }
+        
+        // Middle click: ignore
+        if (button === 1) {
+            return;
+        }
+        
+        // Only proceed with left click (button === 0)
+        if (button !== 0) {
+            return;
+        }
+        
         const pickResult = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
         if (pickResult && pickResult.hit && pickResult.pickedPoint) {
             if (!this.drawingStartPoint) {
@@ -248,6 +303,26 @@ class RectangleManager {
      */
     onPointerUp = (pointerInfo) => {
         if (!this.isDrawing || !this.drawingStartPoint || !this.drawingEndPoint) return;
+        
+        // IMPORTANT: Only accept left mouse button (button === 0)
+        const button = pointerInfo.event?.button ?? pointerInfo.event?.which ?? -1;
+        
+        // Right click: cancel drawing
+        if (button === 2) {
+            console.log('[RECTANGLE] Right click detected on pointer up - canceling drawing');
+            this.stopInteractiveDrawing();
+            return;
+        }
+        
+        // Middle click: ignore
+        if (button === 1) {
+            return;
+        }
+        
+        // Only proceed with left click (button === 0)
+        if (button !== 0) {
+            return;
+        }
         
         // Prevent multiple rectangle creation
         if (this.isCompleting) return;
@@ -314,14 +389,39 @@ class RectangleManager {
             this.tempShape = null;
         }
         
-        // Create final 3D rectangle with minimal height
+        // Get type from shapeType input (rectangle-specific), not from selected shape/polygon
+        // This ensures each drawing tool uses its own type input, not the type of a previously selected object
+        let drawingType = 'ground';
+        const shapeTypeSelect = document.getElementById('shapeType');
+        if (shapeTypeSelect && shapeTypeSelect.value) {
+            drawingType = shapeTypeSelect.value;
+        }
+        
+        // For all types except 'building', height should be 0
+        const isBuilding = drawingType.toLowerCase() === 'building';
+        const finalHeight = isBuilding ? 0.1 : 0;
+        
+        // Log height for non-building types
+        if (!isBuilding) {
+            console.log(`[HEIGHT] RectangleManager.finishRectangle type="${drawingType}" finalHeight=${finalHeight} (should be 0 for non-building types)`);
+        }
+        
+        // Get color from uiManager based on type
+        let rectangleColor = null;
+        if (this.uiManager) {
+            rectangleColor = this.uiManager.getColorByType(drawingType);
+        } else {
+            rectangleColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Fallback brown
+        }
+        
+        // Create final 3D rectangle with appropriate height based on type
         const rectangle = this.createRectangle(
             actualWidth,
             actualDepth,
             new BABYLON.Vector3(centerX, 0, centerZ),
-            new BABYLON.Color3(0.4, 0.3, 0.2), // Brown
-            0.1, // Minimal height to prevent flickering
-            'ground' // Type
+            rectangleColor,
+            finalHeight, // Height based on type (0 for flat types, 0.1 for others)
+            drawingType // Type from uiManager or default 'ground'
         );
         
         this.stopInteractiveDrawing();

@@ -272,8 +272,9 @@ class SceneOperationsManager {
                         });
                     }
 
-                    // Set renderingGroupId immediately after creation (same as original)
-                    clonedMesh.renderingGroupId = obj.renderingGroupId || 1;
+                    // Set renderingGroupId based on type (use SceneManager helper)
+                    const meshType = userData?.type || obj.userData?.type || 'ground';
+                    clonedMesh.renderingGroupId = SceneManager.getRenderingGroupId(meshType);
 
                     // Set position (center Y at height/2)
                     // For circles, position.y is already at center (height/2), so we use it directly
@@ -348,8 +349,9 @@ class SceneOperationsManager {
                         });
                     }
 
-                    // Set renderingGroupId immediately after creation (same as original)
-                    clonedMesh.renderingGroupId = obj.renderingGroupId || 1;
+                    // Set renderingGroupId based on type (use SceneManager helper)
+                    const meshType = userData?.type || obj.userData?.type || 'ground';
+                    clonedMesh.renderingGroupId = SceneManager.getRenderingGroupId(meshType);
 
                     // IMPORTANT: Copy position, rotation, and scaling EXACTLY from original
                     // Position should be exactly the same as original (no offset)
@@ -472,8 +474,8 @@ class SceneOperationsManager {
                                 clonedMaterial.emissiveColor = obj.material.emissiveColor ? obj.material.emissiveColor.clone() : new BABYLON.Color3(0, 0, 0);
                                 clonedMaterial.ambientColor = obj.material.ambientColor ? obj.material.ambientColor.clone() : new BABYLON.Color3(0, 0, 0);
                                 clonedMaterial.alpha = obj.material.alpha !== undefined ? obj.material.alpha : 1.0;
-                                clonedMaterial.backFaceCulling = obj.material.backFaceCulling !== undefined ? obj.material.backFaceCulling : true;
-                                clonedMaterial.twoSidedLighting = obj.material.twoSidedLighting !== undefined ? obj.material.twoSidedLighting : false;
+                                clonedMaterial.backFaceCulling = false; // Always 2-sided
+                                clonedMaterial.twoSidedLighting = true; // Always enable lighting on both sides
                                 if (obj.material.roughness !== undefined) clonedMaterial.roughness = obj.material.roughness;
                                 if (obj.material.metallic !== undefined) clonedMaterial.metallic = obj.material.metallic;
                                 clonedMesh.material = clonedMaterial;
@@ -615,8 +617,9 @@ class SceneOperationsManager {
                             console.log(`[Duplicate] Used VertexData approach for ${newPolygonName} (no points in userData)`);
                         }
                         
-                        // Set renderingGroupId immediately after creation (same as original)
-                        clonedMesh.renderingGroupId = obj.renderingGroupId || 1;
+                        // Set renderingGroupId based on type (use SceneManager helper)
+                        const meshType = obj.userData?.type || 'ground';
+                        clonedMesh.renderingGroupId = SceneManager.getRenderingGroupId(meshType);
                         
                     } catch (error) {
                         console.error(`Error duplicating polygon ${obj.name}:`, error);
@@ -775,7 +778,9 @@ class SceneOperationsManager {
 
                 // Set rendering properties (only for Meshes, not TransformNodes)
                 if (!isTransformNode && clonedMesh instanceof BABYLON.Mesh) {
-                    clonedMesh.renderingGroupId = obj.renderingGroupId || 1;
+                    // Set renderingGroupId based on type (use SceneManager helper)
+                    const meshType = obj.userData?.type || 'ground';
+                    clonedMesh.renderingGroupId = SceneManager.getRenderingGroupId(meshType);
                     // Copy visibility and enabled state from original
                     clonedMesh.setEnabled(obj.isEnabled !== undefined ? obj.isEnabled() : true);
                     clonedMesh.isVisible = obj.isVisible !== undefined ? obj.isVisible : true;
@@ -838,8 +843,9 @@ class SceneOperationsManager {
                             clonedExtrusion.userData = JSON.parse(JSON.stringify(originalExtrusion.userData));
                         }
                         
-                        // Set renderingGroupId immediately (same as original extrusion)
-                        clonedExtrusion.renderingGroupId = originalExtrusion.renderingGroupId || 1;
+                        // Set renderingGroupId based on type (use SceneManager helper)
+                        const extrusionType = originalExtrusion.userData?.type || 'building';
+                        clonedExtrusion.renderingGroupId = SceneManager.getRenderingGroupId(extrusionType);
                         
                         // Set extrusion position relative to cloned mesh
                         const originalExtrusionRelativePos = originalExtrusion.parent === obj ? originalExtrusion.position.clone() : originalExtrusion.position.clone();
@@ -1087,7 +1093,8 @@ class SceneOperationsManager {
                                 // Copy mesh properties from original mesh
                                 const originalMesh = treeData.meshes.find(m => m.name.replace(/_tree_\d+$/, '').replace(/^.*_tree_\d+_/, '') === mesh.name.replace(/_tree_\d+$/, '').replace(/^.*_tree_\d+_/, ''));
                                 if (originalMesh) {
-                                    mesh.renderingGroupId = originalMesh.renderingGroupId !== undefined ? originalMesh.renderingGroupId : 1;
+                                    // Set renderingGroupId based on type (trees should use 'tree' type)
+                                    mesh.renderingGroupId = SceneManager.getRenderingGroupId('tree');
                                     mesh.receiveShadows = originalMesh.receiveShadows !== undefined ? originalMesh.receiveShadows : true;
                                     mesh.castShadows = originalMesh.castShadows !== undefined ? originalMesh.castShadows : true;
                                     mesh.isVisible = originalMesh.isVisible !== undefined ? originalMesh.isVisible : true;

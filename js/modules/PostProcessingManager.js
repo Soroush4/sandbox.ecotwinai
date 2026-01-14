@@ -119,7 +119,7 @@ class PostProcessingManager {
                     
                     this.effects.ssao = this.ssaoPipeline;
                     this.ssaoAvailable = true;
-                    console.log('SSAO2RenderingPipeline created successfully');
+                    // console.log('SSAO2RenderingPipeline created successfully');
                 } else {
                     console.warn('SSAO2RenderingPipeline not available in this version of Babylon.js');
                     this.ssaoAvailable = false;
@@ -134,7 +134,7 @@ class PostProcessingManager {
             // Initialize all effects
             this.setupEffects();
             
-            console.log('PostProcessingManager initialized');
+            // console.log('PostProcessingManager initialized');
         } catch (error) {
             console.error('Error initializing PostProcessingManager:', error);
         }

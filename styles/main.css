@@ -556,6 +556,27 @@ input[type="range"]::-moz-range-thumb {
     z-index: 1;
 }
 
+/* Drawing mode cursor - override with !important */
+#renderCanvas.drawing-mode {
+    cursor: crosshair !important;
+}
+
+/* Drawing coordinates tooltip */
+.drawing-coordinates-tooltip {
+    position: fixed !important;
+    pointer-events: none !important;
+    background: rgba(0, 0, 0, 0.85) !important;
+    color: white !important;
+    padding: 6px 10px !important;
+    border-radius: 4px !important;
+    font-size: 12px !important;
+    font-family: monospace !important;
+    white-space: nowrap !important;
+    z-index: 99999 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    /* Remove transform - we set position directly via JavaScript */
+}
+
 .canvas-overlay {
     position: absolute;
     top: 0;
@@ -811,6 +832,24 @@ input[type="range"]::-moz-range-thumb {
     width: 16px;
     height: 16px;
     filter: brightness(0) saturate(100%) invert(100%);
+}
+
+/* Tree Tool Submenu Indicator */
+.drawing-tools .tool-item[data-tool="tree"] {
+    position: relative;
+}
+
+.tree-submenu-indicator {
+    position: absolute;
+    bottom: 1px;
+    right: 1px;
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid rgba(255, 255, 255, 0.7);
+    pointer-events: none;
+    user-select: none;
 }
 
 /* Tree Tool Styles - removed tool-label styles since tree button doesn't have text */
@@ -1994,11 +2033,11 @@ input[type="range"]::-moz-range-thumb {
     box-shadow: 0 0 10px rgba(52, 152, 219, 0.3) !important;
 }
 
-/* Circle tool active state - Green */
+/* Circle tool active state - Purple */
 #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active {
-    background: rgba(46, 204, 113, 0.3) !important;
-    border-color: rgba(46, 204, 113, 0.6) !important;
-    box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
+    background: rgba(155, 89, 182, 0.3) !important;
+    border-color: rgba(155, 89, 182, 0.6) !important;
+    box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
 }
 
 /* Polygon tool active state - Orange */
@@ -2008,11 +2047,11 @@ input[type="range"]::-moz-range-thumb {
     box-shadow: 0 0 10px rgba(230, 126, 34, 0.3) !important;
 }
 
-/* Tree tool active state - Purple */
+/* Tree tool active state - Green */
 #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active {
-    background: rgba(155, 89, 182, 0.3) !important;
-    border-color: rgba(155, 89, 182, 0.6) !important;
-    box-shadow: 0 0 10px rgba(155, 89, 182, 0.3) !important;
+    background: rgba(46, 204, 113, 0.3) !important;
+    border-color: rgba(46, 204, 113, 0.6) !important;
+    box-shadow: 0 0 10px rgba(46, 204, 113, 0.3) !important;
 }
 
 /* Rectangle tool icon active state - Blue */
@@ -2020,9 +2059,9 @@ input[type="range"]::-moz-range-thumb {
     filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%) !important;
 }
 
-/* Circle tool icon active state - Green */
+/* Circle tool icon active state - Purple */
 #drawingPanel .drawing-tools .tool-item[data-tool="circle"].active .tool-icon {
-    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
 }
 
 /* Polygon tool icon active state - Orange */
@@ -2030,9 +2069,9 @@ input[type="range"]::-moz-range-thumb {
     filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(30deg) brightness(100%) contrast(100%) !important;
 }
 
-/* Tree tool icon active state - Purple */
+/* Tree tool icon active state - Green */
 #drawingPanel .drawing-tools .tool-item[data-tool="tree"].active .tool-icon {
-    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(280deg) brightness(100%) contrast(100%) !important;
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(100deg) brightness(100%) contrast(100%) !important;
 }
 
 /* Transform Input Panel (Bottom of Screen) */

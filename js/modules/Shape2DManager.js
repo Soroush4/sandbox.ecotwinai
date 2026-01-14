@@ -142,6 +142,7 @@ class Shape2DManager {
         const material = new BABYLON.StandardMaterial("polygonMaterial", this.scene);
         material.diffuseColor = color;
         material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         material.alpha = 0.7; // Semi-transparent
         polygon.material = material;
 
@@ -163,7 +164,8 @@ class Shape2DManager {
         
         const material = new BABYLON.StandardMaterial(`${uniqueName}Material`, this.scene);
         material.diffuseColor = color;
-        material.backFaceCulling = false; // 2-sided // Single-sided
+        material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         rectangle.material = material;
         
         // Add user data
@@ -198,6 +200,7 @@ class Shape2DManager {
         const material = new BABYLON.StandardMaterial(`${uniqueName}Material`, this.scene);
         material.diffuseColor = color;
         material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         circle.material = material;
         
         // Add user data
@@ -231,6 +234,7 @@ class Shape2DManager {
         const material = new BABYLON.StandardMaterial("triangleMaterial", this.scene);
         material.diffuseColor = color;
         material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         triangle.material = material;
         
         this.shapes.push(triangle);

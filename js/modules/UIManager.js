@@ -28,6 +28,9 @@ class UIManager {
         this.preferencesListenersSetup = false; // Track if preferences listeners are setup
         this.postProcessingListenersSetup = false; // Track if post processing listeners are setup
         this.cameraControlsDisabled = false; // Initialize camera control state
+        this.cursorCheckInterval = null; // Interval to maintain cursor during drawing
+        this.drawingCoordinatesTooltip = null; // Tooltip for displaying coordinates during drawing
+        this.drawingCoordinatesMoveHandler = null; // Mouse move handler for coordinates tooltip
         
         // STLManager reference (set by app.js after initialization)
         this.stlManager = null;
@@ -53,6 +56,16 @@ class UIManager {
         this.currentPolygon = null;
         this.currentSTLMesh = null;
         
+        // Last selected tree type (for remembering user's choice)
+        this.lastSelectedTreeType = null;
+        
+        // Tree tool long press timer
+        this.treeToolLongPressTimer = null;
+        this.treeToolLongPressStartTime = null;
+        
+        // Flag to prevent recursion in tree activation/deactivation
+        this.isDeactivatingTreePlacement = false;
+        
         this.init();
     }
 
@@ -70,7 +83,679 @@ class UIManager {
         this.setupHierarchyButton();
         // Apply 2-sided materials to all existing meshes
         this.apply2SidedMaterialsToAll();
+        // Set default tree tool icon to first tree (tree1)
+        this.updateTreeToolIcon('1');
         this.isInitialized = true;
+    }
+
+    /**
+     * Get canvas element
+     * @returns {HTMLCanvasElement|null} The canvas element
+     */
+    getCanvas() {
+        // Try to get canvas from sceneManager
+        if (this.sceneManager && this.sceneManager.canvas) {
+            return this.sceneManager.canvas;
+        }
+        // Fallback: try to get canvas from scene engine
+        if (this.sceneManager && this.sceneManager.getScene && this.sceneManager.getScene().getEngine) {
+            return this.sceneManager.getScene().getEngine().getRenderingCanvas();
+        }
+        // Final fallback: try to get canvas by ID
+        return document.getElementById('renderCanvas');
+    }
+
+    /**
+     * Create position tooltip element
+     */
+    createPositionTooltip() {
+        // Remove existing tooltip if any
+        if (this.positionTooltip) {
+            this.positionTooltip.remove();
+        }
+        
+        // Create tooltip element
+        this.positionTooltip = document.createElement('div');
+        this.positionTooltip.id = 'drawing-position-tooltip';
+        this.positionTooltip.className = 'drawing-position-tooltip';
+        this.positionTooltip.style.cssText = `
+            position: fixed;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+            z-index: 10000;
+            white-space: nowrap;
+            display: none;
+        `;
+        document.body.appendChild(this.positionTooltip);
+    }
+    
+    /**
+     * Update position tooltip
+     */
+    updatePositionTooltip(event) {
+        if (!this.positionTooltip || !this.sceneManager) {
+            return;
+        }
+        
+        const canvas = this.getCanvas();
+        if (!canvas) {
+            return;
+        }
+        
+        // Get mouse position relative to canvas
+        const rect = canvas.getBoundingClientRect();
+        const canvasX = event.clientX - rect.left;
+        const canvasY = event.clientY - rect.top;
+        
+        // Get ground intersection point
+        const intersectionPoint = this.sceneManager.getGroundIntersection(canvasX, canvasY);
+        
+        if (intersectionPoint) {
+            // Format coordinates (round to 2 decimal places)
+            const x = intersectionPoint.x.toFixed(2);
+            const z = intersectionPoint.z.toFixed(2);
+            this.positionTooltip.textContent = `X: ${x}, Z: ${z}`;
+            
+            // Position tooltip next to cursor (offset by 15px)
+            this.positionTooltip.style.left = (event.clientX + 15) + 'px';
+            this.positionTooltip.style.top = (event.clientY + 15) + 'px';
+            this.positionTooltip.style.display = 'block';
+        } else {
+            this.positionTooltip.style.display = 'none';
+        }
+    }
+    
+    /**
+     * Set cursor to crosshair for drawing mode
+     */
+    setDrawingCursor() {
+        console.log('[CURSOR] setDrawingCursor() called');
+        const canvas = this.getCanvas();
+        if (!canvas) {
+            console.log('[CURSOR] ERROR: Canvas not found!');
+            return;
+        }
+        
+        console.log('[CURSOR] Canvas found:', canvas.id || canvas.className || 'unnamed');
+        console.log('[CURSOR] Current cursor before change:', canvas.style.cursor || window.getComputedStyle(canvas).cursor);
+        
+        // Add drawing-mode class to canvas (CSS will handle cursor with !important)
+        canvas.classList.add('drawing-mode');
+        console.log('[CURSOR] Added drawing-mode class. Has class?', canvas.classList.contains('drawing-mode'));
+        
+        // Also set inline style as backup
+        // Note: setProperty with 'important' may not work in all browsers, so we use multiple methods
+        canvas.style.cursor = 'crosshair';
+        try {
+            canvas.style.setProperty('cursor', 'crosshair', 'important');
+        } catch (e) {
+            // Fallback if setProperty with important doesn't work
+            console.log('[CURSOR] setProperty with important failed, using regular style:', e);
+        }
+        console.log('[CURSOR] Set cursor to crosshair. Current style:', canvas.style.cursor);
+        console.log('[CURSOR] Computed cursor:', window.getComputedStyle(canvas).cursor);
+        console.log('[CURSOR] Canvas classes:', Array.from(canvas.classList));
+        
+        // Check drawing mode status
+        const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+        const circleActive = this.circleManager && this.circleManager.isDrawing;
+        const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+        const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+        const isDrawingActive = rectangleActive || circleActive || polygonActive || treeActive;
+        console.log('[CURSOR] Drawing mode active:', isDrawingActive);
+        console.log('[CURSOR] Rectangle drawing:', this.rectangleManager && this.rectangleManager.isDrawing);
+        console.log('[CURSOR] Circle drawing:', this.circleManager && this.circleManager.isDrawing);
+        console.log('[CURSOR] Polygon drawing:', this.polygonManager && this.polygonManager.isCurrentlyDrawing);
+        console.log('[CURSOR] Tree placing:', this.treeManager && this.treeManager.isPlacingTree);
+        
+        // Clear any existing interval
+        if (this.cursorCheckInterval) {
+            clearInterval(this.cursorCheckInterval);
+            this.cursorCheckInterval = null;
+            console.log('[CURSOR] Cleared existing interval');
+        }
+        
+        // Start interval to continuously maintain crosshair cursor
+        // This ensures cursor stays crosshair even if CameraController tries to change it
+        this.cursorCheckInterval = setInterval(() => {
+            const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+            const circleActive = this.circleManager && this.circleManager.isDrawing;
+            const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+            const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+            const isDrawingActive = rectangleActive || circleActive || polygonActive || treeActive;
+            
+            if (isDrawingActive) {
+                const currentCanvas = this.getCanvas();
+                if (currentCanvas) {
+                    const currentCursor = window.getComputedStyle(currentCanvas).cursor;
+                    if (currentCursor !== 'crosshair' && currentCursor !== 'default') {
+                        console.log('[CURSOR] Interval: Cursor changed to', currentCursor, '- fixing to crosshair');
+                    }
+                    currentCanvas.classList.add('drawing-mode');
+                    currentCanvas.style.cursor = 'crosshair';
+                    try {
+                        currentCanvas.style.setProperty('cursor', 'crosshair', 'important');
+                    } catch (e) {}
+                }
+            } else {
+                // Stop interval if drawing mode is no longer active
+                console.log('[CURSOR] Interval: Drawing mode no longer active, stopping interval');
+                if (this.cursorCheckInterval) {
+                    clearInterval(this.cursorCheckInterval);
+                    this.cursorCheckInterval = null;
+                }
+            }
+        }, 50); // Check every 50ms
+        console.log('[CURSOR] Started cursor check interval');
+        
+        // Setup coordinates tooltip (using existing function)
+        this.setupDrawingCoordinatesTooltip();
+        
+        // Remove any existing drawing cursor listeners to avoid duplicates
+        if (this.drawingCursorPointerDownHandler) {
+            canvas.removeEventListener('pointerdown', this.drawingCursorPointerDownHandler, true);
+        }
+        if (this.drawingCursorPointerUpHandler) {
+            canvas.removeEventListener('pointerup', this.drawingCursorPointerUpHandler, true);
+        }
+        if (this.drawingCursorPointerLeaveHandler) {
+            canvas.removeEventListener('pointerleave', this.drawingCursorPointerLeaveHandler, true);
+        }
+        if (this.drawingCursorPointerMoveHandler) {
+            canvas.removeEventListener('pointermove', this.drawingCursorPointerMoveHandler, true);
+        }
+        
+        // Add event listeners to maintain crosshair cursor during drawing
+        // These will override CameraController's cursor changes
+        // Use capture phase (true) to ensure these run before CameraController's handlers
+        this.drawingCursorPointerDownHandler = (e) => {
+            canvas.classList.add('drawing-mode');
+            canvas.style.cursor = 'crosshair';
+            try {
+                canvas.style.setProperty('cursor', 'crosshair', 'important');
+            } catch (e) {}
+        };
+        this.drawingCursorPointerUpHandler = (e) => {
+            canvas.classList.add('drawing-mode');
+            canvas.style.cursor = 'crosshair';
+            try {
+                canvas.style.setProperty('cursor', 'crosshair', 'important');
+            } catch (e) {}
+        };
+        this.drawingCursorPointerLeaveHandler = (e) => {
+            canvas.classList.add('drawing-mode');
+            canvas.style.cursor = 'crosshair';
+            try {
+                canvas.style.setProperty('cursor', 'crosshair', 'important');
+            } catch (e) {}
+        };
+        this.drawingCursorPointerMoveHandler = (e) => {
+            // Only set crosshair if we're in drawing mode
+            const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+            const circleActive = this.circleManager && this.circleManager.isDrawing;
+            const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+            const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+            const isDrawingActive = rectangleActive || circleActive || polygonActive || treeActive;
+            
+            if (isDrawingActive) {
+                canvas.classList.add('drawing-mode');
+                canvas.style.cursor = 'crosshair';
+                try {
+                    canvas.style.setProperty('cursor', 'crosshair', 'important');
+                } catch (e) {}
+            }
+        };
+        
+        // Use capture phase to ensure these run before CameraController's handlers
+        canvas.addEventListener('pointerdown', this.drawingCursorPointerDownHandler, true);
+        canvas.addEventListener('pointerup', this.drawingCursorPointerUpHandler, true);
+        canvas.addEventListener('pointerleave', this.drawingCursorPointerLeaveHandler, true);
+        canvas.addEventListener('pointermove', this.drawingCursorPointerMoveHandler, true);
+    }
+
+    /**
+     * Reset cursor to default (grab)
+     */
+    resetCursor() {
+        console.log('[CURSOR] resetCursor() called');
+        const canvas = this.getCanvas();
+        if (!canvas) {
+            console.log('[CURSOR] ERROR: Canvas not found in resetCursor!');
+            return;
+        }
+        
+        console.log('[CURSOR] Current cursor before reset:', canvas.style.cursor || window.getComputedStyle(canvas).cursor);
+        
+        // Stop cursor check interval
+        if (this.cursorCheckInterval) {
+            clearInterval(this.cursorCheckInterval);
+            this.cursorCheckInterval = null;
+            console.log('[CURSOR] Stopped cursor check interval');
+        }
+        
+        // Remove drawing-mode class
+        canvas.classList.remove('drawing-mode');
+        console.log('[CURSOR] Removed drawing-mode class. Has class?', canvas.classList.contains('drawing-mode'));
+        
+        // Remove drawing cursor event listeners
+        if (this.drawingCursorPointerDownHandler) {
+            canvas.removeEventListener('pointerdown', this.drawingCursorPointerDownHandler, true);
+            this.drawingCursorPointerDownHandler = null;
+        }
+        if (this.drawingCursorPointerUpHandler) {
+            canvas.removeEventListener('pointerup', this.drawingCursorPointerUpHandler, true);
+            this.drawingCursorPointerUpHandler = null;
+        }
+        if (this.drawingCursorPointerLeaveHandler) {
+            canvas.removeEventListener('pointerleave', this.drawingCursorPointerLeaveHandler, true);
+            this.drawingCursorPointerLeaveHandler = null;
+        }
+        if (this.drawingCursorPointerMoveHandler) {
+            canvas.removeEventListener('pointermove', this.drawingCursorPointerMoveHandler, true);
+            this.drawingCursorPointerMoveHandler = null;
+        }
+        console.log('[CURSOR] Removed event listeners');
+        
+        // Reset cursor to grab (remove important flag)
+        canvas.style.removeProperty('cursor');
+        canvas.style.cursor = 'grab';
+        console.log('[CURSOR] Reset cursor to grab. Current style:', canvas.style.cursor);
+        console.log('[CURSOR] Computed cursor:', window.getComputedStyle(canvas).cursor);
+        
+        // Hide coordinates tooltip
+        this.hideDrawingCoordinatesTooltip();
+    }
+
+    /**
+     * Setup coordinates tooltip for drawing mode
+     */
+    setupDrawingCoordinatesTooltip() {
+        console.log('[TOOLTIP] setupDrawingCoordinatesTooltip() called');
+        
+        // Remove any existing positionTooltip to avoid duplicates
+        if (this.positionTooltip) {
+            console.log('[TOOLTIP] Removing duplicate positionTooltip');
+            this.positionTooltip.remove();
+            this.positionTooltip = null;
+        }
+        
+        // Remove any existing tooltip with id 'drawing-position-tooltip'
+        const existingPositionTooltip = document.getElementById('drawing-position-tooltip');
+        if (existingPositionTooltip) {
+            console.log('[TOOLTIP] Removing existing tooltip with id drawing-position-tooltip');
+            existingPositionTooltip.remove();
+        }
+        
+        // Create tooltip element if it doesn't exist
+        if (!this.drawingCoordinatesTooltip) {
+            console.log('[TOOLTIP] Creating new tooltip element');
+            this.drawingCoordinatesTooltip = document.createElement('div');
+            this.drawingCoordinatesTooltip.className = 'drawing-coordinates-tooltip';
+            // Set inline styles to ensure visibility
+            // Use a very high z-index and ensure it's in the root stacking context
+            this.drawingCoordinatesTooltip.style.cssText = `
+                position: fixed !important;
+                pointer-events: none !important;
+                background: rgba(20, 20, 20, 0.7) !important;
+                color: #ffffff !important;
+                padding: 8px 12px !important;
+                border-radius: 6px !important;
+                font-size: 13px !important;
+                font-family: 'Courier New', monospace !important;
+                font-weight: bold !important;
+                white-space: nowrap !important;
+                z-index: 2147483647 !important;
+                display: none !important;
+                box-shadow: none !important;
+                border: none !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                transform: none !important;
+                will-change: transform !important;
+                backdrop-filter: blur(2px) !important;
+            `;
+            // Ensure tooltip is appended to body (root stacking context)
+            if (this.drawingCoordinatesTooltip.parentElement !== document.body) {
+                document.body.appendChild(this.drawingCoordinatesTooltip);
+            }
+            console.log('[TOOLTIP] Tooltip element created and added to body');
+        } else {
+            console.log('[TOOLTIP] Tooltip element already exists');
+        }
+
+        const canvas = this.getCanvas();
+        if (!canvas) {
+            console.log('[TOOLTIP] ERROR: Canvas not found!');
+            return;
+        }
+        console.log('[TOOLTIP] Canvas found:', canvas.id || canvas.className);
+
+        // Remove existing handler if any
+        if (this.drawingCoordinatesMoveHandler) {
+            canvas.removeEventListener('pointermove', this.drawingCoordinatesMoveHandler, true);
+            canvas.removeEventListener('mousemove', this.drawingCoordinatesMoveHandler, true);
+        }
+
+        // Store last mouse position for smooth updates
+        this.lastTooltipMouseX = 0;
+        this.lastTooltipMouseY = 0;
+        this.tooltipUpdateInterval = null;
+        
+        // Create new handler for real-time mouse position tracking
+        this.drawingCoordinatesMoveHandler = (event) => {
+            // Check if drawing mode is active using the correct method
+            const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+            const circleActive = this.circleManager && this.circleManager.isDrawing;
+            const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+            const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+            const isDrawingActive = rectangleActive || circleActive || polygonActive || treeActive;
+            
+            if (!isDrawingActive) {
+                if (this.drawingCoordinatesTooltip) {
+                    this.drawingCoordinatesTooltip.style.display = 'none';
+                }
+                if (this.tooltipUpdateInterval) {
+                    clearInterval(this.tooltipUpdateInterval);
+                    this.tooltipUpdateInterval = null;
+                }
+                return;
+            }
+
+            // Store mouse position immediately (this is fast)
+            const rect = canvas.getBoundingClientRect();
+            this.lastTooltipMouseX = event.clientX || 0;
+            this.lastTooltipMouseY = event.clientY || 0;
+            
+            // IMPORTANT: Update scene.pointerX and scene.pointerY manually
+            // because Babylon.js only updates them through its own event system
+            const scene = this.sceneManager.getScene();
+            if (scene) {
+                const canvasX = this.lastTooltipMouseX - rect.left;
+                const canvasY = this.lastTooltipMouseY - rect.top;
+                scene.pointerX = canvasX;
+                scene.pointerY = canvasY;
+            }
+            
+            // Update tooltip position immediately (without waiting for pick)
+            // This ensures tooltip always follows cursor smoothly
+            if (this.drawingCoordinatesTooltip) {
+                const newLeft = this.lastTooltipMouseX + 15;
+                const newTop = this.lastTooltipMouseY + 15;
+                this.drawingCoordinatesTooltip.style.setProperty('left', `${newLeft}px`, 'important');
+                this.drawingCoordinatesTooltip.style.setProperty('top', `${newTop}px`, 'important');
+                this.drawingCoordinatesTooltip.style.setProperty('display', 'block', 'important');
+            } else {
+                console.warn('[TOOLTIP] Tooltip element not found in move handler!');
+            }
+        };
+        
+        // Start continuous update loop for coordinates (runs every frame via requestAnimationFrame)
+        // This ensures coordinates update smoothly even during fast mouse movement
+        // Only start loop if it's not already running
+        if (!this.tooltipUpdateLoopRunning) {
+            this.tooltipUpdateLoopRunning = true;
+            let lastUpdateTime = 0;
+            let loopIteration = 0;
+            const updateLoop = () => {
+                if (!this.tooltipUpdateLoopRunning) {
+                    return; // Stop loop
+                }
+                
+                const now = performance.now();
+                // Throttle to ~60fps (every ~16ms) to avoid excessive pick calls
+                // Reduced to ~4ms for smoother updates during fast movement (250fps)
+                if (now - lastUpdateTime >= 4) {
+                    loopIteration++;
+                    // Removed frequent logging to reduce console clutter
+                    this.updateTooltipCoordinates();
+                    lastUpdateTime = now;
+                }
+                
+                // Continue loop
+                requestAnimationFrame(updateLoop);
+            };
+            
+            // Start the update loop
+            requestAnimationFrame(updateLoop);
+        }
+        
+        // Method to update tooltip coordinates (called via requestAnimationFrame)
+        this.updateTooltipCoordinates = () => {
+            if (!this.drawingCoordinatesTooltip || !this.sceneManager) {
+                if (!this._lastTooltipUpdateErrorLog || Date.now() - this._lastTooltipUpdateErrorLog > 1000) {
+                    console.warn('[TOOLTIP] updateTooltipCoordinates - Missing tooltip or sceneManager:', {
+                        tooltip: !!this.drawingCoordinatesTooltip,
+                        sceneManager: !!this.sceneManager
+                    });
+                    this._lastTooltipUpdateErrorLog = Date.now();
+                }
+                return;
+            }
+            
+            const canvas = this.getCanvas();
+            if (!canvas) {
+                if (!this._lastTooltipUpdateErrorLog || Date.now() - this._lastTooltipUpdateErrorLog > 1000) {
+                    console.warn('[TOOLTIP] updateTooltipCoordinates - Canvas not found');
+                    this._lastTooltipUpdateErrorLog = Date.now();
+                }
+                return;
+            }
+            
+            // Check if drawing mode is still active
+            const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+            const circleActive = this.circleManager && this.circleManager.isDrawing;
+            const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+            const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+            const isDrawingActive = rectangleActive || circleActive || polygonActive || treeActive;
+            
+            if (!isDrawingActive) {
+                if (this.drawingCoordinatesTooltip) {
+                    this.drawingCoordinatesTooltip.style.display = 'none';
+                }
+                return;
+            }
+            
+            // Use scene.pointerX and scene.pointerY which are always up-to-date
+            // These are automatically updated by Babylon.js on every pointer move
+            const scene = this.sceneManager.getScene();
+            if (!scene) {
+                if (!this._lastTooltipUpdateErrorLog || Date.now() - this._lastTooltipUpdateErrorLog > 1000) {
+                    console.warn('[TOOLTIP] updateTooltipCoordinates - Scene not available');
+                    this._lastTooltipUpdateErrorLog = Date.now();
+                }
+                return;
+            }
+            
+            // Use scene.pointerX/Y which are always current (updated by Babylon.js or manually)
+            // For polygon drawing, these are updated in setupDrawingEventListeners
+            // For other drawing tools, they're updated in drawingCoordinatesMoveHandler
+            const canvasX = scene.pointerX;
+            const canvasY = scene.pointerY;
+            
+            // Removed logging to reduce console clutter
+            
+            // Get world coordinates from ground intersection
+            const pickStartTime = performance.now();
+            const pickResult = scene.pick(canvasX, canvasY, (mesh) => {
+                return mesh.name === 'earth' || mesh.name === 'invisible_ground';
+            });
+            const pickDuration = performance.now() - pickStartTime;
+            
+            if (pickResult && pickResult.hit && pickResult.pickedPoint) {
+                const worldPoint = pickResult.pickedPoint;
+                const xCoord = worldPoint.x.toFixed(2);
+                const zCoord = worldPoint.z.toFixed(2);
+                
+                    // Update tooltip text (coordinates) - this is the only thing that needs pick
+                    if (this.drawingCoordinatesTooltip) {
+                        this.drawingCoordinatesTooltip.textContent = `X: ${xCoord}, Z: ${zCoord}`;
+                    }
+                } else {
+                    // Don't hide tooltip if pick fails - just keep showing last known position
+                    // This prevents flickering when moving quickly
+                }
+        };
+        
+        // Note: Using direct event listeners (pointermove/mousemove) for real-time updates
+        // This is more reliable than scene.onPointerObservable for tooltip updates
+
+        // Add event listeners for real-time updates
+        // Use both pointermove and mousemove for maximum compatibility
+        // Use capture phase to ensure we get events before other handlers
+        canvas.addEventListener('pointermove', this.drawingCoordinatesMoveHandler, true);
+        canvas.addEventListener('mousemove', this.drawingCoordinatesMoveHandler, true);
+        
+        // Hide tooltip when mouse leaves canvas
+        this.drawingCoordinatesLeaveHandler = (event) => {
+            if (this.drawingCoordinatesTooltip) {
+                this.drawingCoordinatesTooltip.style.display = 'none';
+            }
+        };
+        
+        // Show tooltip when mouse enters canvas (if drawing mode is active)
+        this.drawingCoordinatesEnterHandler = (event) => {
+            const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+            const circleActive = this.circleManager && this.circleManager.isDrawing;
+            const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+            const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+            const isDrawingActive = rectangleActive || circleActive || polygonActive || treeActive;
+            
+            if (isDrawingActive && this.drawingCoordinatesTooltip) {
+                this.drawingCoordinatesTooltip.style.display = 'block';
+            }
+        };
+        
+        canvas.addEventListener('pointerleave', this.drawingCoordinatesLeaveHandler, true);
+        canvas.addEventListener('mouseleave', this.drawingCoordinatesLeaveHandler, true);
+        canvas.addEventListener('pointerenter', this.drawingCoordinatesEnterHandler, true);
+        canvas.addEventListener('mouseenter', this.drawingCoordinatesEnterHandler, true);
+        
+        console.log('[TOOLTIP] Event listeners added for pointermove, mousemove, pointerleave, mouseleave, pointerenter, mouseenter with capture phase');
+    }
+
+    /**
+     * Update tooltip position (called via requestAnimationFrame)
+     */
+    updateTooltipPosition() {
+        if (!this.drawingCoordinatesTooltip || !this.sceneManager) {
+            return;
+        }
+        
+        const canvas = this.getCanvas();
+        if (!canvas) {
+            return;
+        }
+        
+        // Check if drawing mode is active
+        const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+        const circleActive = this.circleManager && this.circleManager.isDrawing;
+        const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+        const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+        const isDrawingActive = rectangleActive || circleActive || polygonActive || treeActive;
+        
+        if (!isDrawingActive) {
+            this.hideDrawingCoordinatesTooltip();
+            return;
+        }
+        
+        // Get canvas coordinates
+        const rect = canvas.getBoundingClientRect();
+        const canvasX = this.lastMouseX - rect.left;
+        const canvasY = this.lastMouseY - rect.top;
+        
+        // Get world coordinates from ground intersection
+        const scene = this.sceneManager.getScene();
+        if (scene) {
+            const pickResult = scene.pick(canvasX, canvasY, (mesh) => {
+                return mesh.name === 'earth' || mesh.name === 'invisible_ground';
+            });
+            
+            if (pickResult && pickResult.hit && pickResult.pickedPoint) {
+                const worldPoint = pickResult.pickedPoint;
+                const xCoord = worldPoint.x.toFixed(2);
+                const zCoord = worldPoint.z.toFixed(2);
+                
+                // Update tooltip text and position
+                this.drawingCoordinatesTooltip.textContent = `X: ${xCoord}, Z: ${zCoord}`;
+                this.drawingCoordinatesTooltip.style.left = `${this.lastMouseX + 15}px`;
+                this.drawingCoordinatesTooltip.style.top = `${this.lastMouseY + 15}px`;
+                this.drawingCoordinatesTooltip.style.display = 'block';
+            } else {
+                // Hide tooltip if not on ground
+                this.drawingCoordinatesTooltip.style.display = 'none';
+            }
+        }
+    }
+    
+    /**
+     * Hide coordinates tooltip
+     */
+    hideDrawingCoordinatesTooltip() {
+        if (this.drawingCoordinatesTooltip) {
+            this.drawingCoordinatesTooltip.style.display = 'none';
+        }
+        this.tooltipUpdateRequested = false;
+        
+        // Stop the update loop
+        this.tooltipUpdateLoopRunning = false;
+
+        const canvas = this.getCanvas();
+        if (canvas) {
+            if (this.drawingCoordinatesMoveHandler) {
+                canvas.removeEventListener('pointermove', this.drawingCoordinatesMoveHandler, true);
+                canvas.removeEventListener('mousemove', this.drawingCoordinatesMoveHandler, true);
+                this.drawingCoordinatesMoveHandler = null;
+            }
+            if (this.drawingCoordinatesLeaveHandler) {
+                canvas.removeEventListener('pointerleave', this.drawingCoordinatesLeaveHandler, true);
+                canvas.removeEventListener('mouseleave', this.drawingCoordinatesLeaveHandler, true);
+                this.drawingCoordinatesLeaveHandler = null;
+            }
+            if (this.drawingCoordinatesEnterHandler) {
+                canvas.removeEventListener('pointerenter', this.drawingCoordinatesEnterHandler, true);
+                canvas.removeEventListener('mouseenter', this.drawingCoordinatesEnterHandler, true);
+                this.drawingCoordinatesEnterHandler = null;
+            }
+        }
+        
+        // Remove pointer observer
+        if (this.tooltipPointerObserver && this.sceneManager && this.sceneManager.getScene) {
+            this.sceneManager.getScene().onPointerObservable.remove(this.tooltipPointerObserver);
+            this.tooltipPointerObserver = null;
+        }
+    }
+
+    /**
+     * Check if any drawing mode is currently active
+     * @returns {boolean} True if drawing mode is active
+     */
+    isDrawingModeActive() {
+        const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+        const circleActive = this.circleManager && this.circleManager.isDrawing;
+        const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+        const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+        
+        const isActive = rectangleActive || circleActive || polygonActive || treeActive;
+        
+        // Log only when state changes to avoid spam
+        if (isActive && !this._lastDrawingState) {
+            console.log('[CURSOR] Drawing mode activated:', {
+                rectangle: rectangleActive,
+                circle: circleActive,
+                polygon: polygonActive,
+                tree: treeActive
+            });
+        } else if (!isActive && this._lastDrawingState) {
+            console.log('[CURSOR] Drawing mode deactivated');
+        }
+        
+        this._lastDrawingState = isActive;
+        return isActive;
     }
 
     /**
@@ -82,11 +767,16 @@ class UIManager {
             return;
         }
 
+        let updatedCount = 0;
+
         // Apply to all meshes
         scene.meshes.forEach(mesh => {
             if (mesh.material && mesh.material instanceof BABYLON.StandardMaterial) {
-                mesh.material.backFaceCulling = false; // 2-sided
-                mesh.material.twoSidedLighting = true; // Enable lighting on both sides
+                if (mesh.material.backFaceCulling !== false) {
+                    mesh.material.backFaceCulling = false; // 2-sided
+                    mesh.material.twoSidedLighting = true; // Enable lighting on both sides
+                    updatedCount++;
+                }
             }
         });
 
@@ -96,14 +786,17 @@ class UIManager {
                 const childMeshes = node.getChildMeshes();
                 childMeshes.forEach(childMesh => {
                     if (childMesh.material && childMesh.material instanceof BABYLON.StandardMaterial) {
-                        childMesh.material.backFaceCulling = false; // 2-sided
-                        childMesh.material.twoSidedLighting = true; // Enable lighting on both sides
+                        if (childMesh.material.backFaceCulling !== false) {
+                            childMesh.material.backFaceCulling = false; // 2-sided
+                            childMesh.material.twoSidedLighting = true; // Enable lighting on both sides
+                            updatedCount++;
+                        }
                     }
                 });
             }
         });
 
-        console.log('Applied 2-sided materials to all meshes in the scene');
+        // console.log(`Applied 2-sided materials to ${updatedCount} meshes in the scene`);
     }
 
     /**
@@ -186,9 +879,16 @@ class UIManager {
             
             // Show properties popup for any selected object when any transform tool is active
             if (count === 1 && this.isAnyTransformToolActive()) {
-                const selectedObject = selectedObjects[0];
+                let selectedObject = selectedObjects[0];
+                
+                // IMPORTANT: If extrusion is selected, use its base polygon for properties popup
+                // This ensures polygon properties are shown even when extrusion is selected
+                if (selectedObject.name && selectedObject.name.includes('_extrusion') && selectedObject.basePolygon) {
+                    console.log(`[SELECTION] Extrusion selected, using base polygon for properties: ${selectedObject.basePolygon.name}`);
+                    selectedObject = selectedObject.basePolygon;
+                }
+                
                 const shapeType = this.getShapeType(selectedObject);
-                console.log('Selected object:', selectedObject.name, 'Shape type:', shapeType);
                 
                 // Check if this is a circle or building that originated from a circle
                 const isCircle = shapeType === 'circle';
@@ -197,44 +897,33 @@ class UIManager {
                     selectedObject.userData.dimensions && 
                     selectedObject.userData.dimensions.diameterTop !== undefined;
                 
-                console.log('Shape detection:', {
-                    shapeType,
-                    isCircle,
-                    isBuildingFromCircle,
-                    userData: selectedObject.userData
-                });
                 
                 // Check if this is an imported STL mesh first
                 if (selectedObject.userData && selectedObject.userData.isImportedSTL) {
-                    console.log('Showing STL properties popup');
                     if (this.propertiesPopupManager) {
                         this.propertiesPopupManager.showSTLPropertiesPopup(selectedObject);
                     } else {
                         this.showSTLPropertiesPopup(selectedObject);
                     }
                 } else if (this.isTree(selectedObject)) {
-                    console.log('Showing tree properties popup');
                     if (this.propertiesPopupManager) {
                         this.propertiesPopupManager.showTreePropertiesPopup(selectedObject);
                     } else {
                         this.showTreePropertiesPopup(selectedObject);
                     }
                 } else if (isCircle || isBuildingFromCircle) {
-                    console.log('Showing circle properties popup');
                     if (this.propertiesPopupManager) {
                         this.propertiesPopupManager.showCirclePropertiesPopup(selectedObject);
                     } else {
                         this.showCirclePropertiesPopup(selectedObject);
                     }
                 } else if (shapeType === 'polygon') {
-                    console.log('Showing polygon properties popup');
                     if (this.propertiesPopupManager) {
                         this.propertiesPopupManager.showPolygonPropertiesPopup(selectedObject);
                     } else {
                         this.showPolygonPropertiesPopup(selectedObject);
                     }
                 } else if (this.is2DShape(selectedObject) || shapeType === 'rectangle' || shapeType === 'building') {
-                    console.log('Showing regular properties popup');
                     if (this.propertiesPopupManager) {
                         this.propertiesPopupManager.showPropertiesPopup(selectedObject);
                     } else {
@@ -319,13 +1008,67 @@ class UIManager {
      * Setup tree event listeners
      */
     setupTreeEventListeners() {
-        // Tree tool click
+        // Tree tool click with long press detection
         const treeTool = document.getElementById('treeTool');
         if (treeTool) {
-            treeTool.addEventListener('click', (e) => {
+            // Handle pointer down (mouse down or touch start)
+            treeTool.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0) return; // Only left click
                 e.stopPropagation();
-                e.preventDefault(); // Prevent default behavior
-                this.toggleTreeSubmenu();
+                e.preventDefault();
+                
+                // Start long press timer
+                this.treeToolLongPressStartTime = Date.now();
+                this.treeToolLongPressTimer = setTimeout(() => {
+                    // After 0.4 seconds, cancel current tree type and open panel
+                    if (this.treeManager && this.treeManager.isCurrentlyPlacing()) {
+                        this.treeManager.stopTreePlacement();
+                    }
+                    // Remove active class from all tree options
+                    const treeOptions = document.querySelectorAll('.tree-option');
+                    treeOptions.forEach(option => option.classList.remove('active'));
+                    // Open submenu
+                    this.showTreeSubmenu();
+                    this.treeToolLongPressTimer = null;
+                }, 400);
+            });
+            
+            // Handle pointer up (mouse up or touch end)
+            treeTool.addEventListener('pointerup', (e) => {
+                if (e.button !== 0) return; // Only left click
+                e.stopPropagation();
+                e.preventDefault();
+                
+                // Clear long press timer
+                if (this.treeToolLongPressTimer) {
+                    clearTimeout(this.treeToolLongPressTimer);
+                    this.treeToolLongPressTimer = null;
+                }
+                
+                // If it was a short click (less than 0.4 seconds), activate tree with default/last selected type
+                const pressDuration = Date.now() - (this.treeToolLongPressStartTime || 0);
+                if (pressDuration < 200) {
+                    // Activate tree with default or last selected type
+                    const treeTypeToActivate = this.lastSelectedTreeType || '1';
+                    this.activateTreeType(treeTypeToActivate, false);
+                }
+                
+                this.treeToolLongPressStartTime = null;
+            });
+            
+            // Handle pointer leave (mouse leave or touch cancel)
+            treeTool.addEventListener('pointerleave', (e) => {
+                // Clear long press timer if mouse leaves
+                if (this.treeToolLongPressTimer) {
+                    clearTimeout(this.treeToolLongPressTimer);
+                    this.treeToolLongPressTimer = null;
+                }
+                this.treeToolLongPressStartTime = null;
+            });
+            
+            // Prevent context menu on right click
+            treeTool.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
             });
         }
 
@@ -340,6 +1083,7 @@ class UIManager {
         });
 
         // Click outside to close tree submenu
+        // Note: This will trigger hideTreeSubmenu which will activate default/last selected tree type
         document.addEventListener('click', (e) => {
             const treeSubmenu = document.getElementById('treeSubmenu');
             const treeTool = document.getElementById('treeTool');
@@ -347,7 +1091,10 @@ class UIManager {
             if (treeSubmenu && treeTool && 
                 !treeSubmenu.contains(e.target) && 
                 !treeTool.contains(e.target)) {
-                this.hideTreeSubmenu();
+                // Only hide if submenu is visible
+                if (treeSubmenu.style.display !== 'none') {
+                    this.hideTreeSubmenu();
+                }
             }
         });
 
@@ -506,10 +1253,29 @@ class UIManager {
      */
     startPolygonDrawing() {
         if (this.polygonManager) {
+            // IMPORTANT: Reset polygonType dropdown to 'ground' when starting new polygon drawing
+            // This ensures new polygons default to 'ground' type, not the type of previously edited polygon
+            const polygonTypeSelect = document.getElementById('polygonType');
+            if (polygonTypeSelect) {
+                polygonTypeSelect.value = 'ground';
+                polygonTypeSelect.removeAttribute('data-previous-value');
+            }
+            
+            // IMPORTANT: Deactivate all other drawing tools before activating polygon
+            this.deactivateAllDrawingTools();
+            
+            // Activate polygon tool button
+            const polygonTool = document.querySelector('#drawingPanel [data-tool="polygon"]');
+            if (polygonTool) {
+                polygonTool.classList.add('active');
+            }
+            
             // Set up callbacks for polygon completion and cancellation
             this.polygonManager.onPolygonCompleted = (polygon) => {
                 this.enableCameraControls();
                 this.hidePolygonDrawingInstructions();
+                // Reset cursor to default
+                this.resetCursor();
                 this.deactivatePolygonTool();
                 this.activateSelectTool();
                 
@@ -525,6 +1291,8 @@ class UIManager {
             this.polygonManager.onPolygonCancelled = () => {
                 this.enableCameraControls();
                 this.hidePolygonDrawingInstructions();
+                // Reset cursor to default
+                this.resetCursor();
                 this.deactivatePolygonTool();
                 this.activateSelectTool();
             };
@@ -532,6 +1300,9 @@ class UIManager {
             this.polygonManager.startDrawing();
             this.disableCameraControls();
             this.showPolygonDrawingInstructions();
+            
+            // Set cursor to crosshair for drawing mode
+            this.setDrawingCursor();
         }
     }
 
@@ -761,6 +1532,14 @@ class UIManager {
         const polygonTool = document.querySelector('#drawingPanel [data-tool="polygon"]');
         if (polygonTool) {
             polygonTool.classList.remove('active');
+            // Reset inline styles that might be applied by event listeners
+            polygonTool.style.background = '';
+            polygonTool.style.borderColor = '';
+            polygonTool.style.boxShadow = '';
+            const icon = polygonTool.querySelector('.tool-icon');
+            if (icon) {
+                icon.style.filter = '';
+            }
         }
     }
 
@@ -813,35 +1592,77 @@ class UIManager {
     /**
      * Toggle tree submenu visibility
      */
+    /**
+     * Show tree submenu
+     */
+    showTreeSubmenu() {
+        const treeSubmenu = document.getElementById('treeSubmenu');
+        if (treeSubmenu) {
+            treeSubmenu.style.display = 'block';
+            // Deactivate all other tools when opening submenu
+            this.deselectAllOtherTools();
+            // Hide transform input fields when tree tool is activated
+            this.updateTransformInputFieldsVisibility();
+        }
+    }
+    
+    /**
+     * Toggle tree submenu visibility
+     */
     toggleTreeSubmenu() {
         const treeSubmenu = document.getElementById('treeSubmenu');
         if (treeSubmenu) {
             const isVisible = treeSubmenu.style.display !== 'none';
-            treeSubmenu.style.display = isVisible ? 'none' : 'block';
-            
-            // If opening the submenu, deactivate all other tools
-            if (!isVisible) {
-                this.deselectAllOtherTools();
-                // Hide transform input fields when tree tool is activated
-                this.updateTransformInputFieldsVisibility();
+            if (isVisible) {
+                this.hideTreeSubmenu();
+            } else {
+                this.showTreeSubmenu();
             }
         }
     }
 
     /**
      * Hide tree submenu
+     * If no tree type was selected, activate default or last selected type
      */
     hideTreeSubmenu() {
         const treeSubmenu = document.getElementById('treeSubmenu');
         if (treeSubmenu) {
             treeSubmenu.style.display = 'none';
+            
+            // Don't reactivate tree if we're in the middle of deactivating tree placement
+            if (this.isDeactivatingTreePlacement) {
+                return;
+            }
+            
+            // Check if any tree type is currently active (both in UI and in TreeManager)
+            const activeTreeOption = document.querySelector('.tree-option.active');
+            const isTreePlacementActive = this.treeManager && this.treeManager.isPlacingTree;
+            
+            if (!activeTreeOption && !isTreePlacementActive) {
+                // No tree type selected and no tree placement active, activate default or last selected type
+                const treeTypeToActivate = this.lastSelectedTreeType || '1';
+                this.activateTreeType(treeTypeToActivate, false);
+            }
         }
     }
 
     /**
-     * Select tree type and start placement
+     * Select tree type and start placement (called when user clicks on a tree option)
      */
     selectTreeType(treeType) {
+        // Save the selected tree type for future use
+        this.lastSelectedTreeType = treeType;
+        // Activate tree type and hide submenu
+        this.activateTreeType(treeType, true);
+    }
+    
+    /**
+     * Activate tree type (internal method)
+     * @param {string} treeType - Tree type to activate ('1', '2', '3', or '4')
+     * @param {boolean} hideSubmenu - Whether to hide the submenu after activation
+     */
+    activateTreeType(treeType, hideSubmenu = true) {
         if (!this.treeManager) {
             return;
         }
@@ -851,8 +1672,10 @@ class UIManager {
             this.selectionManager.clearSelection();
         }
 
-        // Hide submenu
-        this.hideTreeSubmenu();
+        // Hide submenu if requested
+        if (hideSubmenu) {
+            this.hideTreeSubmenu();
+        }
 
         // Remove active class from all tree options
         const treeOptions = document.querySelectorAll('.tree-option');
@@ -863,6 +1686,9 @@ class UIManager {
         if (selectedOption) {
             selectedOption.classList.add('active');
         }
+
+        // Update tree tool icon to match selected tree type
+        this.updateTreeToolIcon(treeType);
 
         // Deselect all other tools when tree tool is selected
         this.deselectAllOtherTools();
@@ -882,8 +1708,62 @@ class UIManager {
             this.updateTreeDistanceParameter(parseFloat(distanceInput.value));
         }
 
+        // IMPORTANT: Deactivate OTHER drawing tools (rectangle, circle, polygon) but NOT tree
+        // We don't call deactivateAllDrawingTools() here because it would deactivate the tree we're trying to activate
+        if (this.rectangleManager && this.rectangleManager.isDrawing) {
+            this.rectangleManager.stopInteractiveDrawing();
+        }
+        if (this.circleManager && this.circleManager.isDrawing) {
+            this.circleManager.stopInteractiveDrawing();
+        }
+        if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
+            this.polygonManager.stopDrawing();
+        }
+        
+        // Remove active class from other drawing tools (but not tree)
+        const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item:not([data-tool="tree"])');
+        allDrawingTools.forEach(tool => tool.classList.remove('active'));
+        
+        // Activate tree tool button
+        const treeTool = document.querySelector('#drawingPanel [data-tool="tree"]');
+        if (treeTool) {
+            treeTool.classList.add('active');
+        }
+
         // Start tree placement
         this.treeManager.startTreePlacement(treeType);
+        
+        // Set cursor to crosshair for drawing mode
+        this.setDrawingCursor();
+    }
+
+    /**
+     * Update tree tool icon to match selected tree type
+     * @param {string} treeType - Tree type ('1', '2', '3', or '4')
+     */
+    updateTreeToolIcon(treeType) {
+        const treeTool = document.querySelector('#drawingPanel [data-tool="tree"]');
+        if (!treeTool) {
+            return;
+        }
+        
+        const toolIcon = treeTool.querySelector('.tool-icon');
+        if (!toolIcon) {
+            return;
+        }
+        
+        // Map tree type to icon path
+        const iconMap = {
+            '1': 'icons/tree1.svg',
+            '2': 'icons/tree2.svg',
+            '3': 'icons/tree3.svg',
+            '4': 'icons/tree4.svg'
+        };
+        
+        const iconPath = iconMap[treeType];
+        if (iconPath) {
+            toolIcon.src = iconPath;
+        }
     }
 
     /**
@@ -925,20 +1805,37 @@ class UIManager {
             return;
         }
 
-        // Stop tree placement
-        this.treeManager.stopTreePlacement();
+        // Set flag to prevent recursion
+        this.isDeactivatingTreePlacement = true;
 
-        // Remove active class from all tree options
-        const treeOptions = document.querySelectorAll('.tree-option');
-        treeOptions.forEach(option => option.classList.remove('active'));
+        try {
+            // Stop tree placement
+            this.treeManager.stopTreePlacement();
 
-        // Hide tree submenu
-        this.hideTreeSubmenu();
+            // Remove active class from all tree options
+            const treeOptions = document.querySelectorAll('.tree-option');
+            treeOptions.forEach(option => option.classList.remove('active'));
 
-        // Note: Camera controls are NOT re-enabled here
-        // They will be re-enabled only when another tool is selected
+            // Hide tree submenu (but it won't reactivate tree due to flag)
+            this.hideTreeSubmenu();
 
-        // Reset drag variables (they will be reset in the next mouse event)
+            // Remove active class from tree tool button
+            const treeTool = document.querySelector('#drawingPanel [data-tool="tree"]');
+            if (treeTool) {
+                treeTool.classList.remove('active');
+            }
+
+            // Reset cursor to default
+            this.resetCursor();
+
+            // Note: Camera controls are NOT re-enabled here
+            // They will be re-enabled only when another tool is selected
+
+            // Reset drag variables (they will be reset in the next mouse event)
+        } finally {
+            // Reset flag after deactivation is complete
+            this.isDeactivatingTreePlacement = false;
+        }
     }
 
     /**
@@ -3546,11 +4443,11 @@ class UIManager {
             stlV1 = convertVertex(v1);
             stlV2 = convertVertex(v2);
         } else {
-            // Y-up: Keep Babylon.js coordinate system as is
-            stlNormal = { x: normal.x, y: normal.y, z: normal.z };
-            stlV0 = { x: v0.x, y: v0.y, z: v0.z };
-            stlV1 = { x: v1.x, y: v1.y, z: v1.z };
-            stlV2 = { x: v2.x, y: v2.y, z: v2.z };
+            // Y-up: Keep Babylon.js coordinate system but reverse Z axis (flip forward/backward direction)
+            stlNormal = { x: normal.x, y: normal.y, z: -normal.z };
+            stlV0 = { x: v0.x, y: v0.y, z: -v0.z };
+            stlV1 = { x: v1.x, y: v1.y, z: -v1.z };
+            stlV2 = { x: v2.x, y: v2.y, z: -v2.z };
         }
 
         let stl = `  facet normal ${formatFloat(stlNormal.x)} ${formatFloat(stlNormal.y)} ${formatFloat(stlNormal.z)}\n`;
@@ -8266,7 +9163,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         setTimeout(() => {
             if (this.zoomToFitGround) {
                 this.zoomToFitGround();
-                console.log('Auto-zoomed to fit ground after default scene creation');
+                // console.log('Auto-zoomed to fit ground after default scene creation');
             }
         }, 1000);
     }
@@ -9178,14 +10075,41 @@ Transform your 3D models into powerful energy analysis tools.`;
             return;
         }
 
+        // IMPORTANT: Deactivate all other drawing tools before activating rectangle
+        this.deactivateAllDrawingTools();
+        
+        // Activate rectangle tool button
+        const rectangleTool = document.querySelector('#drawingPanel [data-tool="rectangle"]');
+        if (rectangleTool) {
+            rectangleTool.classList.add('active');
+        }
+
         // Disable camera controls during drawing
         this.disableCameraControls();
 
-        // Set callback for when drawing stops
+        // Set callback for when drawing stops (BEFORE startInteractiveDrawing to avoid immediate trigger)
         this.rectangleManager.onDrawingStopped = () => {
             this.enableCameraControls();
+            // Reset cursor to default
+            this.resetCursor();
             // Deactivate drawing tool after drawing is complete
             this.deactivateDrawingTool();
+            
+            // IMPORTANT: Explicitly deactivate rectangle tool button to ensure it returns to normal state
+            const rectangleTool = document.querySelector('#drawingPanel [data-tool="rectangle"]');
+            if (rectangleTool) {
+                rectangleTool.classList.remove('active');
+                // Reset inline styles that might be applied by event listeners
+                rectangleTool.style.background = '';
+                rectangleTool.style.borderColor = '';
+                rectangleTool.style.boxShadow = '';
+                const icon = rectangleTool.querySelector('.tool-icon');
+                if (icon) {
+                    icon.style.filter = '';
+                }
+            }
+            
+            // Logs removed to reduce console clutter
         };
 
         // Set callback for when rectangle is created
@@ -9195,12 +10119,36 @@ Transform your 3D models into powerful energy analysis tools.`;
                 this.selectionManager.addSelectableObject(rectangle);
             }
             
-            // Add to scene
+            // Add to scene - only add to buildings list if type is 'building'
             if (this.sceneManager) {
-                this.sceneManager.addBuilding(rectangle);
+                const rectangleType = rectangle.userData?.type || 'ground';
+                if (rectangleType.toLowerCase() === 'building') {
+                    // addBuilding expects an object with mesh property
+                    this.sceneManager.addBuilding({ mesh: rectangle });
+                }
+                // For non-building types, the rectangle is already in the scene
+                // (created by RectangleManager.createRectangle which adds it to scene)
             }
             
-            // Switch back to select tool after completion
+            // IMPORTANT: Deactivate drawing tool and activate select tool after completion
+            this.deactivateDrawingTool();
+            
+            // IMPORTANT: Explicitly deactivate rectangle tool button to ensure it returns to normal state
+            const rectangleTool = document.querySelector('#drawingPanel [data-tool="rectangle"]');
+            if (rectangleTool) {
+                rectangleTool.classList.remove('active');
+                // Reset inline styles that might be applied by event listeners
+                rectangleTool.style.background = '';
+                rectangleTool.style.borderColor = '';
+                rectangleTool.style.boxShadow = '';
+                const icon = rectangleTool.querySelector('.tool-icon');
+                if (icon) {
+                    icon.style.filter = '';
+                }
+            }
+            
+            // Logs removed to reduce console clutter
+            
             this.activateSelectTool();
             
             // Automatically select the newly created rectangle
@@ -9211,11 +10159,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Dispatch scene change event to update object list
             this.dispatchSceneChangeEvent();
             
-            console.log('Rectangle created:', rectangle.name);
+            console.log('Rectangle created:', rectangle.name, 'type:', rectangle.userData?.type || 'unknown');
         };
 
         // Start interactive rectangle drawing
         this.rectangleManager.startInteractiveDrawing();
+        
+        // Set cursor to crosshair AFTER starting drawing (to ensure drawing is actually active)
+        this.setDrawingCursor();
     }
 
     /**
@@ -9226,44 +10177,109 @@ Transform your 3D models into powerful energy analysis tools.`;
             return;
         }
 
+        // IMPORTANT: Deactivate all other drawing tools before activating circle
+        this.deactivateAllDrawingTools();
+        
+        // Activate circle tool button
+        const circleTool = document.querySelector('#drawingPanel [data-tool="circle"]');
+        if (circleTool) {
+            circleTool.classList.add('active');
+        }
+
         // Disable camera controls during drawing
         this.disableCameraControls();
 
-        // Set callback for when drawing stops
+        // Set callback for when drawing stops (BEFORE startInteractiveDrawing to avoid immediate trigger)
         this.circleManager.onDrawingStopped = () => {
             this.enableCameraControls();
+            // Reset cursor to default
+            this.resetCursor();
             // Deactivate drawing tool after drawing is complete
             this.deactivateDrawingTool();
+            
+            // IMPORTANT: Explicitly deactivate circle tool button to ensure it returns to normal state
+            const circleTool = document.querySelector('#drawingPanel [data-tool="circle"]');
+            if (circleTool) {
+                circleTool.classList.remove('active');
+                // Reset inline styles that might be applied by event listeners
+                circleTool.style.background = '';
+                circleTool.style.borderColor = '';
+                circleTool.style.boxShadow = '';
+                const icon = circleTool.querySelector('.tool-icon');
+                if (icon) {
+                    icon.style.filter = '';
+                }
+            }
+            
+            // Logs removed to reduce console clutter
         };
 
         // Set callback for when circle is created
-        this.circleManager.onCircleCreated = (circle) => {
-            // Add to selection manager
+        this.circleManager.onCircleCreated = (circle, isUpdate = false, wasSelected = false) => {
+            // Add to selection manager (if not already added)
             if (this.selectionManager) {
+                // Check if circle is already in selection manager (means it's an update, not a new creation)
+                // Since circle is a new mesh after update, we need to check by name or add it
+                // The old circle was removed, so we always need to add the new one
                 this.selectionManager.addSelectableObject(circle);
             }
             
-            // Add to scene
-            if (this.sceneManager) {
-                this.sceneManager.addBuilding(circle);
+            // Note: Circle is already added to scene by CreateCylinder
+            // No need to call addBuilding as it expects {mesh: ...} format
+            // Just ensure it's visible and enabled
+            if (circle) {
+                circle.setEnabled(true);
+                circle.isVisible = true;
             }
             
-            // Switch back to select tool after completion
-            this.activateSelectTool();
-            
-            // Automatically select the newly created circle
-            if (this.selectionManager) {
-                this.selectionManager.selectObject(circle, false, true);
+            // IMPORTANT: Only activate select tool and select circle if it's a NEW creation, not an update
+            // When updating (changing height while move tool is active), preserve the current tool
+            if (!isUpdate) {
+                // IMPORTANT: Explicitly deactivate circle tool button to ensure it returns to normal state
+                const circleTool = document.querySelector('#drawingPanel [data-tool="circle"]');
+                if (circleTool) {
+                    circleTool.classList.remove('active');
+                    // Reset inline styles that might be applied by event listeners
+                    circleTool.style.background = '';
+                    circleTool.style.borderColor = '';
+                    circleTool.style.boxShadow = '';
+                    const icon = circleTool.querySelector('.tool-icon');
+                    if (icon) {
+                        icon.style.filter = '';
+                    }
+                }
+                
+                // Logs removed to reduce console clutter
+                
+                // Switch back to select tool after completion
+                this.activateSelectTool();
+                
+                // Automatically select the newly created circle
+                if (this.selectionManager) {
+                    this.selectionManager.selectObject(circle, false, true);
+                }
+            } else if (wasSelected) {
+                // IMPORTANT: If this is an update and the circle was selected before, restore selection
+                // This ensures the circle remains selected after property changes
+                if (this.selectionManager) {
+                    // Use setTimeout to ensure selection manager has finished adding the circle
+                    setTimeout(() => {
+                        this.selectionManager.selectObject(circle, false, true);
+                    }, 0);
+                }
             }
             
             // Dispatch scene change event to update object list
             this.dispatchSceneChangeEvent();
             
-            console.log('Circle created:', circle.name);
+            console.log('Circle created:', circle.name, isUpdate ? '(update)' : '(new)', wasSelected ? '[was selected]' : '');
         };
 
         // Start interactive circle drawing
         this.circleManager.startInteractiveDrawing();
+        
+        // Set cursor to crosshair AFTER starting drawing (to ensure drawing is actually active)
+        this.setDrawingCursor();
     }
 
 
@@ -9300,19 +10316,44 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Mouse down
         canvas.addEventListener('pointerdown', (event) => {
-            // Handle polygon drawing - only left click
-            if (this.polygonManager && this.polygonManager.isCurrentlyDrawing && event.button === 0) {
-                event.preventDefault();
-                event.stopPropagation();
+            // Handle polygon drawing
+            if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
+                // Right click: cancel polygon drawing
+                if (event.button === 2) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    console.log('[POLYGON] Right click detected - canceling drawing');
+                    this.cancelPolygonDrawing();
+                    
+                    // Deactivate drawing tool
+                    const activeTool = document.querySelector('#drawingPanel .tool-item.active');
+                    if (activeTool) {
+                        activeTool.classList.remove('active');
+                    }
+                    return;
+                }
+                
+                // Middle click: ignore
+                if (event.button === 1) {
+                    return;
+                }
+                
+                // Only proceed with left click (button === 0)
+                if (event.button === 0) {
+                    event.preventDefault();
+                    event.stopPropagation();
 
-                // Get ground intersection point
-                const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
-                    return mesh.name === 'earth';
-                });
-                if (pickResult && pickResult.hit && pickResult.pickedMesh && 
-                    (pickResult.pickedMesh.name === 'earth' || pickResult.pickedMesh.name === 'invisible_ground')) {
-                    const point = pickResult.pickedPoint;
-                    this.polygonManager.addPoint(point);
+                    // Get ground intersection point
+                    const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
+                        return mesh.name === 'earth';
+                    });
+                    if (pickResult && pickResult.hit && pickResult.pickedMesh && 
+                        (pickResult.pickedMesh.name === 'earth' || pickResult.pickedMesh.name === 'invisible_ground')) {
+                        const point = pickResult.pickedPoint;
+                        // Check if Shift key is held for angle snapping
+                        const shouldSnapAngle = event.shiftKey;
+                        this.polygonManager.addPoint(point, shouldSnapAngle);
+                    }
                 }
                 return;
             }
@@ -9369,16 +10410,46 @@ Transform your 3D models into powerful energy analysis tools.`;
         canvas.addEventListener('pointermove', (event) => {
             // Handle polygon preview
             if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
+                // IMPORTANT: Update tooltip position FIRST, before preventDefault/stopPropagation
+                // This ensures tooltip always follows cursor, even during fast movement
+                const rect = canvas.getBoundingClientRect();
+                const canvasX = event.offsetX !== undefined ? event.offsetX : (event.clientX - rect.left);
+                const canvasY = event.offsetY !== undefined ? event.offsetY : (event.clientY - rect.top);
+                
+                // Update scene.pointerX and scene.pointerY for tooltip coordinates
+                const scene = this.sceneManager.getScene();
+                if (scene) {
+                    scene.pointerX = canvasX;
+                    scene.pointerY = canvasY;
+                }
+                
+                // Store mouse position for update loop (must be done before preventDefault)
+                this.lastTooltipMouseX = event.clientX || 0;
+                this.lastTooltipMouseY = event.clientY || 0;
+                
+                // Update tooltip position immediately (same as drawingCoordinatesMoveHandler)
+                // This ensures tooltip follows cursor smoothly during polygon drawing, even during fast movement
+                if (this.drawingCoordinatesTooltip) {
+                    const newLeft = event.clientX + 15;
+                    const newTop = event.clientY + 15;
+                    this.drawingCoordinatesTooltip.style.setProperty('left', `${newLeft}px`, 'important');
+                    this.drawingCoordinatesTooltip.style.setProperty('top', `${newTop}px`, 'important');
+                    this.drawingCoordinatesTooltip.style.setProperty('display', 'block', 'important');
+                }
+                
                 event.preventDefault();
                 event.stopPropagation();
 
                 // Get ground intersection point for preview
-                const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
+                // Use the same coordinates we just set in scene.pointerX/Y
+                const pickResult = this.sceneManager.getScene().pick(scene.pointerX, scene.pointerY, (mesh) => {
                     return mesh.name === 'earth';
                 });
                 if (pickResult && pickResult.hit && pickResult.pickedMesh && pickResult.pickedMesh.name === 'earth') {
                     const point = pickResult.pickedPoint;
-                    this.polygonManager.updatePreview(point);
+                    // Check if Shift key is held for angle snapping
+                    const shouldSnapAngle = event.shiftKey;
+                    this.polygonManager.updatePreview(point, shouldSnapAngle);
                 }
                 return;
             }
@@ -9549,7 +10620,8 @@ Transform your 3D models into powerful energy analysis tools.`;
                     }
                     
                     return;
-                } else if (event.code === 'Enter') {
+                } else if (event.code === 'Enter' || event.key === 'Enter' || event.keyCode === 13 || event.which === 13) {
+                    // IMPORTANT: Complete polygon with any Enter/Return key press
                     this.completePolygonDrawing();
                     
                     // Deactivate drawing tool
@@ -9558,6 +10630,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                         activeTool.classList.remove('active');
                     }
                     
+                    event.preventDefault(); // Prevent default behavior
                     return;
                 }
             }
@@ -9683,19 +10756,15 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Use CameraController's method to disable controls
             if (typeof this.cameraController.setControlsEnabled === 'function') {
                 this.cameraController.setControlsEnabled(false);
-                console.log('Camera controls disabled via CameraController');
             } else {
                 // Fallback to direct camera control
                 if (typeof this.cameraController.camera.detachControls === 'function') {
                     this.cameraController.camera.detachControls();
-                    console.log('Camera controls disabled via detachControls');
                 } else if (typeof this.cameraController.camera.detachControl === 'function') {
                     this.cameraController.camera.detachControl();
-                    console.log('Camera controls disabled via detachControl');
                 }
             }
             
-            console.log('Camera controls disabled for drawing');
         } else {
             console.warn('Cannot disable camera controls: cameraController or camera not available');
         }
@@ -9709,20 +10778,16 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Use CameraController's method to enable controls
             if (typeof this.cameraController.setControlsEnabled === 'function') {
                 this.cameraController.setControlsEnabled(true);
-                console.log('Camera controls enabled via CameraController');
             } else {
                 // Fallback to direct camera control
                 if (typeof this.cameraController.camera.attachControl === 'function') {
                     this.cameraController.camera.attachControl(this.sceneManager.canvas, true);
-                    console.log('Camera controls enabled via attachControl');
                 } else if (typeof this.cameraController.camera.attachControls === 'function') {
                     this.cameraController.camera.attachControls(this.sceneManager.canvas, true);
-                    console.log('Camera controls enabled via attachControls');
                 }
             }
             
             this.cameraControlsDisabled = false;
-            console.log('Camera controls enabled');
         } else {
             console.warn('Cannot enable camera controls: cameraController or camera not available');
         }
@@ -9737,7 +10802,42 @@ Transform your 3D models into powerful energy analysis tools.`;
             activeTool.classList.remove('active');
         }
         
+        // Reset cursor to default
+        this.resetCursor();
+        
         // Also deactivate tree placement when deactivating drawing tools
+        this.deactivateTreePlacement();
+    }
+
+    /**
+     * Deactivate all drawing tools (rectangle, circle, polygon, tree)
+     * This ensures only one drawing tool is active at a time
+     * IMPORTANT: Also stops all active drawing operations to prevent multiple tools from listening to events simultaneously
+     */
+    deactivateAllDrawingTools() {
+        // IMPORTANT: Stop all active drawing operations first to prevent event listener conflicts
+        // Stop rectangle drawing
+        if (this.rectangleManager && this.rectangleManager.isDrawing) {
+            this.rectangleManager.stopInteractiveDrawing();
+        }
+        
+        // Stop circle drawing
+        if (this.circleManager && this.circleManager.isDrawing) {
+            this.circleManager.stopInteractiveDrawing();
+        }
+        
+        // Stop polygon drawing
+        if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
+            this.polygonManager.stopDrawing();
+        }
+        
+        // Remove active class from all drawing tools
+        const allDrawingTools = document.querySelectorAll('#drawingPanel .tool-item');
+        allDrawingTools.forEach(tool => {
+            tool.classList.remove('active');
+        });
+        
+        // Also deactivate tree placement
         this.deactivateTreePlacement();
     }
 
@@ -9745,13 +10845,13 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Check if any drawing tool is currently active
      */
     isDrawingModeActive() {
-        // Delegated to ToolManager
-        if (this.toolManager) {
-            return this.toolManager.isDrawingModeActive();
-        }
-        // Fallback if ToolManager not available
-        const activeDrawingTool = document.querySelector('#drawingPanel .tool-item.active');
-        return activeDrawingTool !== null;
+        // Check drawing managers directly (more reliable than ToolManager or UI state)
+        const rectangleActive = this.rectangleManager && this.rectangleManager.isDrawing;
+        const circleActive = this.circleManager && this.circleManager.isDrawing;
+        const polygonActive = this.polygonManager && this.polygonManager.isCurrentlyDrawing;
+        const treeActive = this.treeManager && this.treeManager.isPlacingTree;
+        
+        return rectangleActive || circleActive || polygonActive || treeActive;
     }
 
     /**
@@ -10068,8 +11168,11 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Shape properties auto-save
         // Note: shapeType has its own dedicated listener, so we exclude it here
+        // IMPORTANT: Don't add input/change listeners for shapeLength, shapeWidth, shapeHeight
+        // These are handled by setupContinuousParameterChange which provides better typing experience
+        // Only add listeners for fields that don't use setupContinuousParameterChange
         const shapeInputs = [
-            'shapeColor', 'shapeLength', 'shapeWidth', 'shapeHeight', 'shapeRadius'
+            'shapeColor', 'shapeRadius'
         ];
         
         shapeInputs.forEach(inputId => {
@@ -10083,6 +11186,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 });
             }
         });
+        
+        // NOTE: shapeLength, shapeWidth, and shapeHeight are handled by setupContinuousParameterChange
+        // which provides debounced updates and better typing experience without interference
 
         // Circle properties auto-save
         const circleInputs = [
@@ -10102,18 +11208,26 @@ Transform your 3D models into powerful energy analysis tools.`;
         });
 
         // Polygon properties auto-save
+        // NOTE: polygonType has its own dedicated listener below, so we exclude it here
+        // NOTE: polygonHeight also has its own dedicated listener below, so we exclude it here
         const polygonInputs = [
-            'polygonType', 'polygonColor', 'polygonHeight'
+            'polygonColor'
         ];
         
         polygonInputs.forEach(inputId => {
             const element = document.getElementById(inputId);
             if (element) {
                 element.addEventListener('input', () => {
-                    this.savePolygonProperties();
+                    // IMPORTANT: Only save if currentShape is set (polygon is selected)
+                    if (this.currentShape) {
+                        this.savePolygonProperties();
+                    }
                 });
                 element.addEventListener('change', () => {
-                    this.savePolygonProperties();
+                    // IMPORTANT: Only save if currentShape is set (polygon is selected)
+                    if (this.currentShape) {
+                        this.savePolygonProperties();
+                    }
                 });
             }
         });
@@ -10136,49 +11250,86 @@ Transform your 3D models into powerful energy analysis tools.`;
         });
 
         // Polygon type change listener
-        document.getElementById('polygonType').addEventListener('change', (e) => {
-            const newType = e.target.value;
-            console.log('Polygon type changed to:', newType);
-            
-            // Check if type actually changed by comparing with the previous value from the dropdown
-            const currentTypeInUserData = this.currentShape?.userData?.type;
-            const previousTypeInDropdown = e.target.getAttribute('data-previous-value') || currentTypeInUserData;
-            const typeChanged = previousTypeInDropdown !== newType;
-            
-            // Store the new value for next comparison
-            e.target.setAttribute('data-previous-value', newType);
-            
-            console.log('Polygon type change check:', { 
-                currentTypeInUserData, 
-                previousTypeInDropdown, 
-                newType, 
-                typeChanged 
-            });
+        // IMPORTANT: This listener is separate from the auto-save listeners to prevent duplicate execution
+        const polygonTypeSelect = document.getElementById('polygonType');
+        if (polygonTypeSelect) {
+            polygonTypeSelect.addEventListener('change', (e) => {
+                // IMPORTANT: Only process if currentShape is set (polygon is selected)
+                if (!this.currentShape) {
+                    console.warn('Polygon type changed but no polygon is selected');
+                    return;
+                }
+                
+                // IMPORTANT: Verify that currentShape is actually a polygon
+                const shapeType = this.currentShape.userData?.shapeType;
+                if (shapeType !== 'polygon') {
+                    console.warn(`Polygon type changed but currentShape is not a polygon (shapeType: ${shapeType}), ignoring`);
+                    return;
+                }
+                
+                const newType = e.target.value;
+                const currentPolygonName = this.currentShape.name;
+                console.log(`[POLYGON_TYPE_CHANGE] Changing type for polygon "${currentPolygonName}" from "${this.currentShape.userData?.type}" to "${newType}"`);
+                
+                // Check if type actually changed by comparing with the previous value from the dropdown
+                const currentTypeInUserData = this.currentShape?.userData?.type;
+                const previousTypeInDropdown = e.target.getAttribute('data-previous-value') || currentTypeInUserData;
+                const typeChanged = previousTypeInDropdown !== newType;
+                
+                // Store the new value for next comparison
+                e.target.setAttribute('data-previous-value', newType);
+                
             
             // Show/hide height field based on type
+            // Only 'building' type can have height > 0, all other types should have height = 0
+            const isBuilding = newType.toLowerCase() === 'building';
             const heightGroup = document.getElementById('polygonHeightGroup');
-            if (newType === 'building') {
+            const heightInput = document.getElementById('polygonHeight');
+            if (isBuilding) {
                 heightGroup.style.display = 'block';
-                // Set default height for building
-                document.getElementById('polygonHeight').value = 1;
+                // Set default height for building if it's currently 0 or too small
+                if (heightInput && parseFloat(heightInput.value) <= 0) {
+                    heightInput.value = 1;
+                }
             } else {
                 heightGroup.style.display = 'none';
+                // Set height to 0 for non-building types
+                if (heightInput) {
+                    heightInput.value = 0;
+                }
+                
+                // IMPORTANT: Hide all building-related groups when type is not building
+                // This includes period groups which should only be visible for buildings
+                const archetypePeriodGroup = document.getElementById('polygonBuildingArchetypePeriodGroup');
+                const groupPeriodGroup = document.getElementById('polygonBuildingGroupPeriodGroup');
+                const envelopePropertiesGroup = document.getElementById('polygonBuildingEnvelopePropertiesGroup');
+                const archytypesGroup = document.getElementById('polygonBuildingArchytypesGroup');
+                const groupsGroup = document.getElementById('polygonBuildingGroupsGroup');
+                const readonlyGroup = document.getElementById('polygonBuildingEnvelopeReadonlyValuesGroup');
+                const customSpecGroup = document.getElementById('polygonBuildingCustomSpecGroup');
+                const yearOfConstructionGroup = document.getElementById('polygonBuildingYearOfConstructionGroup');
+                
+                if (archetypePeriodGroup) archetypePeriodGroup.style.display = 'none';
+                if (groupPeriodGroup) groupPeriodGroup.style.display = 'none';
+                if (envelopePropertiesGroup) envelopePropertiesGroup.style.display = 'none';
+                if (archytypesGroup) archytypesGroup.style.display = 'none';
+                if (groupsGroup) groupsGroup.style.display = 'none';
+                if (readonlyGroup) readonlyGroup.style.display = 'none';
+                if (customSpecGroup) customSpecGroup.style.display = 'none';
+                if (yearOfConstructionGroup) yearOfConstructionGroup.style.display = 'none';
             }
             
-            // Update color based on type
-            this.updatePolygonColorByType(newType);
+            // Color is now automatically determined by type (no color picker)
             
             // Update polygon name based on type (only if type actually changed)
             // IMPORTANT: Update name BEFORE updating userData.type
             if (typeChanged) {
                 const newName = this.generateUniqueNameByType(newType);
-                console.log('[Polygon Type Change] Type changed from', previousTypeInDropdown, 'to', newType, '- generating new name:', newName);
                 
                 // Update both the polygon name and the popup field
                 if (this.currentShape) {
                     const oldName = this.currentShape.name;
                     this.currentShape.name = newName;
-                    console.log('[Polygon Type Change] Updated polygon name from', oldName, 'to', newName);
                     
                     // Update userData.name to match the new name
                     if (this.currentShape.userData) {
@@ -10189,88 +11340,276 @@ Transform your 3D models into powerful energy analysis tools.`;
                         this.currentShape.extrusion.name = `${newName}_extrusion`;
                     }
                 }
-            document.getElementById('polygonName').value = newName;
+                
+                // Update popup field
+                const polygonNameInput = document.getElementById('polygonName');
+                if (polygonNameInput) {
+                    polygonNameInput.value = newName;
+                }
                 
                 // Update object list to reflect the name change
                 if (this.objectListManager && this.objectListManager.updateObjectList) {
                     this.objectListManager.updateObjectList();
-                    console.log('[Polygon Type Change] Object list updated');
                 }
                 
                 // Dispatch scene change event
                 this.dispatchSceneChangeEvent();
-                console.log('[Polygon Type Change] Scene change event dispatched');
-            } else {
-                console.log('[Polygon Type Change] Type did not change, skipping name update');
             }
             
             // Update userData type AFTER name update
+            // IMPORTANT: Name may have changed (ground1 → building1), so we can't check name
+            // Instead, we verify that currentShape is still set and is a polygon
             if (this.currentShape) {
+                // IMPORTANT: Get current name (may have changed from currentPolygonName)
+                const currentNameAfterNameChange = this.currentShape.name;
+                
+                // IMPORTANT: Verify this is still a polygon (not a different shape type)
+                const shapeType = this.currentShape.userData?.shapeType;
+                if (shapeType && shapeType !== 'polygon') {
+                    console.warn(`[POLYGON_TYPE_CHANGE] Shape type changed! Expected "polygon", got "${shapeType}", aborting`);
+                    return;
+                }
+                
                 // IMPORTANT: Preserve sideWallNormalsFlipped flag before updating
                 const sideWallNormalsFlipped = this.currentShape.userData?.sideWallNormalsFlipped || false;
                 
-                this.currentShape.userData = this.currentShape.userData || {};
-                this.currentShape.userData.type = newType;
-                // IMPORTANT: Always keep shapeType as 'polygon' to prevent misidentification as rectangle
-                // The type field indicates the category (building, ground, etc.), but shapeType should remain 'polygon'
-                this.currentShape.userData.shapeType = 'polygon';
-                // IMPORTANT: Preserve sideWallNormalsFlipped flag after updating userData
-                this.currentShape.userData.sideWallNormalsFlipped = sideWallNormalsFlipped;
+                // IMPORTANT: Create a new userData object to avoid reference sharing issues
+                // Don't use Object.assign as it can share references
+                const oldUserData = this.currentShape.userData || {};
+                this.currentShape.userData = {
+                    ...oldUserData,
+                    type: newType,
+                    shapeType: 'polygon', // Always keep shapeType as 'polygon'
+                    sideWallNormalsFlipped: sideWallNormalsFlipped
+                };
+                
+                console.log(`[POLYGON_TYPE_CHANGE] Updated userData.type to "${newType}" for polygon "${currentNameAfterNameChange}" (was "${currentPolygonName}")`);
             }
             
-            // IMPORTANT: Always update object list after type change (even if name didn't change)
-            // This ensures the object is re-categorized in the correct category
-            if (this.objectListManager && this.objectListManager.updateObjectList) {
-                this.objectListManager.updateObjectList();
-                console.log('[Polygon Type Change] Object list updated after type change');
-            }
-            
-            // Dispatch scene change event to ensure all listeners are notified
-            this.dispatchSceneChangeEvent();
-            
-            // Update polygon material in real-time
+            // IMPORTANT: Update polygon material and color FIRST
+            // This ensures color is updated immediately
             if (this.currentShape) {
                 this.updatePolygonMaterialByType(this.currentShape, newType);
             }
-        });
+            
+            // IMPORTANT: Don't call savePolygonProperties here because:
+            // 1. We've already updated userData.type above
+            // 2. updatePolygonMaterialByType has already updated the color
+            // 3. savePolygonProperties reads from DOM which may cause timing issues
+            // Instead, we'll update the object list directly
+            
+            // IMPORTANT: Force immediate update of object list
+            // Use requestAnimationFrame to ensure DOM and userData are fully updated
+            requestAnimationFrame(() => {
+                // Get current shape name (may have changed from currentPolygonName)
+                const finalPolygonName = this.currentShape?.name || currentPolygonName;
+                
+                // Double-check that userData.type is correct
+                if (this.currentShape) {
+                    if (this.currentShape.userData?.type !== newType) {
+                        console.warn(`[POLYGON_TYPE_CHANGE] Type mismatch detected! Expected "${newType}", got "${this.currentShape.userData?.type}". Forcing update...`);
+                        // Force update userData.type
+                        if (!this.currentShape.userData) {
+                            this.currentShape.userData = {};
+                        }
+                        this.currentShape.userData.type = newType;
+                        console.log(`[POLYGON_TYPE_CHANGE] Forced userData.type to "${newType}" for polygon "${finalPolygonName}"`);
+                    }
+                    
+                    // Also update extrusion userData.type if it exists
+                    if (this.currentShape.extrusion) {
+                        if (!this.currentShape.extrusion.userData) {
+                            this.currentShape.extrusion.userData = {};
+                        }
+                        this.currentShape.extrusion.userData.type = newType;
+                        console.log(`[POLYGON_TYPE_CHANGE] Updated extrusion userData.type to "${newType}" for "${finalPolygonName}_extrusion"`);
+                    }
+                    
+                    // Verify final state
+                    console.log(`[POLYGON_TYPE_CHANGE] Final state - Polygon: "${finalPolygonName}", userData.type: "${this.currentShape.userData?.type}", expected: "${newType}"`);
+                }
+                
+                // Update object list
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                    console.log(`[POLYGON_TYPE_CHANGE] Object list updated for polygon "${finalPolygonName}" with type "${newType}"`);
+                }
+                
+                // Dispatch scene change event to ensure all listeners are notified
+                this.dispatchSceneChangeEvent();
+            });
+            });
+        }
 
         // Polygon color change listener
-        document.getElementById('polygonColor').addEventListener('input', (e) => {
-            const newColor = e.target.value;
-            console.log('Polygon color changed to:', newColor);
-            
-            // Update polygon material color in real-time
-            if (this.currentShape && this.currentShape.material) {
-                const color = this.hexToRgb(newColor);
-                this.currentShape.material.diffuseColor = new BABYLON.Color3(color.r, color.g, color.b);
-            }
-        });
+        // Color picker removed - color is now automatically determined by type
 
         // Polygon height change listener (only for building type)
-        document.getElementById('polygonHeight').addEventListener('input', (e) => {
-            const newHeight = parseFloat(e.target.value) || 1;
-            console.log('Polygon height changed to:', newHeight);
-            
-            // Update polygon height in real-time (only for building type)
-            if (this.currentShape && this.currentShape.userData?.type === 'building') {
-                const originalHeight = this.currentShape.userData?.originalHeight || 0.05;
-                const scaleFactor = newHeight / originalHeight;
-                const baseY = this.getPolygonBaseWorldY(this.currentShape);
+        const polygonHeightInput = document.getElementById('polygonHeight');
+        if (polygonHeightInput) {
+            polygonHeightInput.addEventListener('input', (e) => {
+                // IMPORTANT: Only process if currentShape is set (polygon is selected)
+                if (!this.currentShape || this.currentShape.userData?.type !== 'building') {
+                    return;
+                }
                 
-                this.currentShape.scaling.y = scaleFactor;
-                this.realignPolygonBase(this.currentShape, baseY);
+                const newHeight = parseFloat(e.target.value) || 1;
+                console.log('[HEIGHT_CHANGE] Polygon height changed to:', newHeight, 'for polygon:', this.currentShape.name);
+                
+                // Update polygon height in real-time (only for building type)
+                // IMPORTANT: Calculate originalHeight from current scaling to preserve position correctly
+                let originalHeight = this.currentShape.userData?.originalHeight;
+                if (!originalHeight || originalHeight <= 0) {
+                    // If originalHeight is not set, calculate it from current extrusion scaling
+                    if (this.currentShape.extrusion) {
+                        const currentScaling = this.currentShape.extrusion.scaling.y;
+                        const currentHeight = this.currentShape.userData?.currentHeight || newHeight;
+                        originalHeight = currentHeight / currentScaling;
+                        if (originalHeight <= 0) originalHeight = 1; // Fallback to 1
+                        // Store it for future use
+                        if (!this.currentShape.userData) this.currentShape.userData = {};
+                        this.currentShape.userData.originalHeight = originalHeight;
+                    } else {
+                        originalHeight = 1; // Default fallback
+                    }
+                }
+                const scaleFactor = newHeight / originalHeight;
+                
+                // IMPORTANT: For extrusion, we need to ensure it only grows upward
+                if (this.currentShape.extrusion) {
+                    // Log current positions before change
+                    const polygonPosBefore = this.currentShape.position.clone();
+                    const extrusionPosBefore = this.currentShape.extrusion.position.clone();
+                    const extrusionScaleBefore = this.currentShape.extrusion.scaling.y;
+                    console.log('[HEIGHT_CHANGE] BEFORE - Polygon position:', 
+                        `(${polygonPosBefore.x.toFixed(3)}, ${polygonPosBefore.y.toFixed(3)}, ${polygonPosBefore.z.toFixed(3)})`);
+                    console.log('[HEIGHT_CHANGE] BEFORE - Extrusion position (world):', 
+                        `(${extrusionPosBefore.x.toFixed(3)}, ${extrusionPosBefore.y.toFixed(3)}, ${extrusionPosBefore.z.toFixed(3)})`);
+                    console.log('[HEIGHT_CHANGE] BEFORE - Extrusion scaling.y:', extrusionScaleBefore.toFixed(3));
+                    
+                    // IMPORTANT: Keep polygon position FIXED - do NOT change it
+                    // The polygon position should remain constant, only extrusion scales
+                    const polygonY = this.currentShape.position.y;
+                    console.log(`[HEIGHT_CHANGE] Keeping polygon position.y at ${polygonY.toFixed(3)} (preserving user's position)`);
+                    
+                    // IMPORTANT: Get current base world Y BEFORE scaling
+                    // This is the world Y position of the extrusion's base that we want to preserve
+                    // Since extrusion is NOT a child of polygon, position is in world space
+                    // IMPORTANT: Use extrusion's actual base world Y, not polygon.position.y
+                    // This ensures that if extrusion was moved to a higher position, we preserve that position
+                    this.currentShape.extrusion.computeWorldMatrix(true);
+                    this.currentShape.extrusion.refreshBoundingInfo();
+                    const extrusionBoundingInfoBefore = this.currentShape.extrusion.getBoundingInfo();
+                    const baseWorldYBefore = extrusionBoundingInfoBefore && extrusionBoundingInfoBefore.boundingBox ? 
+                        extrusionBoundingInfoBefore.boundingBox.minimumWorld.y : polygonY;
+                    
+                    console.log(`[HEIGHT_CHANGE] Current polygon Y: ${polygonY.toFixed(3)}, extrusion base world Y: ${baseWorldYBefore.toFixed(3)}, will preserve extrusion base at ${baseWorldYBefore.toFixed(3)}`);
+                    
+                    // Scale extrusion (NOT the polygon, since extrusion is the 3D part)
+                    this.currentShape.extrusion.scaling.y = scaleFactor;
+                    
+                    // IMPORTANT: After scaling, extrusion base will move because scaling happens around the mesh center
+                    // We need to adjust extrusion position to keep the base at the same world Y
+                    // Since extrusion is in world space, we adjust position.y directly
+                    this.currentShape.extrusion.computeWorldMatrix(true);
+                    const extrusionBoundingInfoAfter = this.currentShape.extrusion.getBoundingInfo();
+                    const baseWorldYAfter = extrusionBoundingInfoAfter && extrusionBoundingInfoAfter.boundingBox ? 
+                        extrusionBoundingInfoAfter.boundingBox.minimumWorld.y : baseWorldYBefore;
+                    
+                    // Calculate the delta - how much the base moved
+                    const deltaY = baseWorldYAfter - baseWorldYBefore;
+                    
+                    console.log(`[HEIGHT_CHANGE] After scaling - Extrusion base world Y: ${baseWorldYAfter.toFixed(3)}, Expected: ${baseWorldYBefore.toFixed(3)}, Delta: ${deltaY.toFixed(3)}`);
+                    
+                    // Adjust extrusion position to compensate for the base movement
+                    // Move extrusion down by deltaY to bring base back to original position
+                    if (Math.abs(deltaY) > 0.001) {
+                        this.currentShape.extrusion.position.y = this.currentShape.extrusion.position.y - deltaY;
+                        this.currentShape.extrusion.computeWorldMatrix(true);
+                        const finalBoundingInfo = this.currentShape.extrusion.getBoundingInfo();
+                        const finalBaseY = finalBoundingInfo && finalBoundingInfo.boundingBox ? 
+                            finalBoundingInfo.boundingBox.minimumWorld.y : baseWorldYBefore;
+                        console.log(`[HEIGHT_CHANGE] Fixed extrusion base: adjusted position.y by ${-deltaY.toFixed(3)}, final base Y: ${finalBaseY.toFixed(3)}`);
+                    }
+                    
+                    // IMPORTANT: Do NOT scale the polygon itself - only the extrusion
+                    this.currentShape.scaling.y = 1; // Keep polygon scaling at 1
+                    
+                    // Update userData to reflect the new height
+                    if (!this.currentShape.userData) this.currentShape.userData = {};
+                    this.currentShape.userData.currentHeight = newHeight;
+                    
+                    // IMPORTANT: Ensure polygon position.y remains at its current value
+                    // Do NOT adjust polygon position - preserve user's position
+                    // The extrusion position adjustment handles keeping the base at the correct world Y
+                    
+                    // Log positions after change
+                    const polygonPosAfter = this.currentShape.position.clone();
+                    const extrusionPosAfter = this.currentShape.extrusion.position.clone();
+                    const extrusionScaleAfter = this.currentShape.extrusion.scaling.y;
+                    console.log('[HEIGHT_CHANGE] AFTER - Polygon position:', 
+                        `(${polygonPosAfter.x.toFixed(3)}, ${polygonPosAfter.y.toFixed(3)}, ${polygonPosAfter.z.toFixed(3)})`);
+                    console.log('[HEIGHT_CHANGE] AFTER - Extrusion position (relative):', 
+                        `(${extrusionPosAfter.x.toFixed(3)}, ${extrusionPosAfter.y.toFixed(3)}, ${extrusionPosAfter.z.toFixed(3)})`);
+                    console.log('[HEIGHT_CHANGE] AFTER - Extrusion scaling.y:', extrusionScaleAfter.toFixed(3));
+                    
+                    // Check if polygon position changed (it shouldn't!)
+                    if (Math.abs(polygonPosBefore.y - polygonPosAfter.y) > 0.001) {
+                        console.warn('[HEIGHT_CHANGE] WARNING: Polygon position.y changed!', 
+                            `Before: ${polygonPosBefore.y.toFixed(3)}, After: ${polygonPosAfter.y.toFixed(3)}`);
+                    }
+                    
+                    // Calculate world position of extrusion base (use existing extrusionBoundingInfo if available)
+                    this.currentShape.extrusion.computeWorldMatrix(true);
+                    this.currentShape.extrusion.refreshBoundingInfo(); // Refresh bounding info after scaling
+                    const finalExtrusionBoundingInfo = this.currentShape.extrusion.getBoundingInfo();
+                    if (finalExtrusionBoundingInfo && finalExtrusionBoundingInfo.boundingBox) {
+                        const extrusionBaseWorldY = finalExtrusionBoundingInfo.boundingBox.minimumWorld.y;
+                        console.log('[HEIGHT_CHANGE] Extrusion base world Y:', extrusionBaseWorldY.toFixed(3));
+                    }
+                    
+                    // IMPORTANT: Update wireframe transforms to match the scaled extrusion
+                    // This ensures wireframe updates in real-time as height changes
+                    if (this.selectionManager) {
+                        // Check if extrusion is selected (has wireframe)
+                        const isExtrusionSelected = this.selectionManager.selectedObjects.includes(this.currentShape.extrusion);
+                        if (isExtrusionSelected) {
+                            // Update wireframe transforms to sync with scaled extrusion
+                            this.selectionManager.updateWireframeTransforms(this.currentShape.extrusion);
+                            console.log('[HEIGHT_CHANGE] Wireframe transforms updated for extrusion');
+                        }
+                    }
+                } else {
+                    // If no extrusion, scale polygon directly (shouldn't happen for building type)
+                    const baseY = this.getPolygonBaseWorldY(this.currentShape);
+                    this.currentShape.scaling.y = scaleFactor;
+                    this.realignPolygonBase(this.currentShape, baseY);
+                    
+                    // Update wireframe for polygon
+                    if (this.selectionManager) {
+                        this.selectionManager.updateWireframeTransforms(this.currentShape);
+                    }
+                }
+                
                 this.currentShape.userData.currentHeight = newHeight;
                 
                 // NOTE: When using scaling, normals are automatically scaled correctly by Babylon.js
                 // We should NOT recalculate normals when height changes via scaling, as this causes shadow issues
                 // Only update normals if the mesh geometry itself is recreated (not when scaling changes)
-            }
-        });
+            });
+        }
 
         // Shape type change
         document.getElementById('shapeType').addEventListener('change', (e) => {
             const newType = e.target.value;
-            console.log('Shape type changed to:', newType);
+            
+            // [DEBUG] Log type change attempt
+            console.log('[TYPE_CHANGE_DEBUG] ========================================');
+            console.log('[TYPE_CHANGE_DEBUG] Type change event triggered');
+            console.log('[TYPE_CHANGE_DEBUG] New type:', newType);
+            console.log('[TYPE_CHANGE_DEBUG] Current shape:', this.currentShape?.name);
+            console.log('[TYPE_CHANGE_DEBUG] Current shape type in userData:', this.currentShape?.userData?.type);
+            console.log('[TYPE_CHANGE_DEBUG] Stack trace:', new Error().stack);
             
             // Check if type actually changed by comparing with the current value in userData
             // But also check the previous value from the dropdown to handle cases where userData was already updated
@@ -10278,23 +11617,53 @@ Transform your 3D models into powerful energy analysis tools.`;
             const previousTypeInDropdown = e.target.getAttribute('data-previous-value') || currentTypeInUserData;
             const typeChanged = previousTypeInDropdown !== newType;
             
+            console.log('[TYPE_CHANGE_DEBUG] Type changed?', typeChanged);
+            console.log('[TYPE_CHANGE_DEBUG] Previous type:', previousTypeInDropdown);
+            console.log('[TYPE_CHANGE_DEBUG] Current type in userData:', currentTypeInUserData);
+            
             // Store the new value for next comparison
             e.target.setAttribute('data-previous-value', newType);
             
-            console.log('Shape type change check:', { 
-                currentTypeInUserData, 
-                previousTypeInDropdown, 
-                newType, 
-                typeChanged 
-            });
+            // Color is now automatically determined by type (no color picker)
             
-            // Always update color when type changes, even if it's the same type
-            // This ensures color picker reflects the correct type-based color
-            if (this.currentShape) {
-                const newColor = this.getHexColorByType(newType);
-                console.log('Getting color for type:', newType, 'result:', newColor);
-                document.getElementById('shapeColor').value = newColor;
-                console.log('Auto-updated shape color to:', newColor, 'for type:', newType);
+            // Update height field based on type
+            // Only 'building' type can have height > 0, all other types should have height = 0
+            const isBuilding = newType.toLowerCase() === 'building';
+            const heightGroup = document.getElementById('heightGroup');
+            const heightInput = document.getElementById('shapeHeight');
+            
+            if (heightGroup && heightInput) {
+                if (isBuilding) {
+                    heightGroup.style.display = 'flex';
+                    // Set minimum height for building if it's currently 0 or too small
+                    if (parseFloat(heightInput.value) <= 0) {
+                        heightInput.value = 0.1;
+                    }
+                } else {
+                    // For all non-building types, hide height input and set height to 0
+                    heightGroup.style.display = 'none';
+                    heightInput.value = 0;
+                    
+                    // IMPORTANT: Hide all building-related groups when type is not building
+                    // This includes period groups which should only be visible for buildings
+                    const archetypePeriodGroup = document.getElementById('buildingArchetypePeriodGroup');
+                    const groupPeriodGroup = document.getElementById('buildingGroupPeriodGroup');
+                    const envelopePropertiesGroup = document.getElementById('buildingEnvelopePropertiesGroup');
+                    const archytypesGroup = document.getElementById('buildingArchytypesGroup');
+                    const groupsGroup = document.getElementById('buildingGroupsGroup');
+                    const readonlyGroup = document.getElementById('buildingEnvelopeReadonlyValuesGroup');
+                    const customSpecGroup = document.getElementById('buildingCustomSpecGroup');
+                    const yearOfConstructionGroup = document.getElementById('buildingYearOfConstructionGroup');
+                    
+                    if (archetypePeriodGroup) archetypePeriodGroup.style.display = 'none';
+                    if (groupPeriodGroup) groupPeriodGroup.style.display = 'none';
+                    if (envelopePropertiesGroup) envelopePropertiesGroup.style.display = 'none';
+                    if (archytypesGroup) archytypesGroup.style.display = 'none';
+                    if (groupsGroup) groupsGroup.style.display = 'none';
+                    if (readonlyGroup) readonlyGroup.style.display = 'none';
+                    if (customSpecGroup) customSpecGroup.style.display = 'none';
+                    if (yearOfConstructionGroup) yearOfConstructionGroup.style.display = 'none';
+                }
             }
             
             this.updatePropertiesFields(newType);
@@ -10302,20 +11671,12 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Update name based on new type (only if type actually changed)
             // IMPORTANT: Update name BEFORE updating userData.type, so updateShapeInRealTime can detect the change
             if (typeChanged) {
-                console.log('[Type Change] Type changed detected:', { 
-                    currentTypeInUserData, 
-                    previousTypeInDropdown, 
-                    newType, 
-                    shapeName: this.currentShape.name 
-                });
                 const newName = this.generateUniqueNameByType(newType);
-                console.log('[Type Change] Generated new name:', newName);
                 
                 // Update both the shape name and the popup field
                 const oldName = this.currentShape.name;
                 this.currentShape.name = newName;
                 document.getElementById('shapeName').value = newName;
-                console.log('[Type Change] Updated shape name from', oldName, 'to', newName);
                 
                 // Update userData.name to match the new name
                 if (this.currentShape.userData) {
@@ -10325,41 +11686,39 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Update object list to reflect the name change
                 if (this.objectListManager && this.objectListManager.updateObjectList) {
                     this.objectListManager.updateObjectList();
-                    console.log('[Type Change] Object list updated');
                 }
                 
                 // Dispatch scene change event
                 this.dispatchSceneChangeEvent();
-                console.log('[Type Change] Scene change event dispatched');
-            } else {
-                console.log('[Type Change] Type did not change, skipping name update');
             }
             
             // Update userData type AFTER name update
             if (this.currentShape) {
                 this.currentShape.userData = this.currentShape.userData || {};
                 this.currentShape.userData.type = newType;
-                console.log('Updated userData.type to:', newType);
             }
             
             // IMPORTANT: Always update object list after type change (even if name didn't change)
             // This ensures the object is re-categorized in the correct category
             if (this.objectListManager && this.objectListManager.updateObjectList) {
                 this.objectListManager.updateObjectList();
-                console.log('[Rectangle Type Change] Object list updated after type change');
             }
             
             // Dispatch scene change event to ensure all listeners are notified
             this.dispatchSceneChangeEvent();
             
             // Update shape in real-time (this will update geometry and material, but not name since type is already updated)
-            this.updateShapeInRealTime();
+            // Use setTimeout to ensure DOM is updated (color picker value) before reading it
+            console.log('[TYPE_CHANGE_DEBUG] About to call updateShapeInRealTime()');
+            setTimeout(() => {
+                console.log('[TYPE_CHANGE_DEBUG] Calling updateShapeInRealTime() now');
+                this.updateShapeInRealTime();
+                console.log('[TYPE_CHANGE_DEBUG] updateShapeInRealTime() completed');
+            }, 0);
         });
 
         // Real-time updates for all input fields
-        document.getElementById('shapeColor').addEventListener('input', (e) => {
-            this.updateShapeInRealTime();
-        });
+        // Color picker removed - color is now automatically determined by type
 
         // Add continuous parameter change functionality
         this.setupContinuousParameterChange('shapeLength', () => this.updateShapeInRealTime());
@@ -10396,14 +11755,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             const typeChanged = currentType !== newType;
             console.log('Circle type change check:', { currentType, newType, typeChanged });
             
-            // Always update color when type changes, even if it's the same type
-            // This ensures color picker reflects the correct type-based color
-            if (this.currentShape) {
-                const newColor = this.getHexColorByType(newType);
-                console.log('Getting circle color for type:', newType, 'result:', newColor);
-                document.getElementById('circleColor').value = newColor;
-                console.log('Auto-updated circle color to:', newColor, 'for type:', newType);
-            }
+            // Color is now automatically determined by type (no color picker)
             
             // Update userData type
             if (this.currentShape) {
@@ -10416,7 +11768,46 @@ Transform your 3D models into powerful energy analysis tools.`;
             // Keep current values when changing type
             const currentDiameterTop = this.currentShape?.userData?.dimensions?.diameterTop || 0.1;
             document.getElementById('circleDiameter').value = currentDiameterTop;
-            document.getElementById('circleHeight').value = this.currentShape?.userData?.dimensions?.height || 0.1;
+            
+            // Update height field based on type
+            // Only 'building' type can have height > 0, all other types should have height = 0
+            const isBuilding = newType.toLowerCase() === 'building';
+            const heightGroup = document.getElementById('circleHeightGroup');
+            const heightInput = document.getElementById('circleHeight');
+            
+            if (heightGroup && heightInput) {
+                if (isBuilding) {
+                    heightGroup.style.display = 'flex';
+                    // Set minimum height for building if it's currently 0 or too small
+                    if (parseFloat(heightInput.value) <= 0) {
+                        heightInput.value = 0.1;
+                    }
+                } else {
+                    // For all non-building types, hide height input and set height to 0
+                    heightGroup.style.display = 'none';
+                    heightInput.value = 0;
+                    
+                    // IMPORTANT: Hide all building-related groups when type is not building
+                    // This includes period groups which should only be visible for buildings
+                    const archetypePeriodGroup = document.getElementById('circleBuildingArchetypePeriodGroup');
+                    const groupPeriodGroup = document.getElementById('circleBuildingGroupPeriodGroup');
+                    const envelopePropertiesGroup = document.getElementById('circleBuildingEnvelopePropertiesGroup');
+                    const archytypesGroup = document.getElementById('circleBuildingArchytypesGroup');
+                    const groupsGroup = document.getElementById('circleBuildingGroupsGroup');
+                    const readonlyGroup = document.getElementById('circleBuildingEnvelopeReadonlyValuesGroup');
+                    const customSpecGroup = document.getElementById('circleBuildingCustomSpecGroup');
+                    const yearOfConstructionGroup = document.getElementById('circleBuildingYearOfConstructionGroup');
+                    
+                    if (archetypePeriodGroup) archetypePeriodGroup.style.display = 'none';
+                    if (groupPeriodGroup) groupPeriodGroup.style.display = 'none';
+                    if (envelopePropertiesGroup) envelopePropertiesGroup.style.display = 'none';
+                    if (archytypesGroup) archytypesGroup.style.display = 'none';
+                    if (groupsGroup) groupsGroup.style.display = 'none';
+                    if (readonlyGroup) readonlyGroup.style.display = 'none';
+                    if (customSpecGroup) customSpecGroup.style.display = 'none';
+                    if (yearOfConstructionGroup) yearOfConstructionGroup.style.display = 'none';
+                }
+            }
             
             // Update name based on new type (only if type actually changed)
             if (typeChanged) {
@@ -10431,12 +11822,6 @@ Transform your 3D models into powerful energy analysis tools.`;
                     this.currentShape.userData.name = newName;
                 }
                 
-                // Automatically update color based on new type
-                const newColor = this.getHexColorByType(newType);
-                console.log('Getting circle color for type:', newType, 'result:', newColor);
-                document.getElementById('circleColor').value = newColor;
-                console.log('Auto-updated circle color to:', newColor, 'for type:', newType);
-                
                 // Update object list to reflect the name change
                 if (this.objectListManager && this.objectListManager.updateObjectList) {
                     this.objectListManager.updateObjectList();
@@ -10446,26 +11831,10 @@ Transform your 3D models into powerful energy analysis tools.`;
                 this.dispatchSceneChangeEvent();
             }
             
-            // Update color based on type
-            let newColor;
-            if (newType === 'building') {
-                newColor = '#ffffff'; // White for buildings
-            } else if (newType === 'ground') {
-                newColor = '#8B4513'; // Brown for ground
-            } else if (newType === 'waterway') {
-                newColor = '#0080ff'; // Blue for waterway
-            } else if (newType === 'highway') {
-                newColor = '#4d4d4d'; // Gray for highway
-            } else if (newType === 'grass') {
-                newColor = '#00cc00'; // Green for grass areas
-            }
-            document.getElementById('circleColor').value = newColor;
-            
             // IMPORTANT: Always update object list after type change (even if name didn't change)
             // This ensures the object is re-categorized in the correct category
             if (this.objectListManager && this.objectListManager.updateObjectList) {
                 this.objectListManager.updateObjectList();
-                console.log('[Circle Type Change] Object list updated after type change');
             }
             
             // Dispatch scene change event to ensure all listeners are notified
@@ -10474,9 +11843,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.updateCircleInRealTime();
         });
 
-        document.getElementById('circleColor').addEventListener('input', (e) => {
-            this.updateCircleInRealTime();
-        });
+        // Color picker removed - color is now automatically determined by type
 
         // Add continuous parameter change functionality for circles
         this.setupContinuousParameterChange('circleDiameter', () => this.updateCircleInRealTime());
@@ -10559,8 +11926,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         console.log('Shape userData:', shape.userData);
         console.log('Properties:', properties);
         
-        // Use the actual color from the shape material
-        let displayColor = properties.color;
+        // Color is now automatically determined by type (no color picker)
         
         // Fill form fields
         document.getElementById('shapeName').value = properties.name;
@@ -10568,7 +11934,6 @@ Transform your 3D models into powerful energy analysis tools.`;
         shapeTypeSelect.value = properties.type;
         // Store the initial type value for change detection
         shapeTypeSelect.setAttribute('data-previous-value', properties.type);
-        document.getElementById('shapeColor').value = displayColor;
         document.getElementById('shapeLength').value = properties.length;
         document.getElementById('shapeWidth').value = properties.width;
         
@@ -10617,13 +11982,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         console.log('Shape userData:', shape.userData);
         console.log('Properties:', properties);
         
-        // Use the actual color from the shape material
-        let displayColor = properties.color;
+        // Color is now automatically determined by type (no color picker)
         
         // Fill form fields
         document.getElementById('circleName').value = properties.name;
         document.getElementById('circleType').value = properties.type;
-        document.getElementById('circleColor').value = displayColor;
         
         // Set values for diameter and height
         document.getElementById('circleDiameter').value = properties.diameterTop || 0.1;
@@ -10841,7 +12204,6 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // This ensures the object is re-categorized in the correct category
                 if (this.objectListManager && this.objectListManager.updateObjectList) {
                     this.objectListManager.updateObjectList();
-                    console.log('[STL Type Change] Object list updated after type change');
                 }
                 
                 // Dispatch scene change event to ensure all listeners are notified
@@ -10869,7 +12231,26 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update shape in real-time based on popup values (for rectangles and other shapes)
      */
     updateShapeInRealTime() {
-        if (!this.currentShape) return;
+        if (!this.currentShape) {
+            console.log('[UPDATE_SHAPE_DEBUG] updateShapeInRealTime() called but no currentShape');
+            return;
+        }
+
+        // IMPORTANT: Check if this is actually a polygon
+        // Polygons have their own update mechanism and should NOT use updateRectangleGeometryLikeCircle
+        const actualShapeType = this.getShapeType(this.currentShape);
+        if (actualShapeType === 'polygon') {
+            console.log('[UPDATE_SHAPE_DEBUG] Shape is a polygon, updateShapeInRealTime() should not be called for polygons');
+            console.log('[UPDATE_SHAPE_DEBUG] Polygon updates are handled by updatePolygonMaterialByType()');
+            return; // Don't proceed with rectangle geometry update
+        }
+
+        console.log('[UPDATE_SHAPE_DEBUG] ========================================');
+        console.log('[UPDATE_SHAPE_DEBUG] updateShapeInRealTime() called');
+        console.log('[UPDATE_SHAPE_DEBUG] Current shape:', this.currentShape.name);
+        console.log('[UPDATE_SHAPE_DEBUG] Current shape type:', this.currentShape.userData?.type);
+        console.log('[UPDATE_SHAPE_DEBUG] Actual shape type:', actualShapeType);
+        console.log('[UPDATE_SHAPE_DEBUG] Stack trace:', new Error().stack);
 
         // Store current focus element to restore it after update
         const activeElement = document.activeElement;
@@ -10882,48 +12263,74 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Get current values from popup (for rectangles and other shapes)
         const type = document.getElementById('shapeType').value;
-        const color = document.getElementById('shapeColor').value;
-        const length = Math.max(parseFloat(document.getElementById('shapeLength').value) || 1.0, 0.1);
-        const width = Math.max(parseFloat(document.getElementById('shapeWidth').value) || 1.0, 0.1);
-        const height = Math.max(parseFloat(document.getElementById('shapeHeight').value) || 0.1, 0.1);
+        // Color is now automatically determined by type, not from color picker
+        // IMPORTANT: Allow length and width to be 0 or any positive value (like height)
+        // Don't force minimum of 0.1 - let user enter any value >= 0
+        const length = Math.max(parseFloat(document.getElementById('shapeLength').value) || 1.0, 0);
+        const width = Math.max(parseFloat(document.getElementById('shapeWidth').value) || 1.0, 0);
+        
+        // For all types except 'building', height should be 0
+        const isBuilding = type?.toLowerCase() === 'building';
+        const heightInput = document.getElementById('shapeHeight');
+        let height;
+        if (isBuilding) {
+            // Only building type can have height > 0
+            height = Math.max(parseFloat(heightInput?.value || 0.1) || 0.1, 0.1);
+        } else {
+            // All other types (ground, grass, waterway, highway, etc.) should have height = 0
+            height = 0;
+            // Update height input to 0 for non-building types
+            if (heightInput) {
+                heightInput.value = 0;
+            }
+        }
         const radius = parseFloat(document.getElementById('shapeRadius').value) || 0;
         
-        // Round to 2 decimal places
-        const roundedLength = Math.round(length * 100) / 100;
-        const roundedWidth = Math.round(width * 100) / 100;
-        const roundedHeight = Math.round(height * 100) / 100;
-        const roundedRadius = Math.round(radius * 100) / 100;
+        // IMPORTANT: Don't round values - use them as-is to allow any precision
+        // This allows users to enter any number they want without forced rounding
+        const roundedLength = length;
+        const roundedWidth = width;
+        const roundedHeight = height;
+        const roundedRadius = radius;
         
-        console.log('Updating rectangle with:', { type, length: roundedLength, width: roundedWidth, height: roundedHeight });
+        // Log height for non-building types
+        if (!isBuilding) {
+            console.log(`[HEIGHT] Rectangle type="${type}" height=${roundedHeight} (should be 0 for non-building types)`);
+        }
 
-        // Use the color selected by user (from color picker)
-        const rgbColor = this.hexToRgb(color);
-        const newColor = new BABYLON.Color3(rgbColor.r, rgbColor.g, rgbColor.b);
+        // Get color automatically based on type (user cannot change color manually)
+        const newColor = this.getColorByType(type);
         
         // Update material color immediately for visual feedback
         if (this.currentShape.material && this.currentShape.material.diffuseColor) {
             this.currentShape.material.diffuseColor = newColor;
         }
+        
+        // Also update extrusion color if it exists (for rectangles with extrusion)
+        if (this.currentShape.extrusion && this.currentShape.extrusion.material) {
+            this.currentShape.extrusion.material.diffuseColor = newColor;
+        }
 
+        // For rectangles, update geometry
+        // Note: Polygon check was already done at the beginning of this function
         // Update userData (type may have already been updated in the change listener)
         // Don't regenerate name here - it's already handled in the change listener
         this.currentShape.userData.type = type;
         this.currentShape.userData.shapeType = type === 'building' ? 'building' : 'rectangle';
 
         // Update geometry based on shape type
-        console.log('Updating shape geometry with properties:', {
-            type: type,
-            length: length,
-            width: width,
-            height: height,
-            radius: radius
-        });
         
         // Update rectangle geometry using CircleManager-like approach
+        console.log('[UPDATE_SHAPE_DEBUG] About to call updateRectangleGeometryLikeCircle()');
+        console.log('[UPDATE_SHAPE_DEBUG] Parameters:', { roundedLength, roundedWidth, roundedHeight, type });
         const newRectangle = this.updateRectangleGeometryLikeCircle(this.currentShape, roundedLength, roundedWidth, roundedHeight, type);
         if (newRectangle) {
+            console.log('[UPDATE_SHAPE_DEBUG] New rectangle created:', newRectangle.name);
             this.currentShape = newRectangle;
+        } else {
+            console.log('[UPDATE_SHAPE_DEBUG] No new rectangle returned');
         }
+        console.log('[UPDATE_SHAPE_DEBUG] updateShapeInRealTime() finished');
         
         // Restore focus to the input field if it was focused before
         if (wasInputFocused && focusedInputId) {
@@ -10931,12 +12338,24 @@ Transform your 3D models into powerful energy analysis tools.`;
             setTimeout(() => {
                 const inputElement = document.getElementById(focusedInputId);
                 if (inputElement) {
-                    // Restore cursor position
-                    const cursorPosition = inputElement.selectionStart || 0;
-                    inputElement.focus();
-                    // Try to restore cursor position
-                    if (inputElement.setSelectionRange) {
-                        inputElement.setSelectionRange(cursorPosition, cursorPosition);
+                    // IMPORTANT: setSelectionRange only works for text inputs, not number inputs
+                    // Check if input type supports selection before trying to restore cursor position
+                    const inputType = inputElement.type;
+                    if (inputType === 'text' || inputType === 'textarea' || inputElement.isContentEditable) {
+                        const cursorPosition = inputElement.selectionStart || 0;
+                        inputElement.focus();
+                        // Try to restore cursor position (only for text inputs)
+                        if (inputElement.setSelectionRange) {
+                            try {
+                                inputElement.setSelectionRange(cursorPosition, cursorPosition);
+                            } catch (e) {
+                                // Ignore error if setSelectionRange fails
+                                console.debug('Could not restore cursor position for input type:', inputType);
+                            }
+                        }
+                    } else {
+                        // For number inputs, just focus without trying to restore cursor position
+                        inputElement.focus();
                     }
                 }
             }, 0);
@@ -10947,8 +12366,14 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update rectangle geometry like CircleManager (preserves focus and works smoothly)
      */
     updateRectangleGeometryLikeCircle(shape, newLength, newWidth, newHeight, type) {
+        console.log('[GEOMETRY_UPDATE_DEBUG] ========================================');
+        console.log('[GEOMETRY_UPDATE_DEBUG] updateRectangleGeometryLikeCircle() called');
+        console.log('[GEOMETRY_UPDATE_DEBUG] Shape:', shape?.name);
+        console.log('[GEOMETRY_UPDATE_DEBUG] Parameters:', { newLength, newWidth, newHeight, type });
+        console.log('[GEOMETRY_UPDATE_DEBUG] Stack trace:', new Error().stack);
+        
         if (!shape || !shape.userData) {
-            console.warn('Cannot update: no shape or userData');
+            console.warn('[GEOMETRY_UPDATE_DEBUG] Cannot update: no shape or userData');
             return;
         }
         
@@ -10960,7 +12385,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             return;
         }
         
-        console.log('Updating rectangle:', shape.name, 'length:', newLength, 'width:', newWidth, 'height:', newHeight);
+        // For all types except 'building', height should be 0 (use flat box)
+        const isBuilding = type?.toLowerCase() === 'building';
+        const actualHeight = isBuilding ? newHeight : 0.001; // Use very small height for non-building types
+        
+        // Log height for non-building types
+        if (!isBuilding) {
+            console.log(`[HEIGHT] Rectangle "${shape.name}" type="${type}" height=${newHeight} (should be 0 for non-building types, using ${actualHeight} for rendering)`);
+        }
         
         // Store current transform properties
         const currentPosition = shape.position.clone();
@@ -11015,56 +12447,65 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Create new box with updated dimensions
         // Use the stored oldName to ensure we use the correct name (shape is disposed, so we can't use shape.name)
+        console.log('[GEOMETRY_UPDATE_DEBUG] Creating new box with name:', oldName);
+        console.log('[GEOMETRY_UPDATE_DEBUG] Dimensions:', { width: newLength, height: actualHeight, depth: newWidth, isBuilding });
         const newRectangle = BABYLON.MeshBuilder.CreateBox(oldName, {
             width: newLength,
-            height: newHeight,
+            height: actualHeight,
             depth: newWidth
         }, this.sceneManager.getScene());
+        console.log('[GEOMETRY_UPDATE_DEBUG] New rectangle created:', newRectangle.name);
+        console.log('[GEOMETRY_UPDATE_DEBUG] Total meshes in scene:', this.sceneManager.getScene().meshes.length);
         
         // Restore all transform properties with smart Y positioning
+        // IMPORTANT: Preserve the current bottom position when height changes
         // Calculate the bottom of the original rectangle (use stored userData since shape is disposed)
         const originalHeight = oldUserData?.dimensions?.height || oldUserData?.originalHeight || newHeight;
         const originalBottom = currentPosition.y - (originalHeight / 2);
         
-        // Position new rectangle with same bottom but new height
+        // IMPORTANT: Preserve the original bottom position (don't reset to Y=0)
+        // This ensures that if a rectangle is at height 1m, changing its height won't move it back to ground
+        const targetBottom = originalBottom; // Keep bottom at its current position
+        
+        // Position new rectangle with bottom at the same position, height grows upward only
         newRectangle.position = new BABYLON.Vector3(
             currentPosition.x,
-            originalBottom + (newHeight / 2), // Keep same bottom, adjust for new height
+            targetBottom + (actualHeight / 2), // Bottom at original position, center at targetBottom + actualHeight/2
             currentPosition.z
         );
+        
+        console.log(`[RECTANGLE_POSITION] Updated rectangle: type=${type}, isBuilding=${isBuilding}, originalBottom=${originalBottom.toFixed(3)}, targetBottom=${targetBottom.toFixed(3)}, actualHeight=${actualHeight.toFixed(3)}, newPosition.y=${(targetBottom + (actualHeight / 2)).toFixed(3)}`);
         newRectangle.rotation = currentRotation;
         newRectangle.scaling = currentScaling;
         
-        // Create new material (color will be set later based on type)
+        // Create new material with color based on type
         // Use oldName since shape is already disposed
         const material = new BABYLON.StandardMaterial(`${oldName}Material`, this.sceneManager.getScene());
-        material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
+        // Get color automatically based on type
+        const colorByType = this.getColorByType(type);
+        material.diffuseColor = colorByType;
         material.backFaceCulling = false; // 2-sided
         material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         material.alpha = 1.0;
         newRectangle.material = material;
-        newRectangle.renderingGroupId = 1; // Same rendering priority as buildings and trees
         
-        // Use the color selected by user (from color picker)
-        const colorPicker = document.getElementById('shapeColor');
-        if (colorPicker && colorPicker.value) {
-            const rgbColor = this.hexToRgb(colorPicker.value);
-            material.diffuseColor = new BABYLON.Color3(rgbColor.r, rgbColor.g, rgbColor.b);
-        }
-        // No fallback colors - user must choose from color picker
-        
-        // Update userData
+        // Update userData first to get type
+        // Store height: 0 for non-building types, actual height for building type
+        const storedHeight = isBuilding ? newHeight : 0;
         newRectangle.userData = {
             type: type,
             shapeType: type === 'building' ? 'building' : 'rectangle',
             dimensions: {
                 width: newLength,
                 depth: newWidth,
-                height: newHeight
+                height: storedHeight  // Store 0 for non-building types in userData
             },
-            originalHeight: newHeight
+            originalHeight: storedHeight  // Store 0 for non-building types in userData
         };
+        
+        // Set rendering priority based on type (after userData is set)
+        newRectangle.renderingGroupId = SceneManager.getRenderingGroupId(type);
         
         // Re-link extrusion to new mesh if it existed
         if (oldExtrusion) {
@@ -11080,13 +12521,26 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         }
         
+        // IMPORTANT: Ensure new rectangle is visible and enabled before adding to selection manager
+        newRectangle.isVisible = true;
+        newRectangle.setEnabled(true);
+        
+        // IMPORTANT: Ensure new rectangle is in the scene
+        const scene = this.sceneManager.getScene();
+        if (!scene.meshes.includes(newRectangle)) {
+            scene.addMesh(newRectangle);
+            console.log(`[GEOMETRY_UPDATE_DEBUG] Added new rectangle ${newRectangle.name} to scene`);
+        }
+        
         // Add to selection manager
         if (this.selectionManager) {
             this.selectionManager.addSelectableObject(newRectangle);
             
             // Restore selection if it was selected before
             if (wasSelected && this.selectionManager) {
-                this.selectionManager.selectObject(newRectangle);
+                console.log(`[GEOMETRY_UPDATE_DEBUG] Restoring selection for ${newRectangle.name}, creating wireframe...`);
+                // IMPORTANT: Use selectObject with includeExtrusion=false to avoid issues
+                this.selectionManager.selectObject(newRectangle, false, false);
             }
         }
         
@@ -11104,11 +12558,14 @@ Transform your 3D models into powerful energy analysis tools.`;
             const oldIndex = this.rectangleManager.rectangles.indexOf(shape);
             if (oldIndex !== -1) {
                 this.rectangleManager.rectangles.splice(oldIndex, 1);
+                console.log('[GEOMETRY_UPDATE_DEBUG] Removed old mesh from rectangles array');
             }
             // Add new mesh to rectangles array
             this.rectangleManager.rectangles.push(newRectangle);
+            console.log('[GEOMETRY_UPDATE_DEBUG] Added new mesh to rectangles array. Total rectangles:', this.rectangleManager.rectangles.length);
         }
         
+        console.log('[GEOMETRY_UPDATE_DEBUG] updateRectangleGeometryLikeCircle() finished');
         return newRectangle;
     }
 
@@ -11252,15 +12709,23 @@ Transform your 3D models into powerful energy analysis tools.`;
         }, this.sceneManager.getScene());
         
         // Restore all transform properties with smart Y positioning
+        // IMPORTANT: For buildings, bottom should always be at Y=0 (ground level)
+        // Height should only grow upward, not downward
         // Calculate the bottom of the original building
         const originalBottom = currentPosition.y - (originalHeight / 2);
         
-        // Position new building with same bottom but new height
+        // IMPORTANT: Preserve the original bottom position (don't reset to Y=0)
+        // This ensures that if a building is at height 1m, changing its height won't move it back to ground
+        const targetBottom = originalBottom; // Keep bottom at its current position
+        
+        // Position new building with bottom at the same position, height grows upward only
         newMesh.position = new BABYLON.Vector3(
             currentPosition.x,
-            originalBottom + (properties.height / 2), // Keep same bottom, adjust for new height
+            targetBottom + (properties.height / 2), // Bottom at original position, center at targetBottom + properties.height/2
             currentPosition.z
         );
+        
+        console.log(`[BUILDING_POSITION] Updated building: originalBottom=${originalBottom.toFixed(3)}, targetBottom=${targetBottom.toFixed(3)}, newHeight=${properties.height.toFixed(3)}, newPosition.y=${(targetBottom + (properties.height / 2)).toFixed(3)}`);
         newMesh.rotation = currentRotation;
         newMesh.scaling = currentScaling;
         
@@ -11284,11 +12749,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         newMaterial.roughness = 0.7;
-        newMaterial.twoSidedLighting = true; // Enable lighting on both sides
         newMaterial.backFaceCulling = false; // 2-sided
+        newMaterial.twoSidedLighting = true; // Enable lighting on both sides
         
         newMesh.material = newMaterial;
-        newMesh.renderingGroupId = 1;
+        // Set rendering priority based on type (will be set after userData)
         newMesh.enableEdgesRendering();
         newMesh.edgesWidth = 1.0;
         newMesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
@@ -11306,6 +12771,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             },
             originalHeight: properties.height
         };
+        
+        // Set rendering priority based on type (after userData is set)
+        newMesh.renderingGroupId = SceneManager.getRenderingGroupId(properties.type);
         
         // Ensure no period properties for non-building objects
         if (newMesh.userData.type && newMesh.userData.type !== 'building') {
@@ -11344,6 +12812,10 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update polygon geometry
      */
     updatePolygonGeometry(shape, properties) {
+        // IMPORTANT: This method should NOT be called when only type changes
+        // Type changes should only update material and height via updatePolygonMaterialByType
+        // This method is only for geometry changes (points, dimensions, etc.)
+        
         // Store current position and material
         const currentPosition = shape.position.clone();
         const currentMaterial = shape.material;
@@ -11351,16 +12823,57 @@ Transform your 3D models into powerful energy analysis tools.`;
         const currentUserData = shape.userData || {};
         const currentPoints = currentUserData.points || [];
 
+        // Check if this is actually a polygon (has points array)
+        if (!currentPoints || currentPoints.length < 3) {
+            console.warn('[POLYGON_GEOMETRY] Cannot update polygon geometry: no points array or less than 3 points');
+            return null;
+        }
+
+        // Store selection state before disposing
+        const wasSelected = this.selectionManager && this.selectionManager.isSelected(shape);
+        
+        // Remove from selection manager before disposing
+        if (this.selectionManager) {
+            this.selectionManager.removeSelectableObject(shape);
+        }
+
         // Dispose old mesh
         shape.dispose();
 
-        if (properties.type === 'building' && properties.height > 0.001) {
-            // Create extrusion for building
+        // For all types except 'building', height should be 0 and no extrusion
+        const isBuilding = properties.type?.toLowerCase() === 'building';
+        
+        let newPolygon = null;
+        if (!isBuilding) {
+            // Force height to 0 for non-building types and keep as 2D polygon (no extrusion)
+            properties.height = 0;
+            // Update userData before creating new mesh
+            currentUserData.type = properties.type;
+            currentUserData.shapeType = 'polygon';
+            newPolygon = this.createPolygonMesh(currentName, currentPoints, currentPosition, currentMaterial, currentUserData);
+        } else if (properties.height > 0.001) {
+            // Create extrusion for building type
+            // Update userData before creating new mesh
+            currentUserData.type = properties.type;
+            currentUserData.shapeType = 'polygon';
             this.createPolygonExtrusion(currentName, currentPoints, properties.height, currentPosition, currentMaterial, currentUserData);
+            // Get the created polygon from scene
+            const scene = this.sceneManager.getScene();
+            newPolygon = scene.getMeshByName(currentName);
         } else {
-            // Keep as 2D polygon
-            this.createPolygonMesh(currentName, currentPoints, currentPosition, currentMaterial, currentUserData);
+            // Keep as 2D polygon if building height is 0 or not set
+            // Update userData before creating new mesh
+            currentUserData.type = properties.type;
+            currentUserData.shapeType = 'polygon';
+            newPolygon = this.createPolygonMesh(currentName, currentPoints, currentPosition, currentMaterial, currentUserData);
         }
+        
+        // If polygon was selected, select the new one
+        if (newPolygon && wasSelected && this.selectionManager) {
+            this.selectionManager.selectObject(newPolygon, false);
+        }
+        
+        return newPolygon;
     }
 
     /**
@@ -11378,53 +12891,84 @@ Transform your 3D models into powerful energy analysis tools.`;
         const relativePoints = points.map(point => point.subtract(center));
 
         // Create polygon mesh using PolygonManager's method
-        const mesh = this.createCustomPolygonMesh(relativePoints);
+        // Use height 0.001 for 2D polygons (minimal thickness to prevent z-fighting)
+        const mesh = this.createCustomPolygonMesh(relativePoints, 0.001);
         
         // Set properties immediately after creation
         mesh.name = name;
         mesh.material = material;
-        mesh.renderingGroupId = 1;
         mesh.receiveShadows = true;
         mesh.castShadows = true;
         mesh.position = center;
-        mesh.userData = userData;
+        // For 2D polygons, set Y position to 0.001 to prevent z-fighting
+        if (userData && !userData.is3D) {
+            mesh.position.y = 0.001;
+        }
+        // IMPORTANT: Ensure userData is properly set and shapeType is always 'polygon'
+        // This prevents misidentification as rectangle
+        if (!mesh.userData) {
+            mesh.userData = {};
+        }
+        
+        // Copy all userData properties
+        if (userData) {
+            // Deep copy userData to avoid reference issues
+            Object.assign(mesh.userData, userData);
+            console.log(`[createPolygonMesh] Copied userData to mesh:`, {
+                type: userData?.type,
+                shapeType: userData?.shapeType,
+                pointsCount: userData?.points?.length
+            });
+        }
+        
+        // IMPORTANT: Always set shapeType to 'polygon' for polygon meshes
+        // This is critical to prevent getShapeType from misidentifying it as rectangle
+        mesh.userData.shapeType = 'polygon';
+        
+        // IMPORTANT: Ensure points array is preserved in userData
+        // This is critical for getShapeType to correctly identify it as polygon
+        if (userData && userData.points) {
+            mesh.userData.points = userData.points.map(p => p.clone ? p.clone() : new BABYLON.Vector3(p.x, p.y, p.z));
+        }
+        
+        // Final validation: ensure type is set correctly
+        if (!mesh.userData.type || mesh.userData.type === undefined || mesh.userData.type === null || mesh.userData.type === '') {
+            // If no type provided, set default based on name
+            // Try to extract type from name (e.g., polygon_water_1 -> water)
+            const nameMatch = name.match(/polygon_(water|waterway|ground|grass|highway|building|soil)_/);
+            if (nameMatch) {
+                mesh.userData.type = nameMatch[1];
+                console.warn(`[createPolygonMesh] Polygon ${name} had no type in userData, extracted from name: ${nameMatch[1]}`);
+            } else {
+                mesh.userData.type = 'ground'; // Default fallback
+                console.warn(`[createPolygonMesh] Polygon ${name} had no type in userData, set to 'ground'`);
+            }
+        }
+        
+        // Set rendering priority based on type (after userData is finalized)
+        const finalType = mesh.userData?.type || 'ground';
+        const calculatedRenderingGroupId = SceneManager.getRenderingGroupId(finalType);
+        mesh.renderingGroupId = calculatedRenderingGroupId;
+        
+        console.log(`[createPolygonMesh] Set renderingGroupId: type=${finalType}, renderingGroupId=${calculatedRenderingGroupId}, mesh.userData.type=${mesh.userData?.type}`);
+        
+        // IMPORTANT: Apply depth offset based on type to ensure correct render order
+        SceneManager.applyDepthOffset(mesh, finalType);
         
         // Ensure material is properly applied
         if (material) {
             mesh.material = material;
         }
         
-        // Ensure userData is properly set
-        if (userData) {
-            mesh.userData = userData;
-        }
-        
-        // Final validation: ensure type is set correctly
-        if (!mesh.userData || !mesh.userData.type || mesh.userData.type === undefined || mesh.userData.type === null || mesh.userData.type === '') {
-            if (userData && userData.type) {
-                mesh.userData = userData;
-            } else {
-                // If no type provided, set default based on name
-                if (!mesh.userData) {
-                    mesh.userData = {};
-                }
-                // Try to extract type from name (e.g., polygon_water_1 -> water)
-                const nameMatch = name.match(/polygon_(water|waterway|ground|grass)_/);
-                if (nameMatch) {
-                    mesh.userData.type = nameMatch[1];
-                } else {
-                    mesh.userData.type = 'ground'; // Default fallback
-                }
-                console.warn(`Polygon ${name} had no type in userData, extracted from name or set to 'ground'`);
-            }
-        }
-        
-        console.log(`Created polygon mesh: ${name}, type: ${mesh.userData?.type || 'unknown'}, material color: R=${material?.diffuseColor?.r?.toFixed(2) || 'N/A'}, G=${material?.diffuseColor?.g?.toFixed(2) || 'N/A'}, B=${material?.diffuseColor?.b?.toFixed(2) || 'N/A'}`);
+        console.log(`[createPolygonMesh] Created polygon mesh: ${name}, type: ${finalType}, shapeType: ${mesh.userData?.shapeType || 'unknown'}, renderingGroupId: ${mesh.renderingGroupId}, points: ${mesh.userData?.points?.length || 0}, material color: R=${material?.diffuseColor?.r?.toFixed(2) || 'N/A'}, G=${material?.diffuseColor?.g?.toFixed(2) || 'N/A'}, B=${material?.diffuseColor?.b?.toFixed(2) || 'N/A'}`);
 
         // Add to selection manager
         if (this.selectionManager) {
             this.selectionManager.addSelectableObject(mesh);
         }
+        
+        // Return the created mesh
+        return mesh;
     }
 
     /**
@@ -11453,7 +12997,6 @@ Transform your 3D models into powerful energy analysis tools.`;
         extrusion.position = new BABYLON.Vector3(centerX, position.y, centerZ);
         // Keep extrusion at the same Y level as the base polygon
         extrusion.material = material;
-        extrusion.renderingGroupId = 1;
         extrusion.receiveShadows = true;
         extrusion.castShadows = true;
         extrusion.userData = {
@@ -11461,6 +13004,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             type: 'building',
             buildingHeight: height
         };
+        
+        // Set rendering priority based on type (after userData is set)
+        extrusion.renderingGroupId = SceneManager.getRenderingGroupId(extrusion.userData.type);
 
         // Link extrusion to base polygon
         const scene = this.sceneManager.getScene();
@@ -11473,24 +13019,29 @@ Transform your 3D models into powerful energy analysis tools.`;
             extrusion.setParent(basePolygon);
         }
 
-        // Add to selection manager
-        if (this.selectionManager) {
-            this.selectionManager.addSelectableObject(extrusion);
-        }
+        // IMPORTANT: Do NOT add extrusion to selection manager separately
+        // Extrusion should be selected together with polygon (as a child)
+        // Adding it separately causes duplicate selection and TransformNode issues
     }
 
     /**
      * Create custom polygon mesh (helper method)
+     * @param {BABYLON.Vector3[]} relativePoints - Points relative to center
+     * @param {number} height - Height/thickness of the polygon (default: 0.001 for 2D)
      */
-    createCustomPolygonMesh(relativePoints) {
+    createCustomPolygonMesh(relativePoints, height = 0.001) {
+        // IMPORTANT: Ensure counter-clockwise winding order for correct normals
+        // This ensures normals point upward (Y+) instead of downward
+        const correctedPoints = this.ensureCounterClockwiseFor2DPolygon(relativePoints);
+        
         const positions = [];
         const indices = [];
         const normals = [];
         const uvs = [];
 
         // Add polygon vertices
-        relativePoints.forEach((point, index) => {
-            positions.push(point.x, 0.01, point.z);
+        correctedPoints.forEach((point, index) => {
+            positions.push(point.x, height, point.z);
             normals.push(0, 1, 0); // Normal pointing upward
             
             const u = (point.x + 1) / 2;
@@ -11498,8 +13049,8 @@ Transform your 3D models into powerful energy analysis tools.`;
             uvs.push(u, v);
         });
 
-        // Triangulate polygon
-        this.triangulatePolygon(relativePoints, indices);
+        // Triangulate polygon with corrected points
+        this.triangulatePolygon(correctedPoints, indices);
 
         const scene = this.sceneManager.getScene();
         // Use a temporary unique name to avoid conflicts
@@ -11510,10 +13061,33 @@ Transform your 3D models into powerful energy analysis tools.`;
         mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, uvs);
         mesh.setIndices(indices);
 
-        // Recalculate normals based on the correct triangle winding order
-        // This ensures normals point upward (Y+) for proper lighting
-        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
-        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        // Apply flat shading to prevent unwanted smoothing artifacts
+        // This ensures each face has its own normal, preventing dark spots
+        // IMPORTANT: For 2D polygons, pass null as meshHeight to ensure normals point upward
+        this.applyFlatShadingToMesh(mesh, positions, indices, null);
+
+        // IMPORTANT: After flat shading, FORCE all normals to point upward for 2D polygons
+        // This fixes the issue where normals might point downward due to vertex winding order
+        // CRITICAL: Must refresh geometry before reading normals
+        mesh.refreshBoundingInfo();
+        const finalNormals = mesh.geometry.getVerticesData(BABYLON.VertexBuffer.NormalKind);
+        if (finalNormals) {
+            // For 2D polygons (height = 0.001), ALL normals must point upward (0, 1, 0)
+            // Don't check - just force them all to (0, 1, 0)
+            const normalCount = finalNormals.length / 3;
+            for (let i = 0; i < finalNormals.length; i += 3) {
+                finalNormals[i] = 0;     // x = 0
+                finalNormals[i + 1] = 1; // y = 1 (upward)
+                finalNormals[i + 2] = 0; // z = 0
+            }
+            mesh.geometry.setVerticesData(BABYLON.VertexBuffer.NormalKind, finalNormals);
+            // Force mesh to update
+            mesh.computeWorldMatrix(true);
+            mesh.refreshBoundingInfo();
+            console.log(`[createCustomPolygonMesh] Forced all ${normalCount} normals to point upward (0, 1, 0) for 2D polygon`);
+        } else {
+            console.warn(`[createCustomPolygonMesh] WARNING: Could not get normals after flat shading!`);
+        }
 
         return mesh;
     }
@@ -11577,8 +13151,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 
                 if (!convexFound) {
                     // Force triangulation from first vertex
+                    // Use counter-clockwise order for upward normals (Y+)
                     for (let i = 1; i < vertexIndices.length - 1; i++) {
-                        indices.push(vertexIndices[0], vertexIndices[i], vertexIndices[i + 1]); // Counter-clockwise order for upward normals (Y+)
+                        indices.push(vertexIndices[0], vertexIndices[i], vertexIndices[i + 1]);
                     }
                     break;
                 }
@@ -11588,7 +13163,8 @@ Transform your 3D models into powerful energy analysis tools.`;
         }
         
         if (vertexIndices.length === 3) {
-            indices.push(vertexIndices[0], vertexIndices[2], vertexIndices[1]); // Reverse order for upward normals
+            // Keep counter-clockwise order for upward normals (Y+)
+            indices.push(vertexIndices[0], vertexIndices[1], vertexIndices[2]);
         }
     }
 
@@ -11644,30 +13220,73 @@ Transform your 3D models into powerful energy analysis tools.`;
 
     /**
      * Create custom polygon extrusion (3D building)
+     * Using PolygonMeshBuilder with improved normal fixing
      */
     createCustomPolygonExtrusion(name, points, height) {
-        console.log(`Creating extrusion for ${name} with ${points.length} points and height ${height}`);
         
         const scene = this.sceneManager.getScene();
         
+        // IMPORTANT: Dispose old extrusion if it exists to prevent duplicate extrusions
+        // This ensures that when height changes, old extrusion is removed before creating new one
+        const oldExtrusion = scene.getMeshByName(name);
+        if (oldExtrusion) {
+            console.log(`[createCustomPolygonExtrusion] Found existing extrusion "${name}", disposing it before creating new one`);
+            // Remove from selection manager if it's there
+            if (this.selectionManager) {
+                this.selectionManager.removeSelectableObject(oldExtrusion);
+            }
+            // Dispose material if it exists
+            if (oldExtrusion.material && oldExtrusion.material !== scene.defaultMaterial) {
+                try {
+                    const material = oldExtrusion.material;
+                    oldExtrusion.material = null;
+                    material.dispose();
+                } catch (error) {
+                    console.warn(`[createCustomPolygonExtrusion] Error disposing material:`, error);
+                }
+            }
+            // Dispose geometry if it exists
+            if (oldExtrusion.geometry) {
+                try {
+                    oldExtrusion.geometry.dispose();
+                } catch (error) {
+                    console.warn(`[createCustomPolygonExtrusion] Error disposing geometry:`, error);
+                }
+            }
+            // Dispose the mesh itself
+            try {
+                oldExtrusion.dispose();
+            } catch (error) {
+                console.warn(`[createCustomPolygonExtrusion] Error disposing old extrusion:`, error);
+            }
+        }
+        
         // Convert points to Vector2 format for PolygonMeshBuilder
         const shape2D = points.map(p => new BABYLON.Vector2(p.x, p.z));
+        
+        console.log(`[createCustomPolygonExtrusion] Creating extrusion using PolygonMeshBuilder for ${name} with ${shape2D.length} points, height=${height}`);
         
         // Create polygon mesh using PolygonMeshBuilder with earcut
         const builder = new BABYLON.PolygonMeshBuilder(name, shape2D, scene, earcut);
         const mesh = builder.build(false, height);
         
-        // Fix normals for proper surface orientation
-        // Only flip side wall normals, not top and bottom faces
-        this.flipSideWallNormals(mesh, height);
-        
-        // Mark that normals have been flipped
+        // Store height in userData
         if (!mesh.userData) {
             mesh.userData = {};
         }
+        mesh.userData.buildingHeight = height;
+        
+        // Apply flat shading FIRST to prevent unwanted smoothing artifacts
+        // This ensures each face has its own normal, preventing dark spots
+        this.applyFlatShading(mesh, height);
+        
+        // ALWAYS flip side wall normals - PolygonMeshBuilder creates them pointing inward
+        // This is a known issue with PolygonMeshBuilder
+        console.log(`[createCustomPolygonExtrusion] Flipping side wall normals (PolygonMeshBuilder creates them inward)...`);
+        this.flipSideWallNormals(mesh, height);
         mesh.userData.sideWallNormalsFlipped = true;
         
-        // Ensure material is 2-sided
+        // Ensure material is 2-sided (backFaceCulling disabled)
         if (mesh.material) {
             mesh.material.backFaceCulling = false; // 2-sided
             mesh.material.twoSidedLighting = true; // Enable lighting on both sides
@@ -11677,26 +13296,53 @@ Transform your 3D models into powerful energy analysis tools.`;
         mesh.computeWorldMatrix(true);
         mesh.refreshBoundingInfo();
         
-        // Position the mesh so the base is at y=0 and top is at y=height
-        mesh.position.y = height / 2;
+        // IMPORTANT: Make extrusion pickable so it can be selected by clicking on walls
+        mesh.isPickable = true;
         
-        console.log(`Extrusion created using PolygonMeshBuilder with height ${height}`);
+        // IMPORTANT: Ensure extrusion is visible and enabled from the start
+        mesh.isVisible = true;
+        mesh.setEnabled(true);
+        
+        // IMPORTANT: Ensure extrusion has a default material if none exists
+        if (!mesh.material) {
+            console.warn(`[createCustomPolygonExtrusion] Extrusion ${name} has no material, creating default material`);
+            const defaultMaterial = new BABYLON.StandardMaterial(`${name}_defaultMaterial`, scene);
+            defaultMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1);
+            defaultMaterial.backFaceCulling = false;
+            defaultMaterial.twoSidedLighting = true;
+            mesh.material = defaultMaterial;
+        }
+        
+        // IMPORTANT: Ensure extrusion is in the scene
+        if (!scene.meshes.includes(mesh)) {
+            scene.addMesh(mesh);
+            console.log(`[createCustomPolygonExtrusion] Added extrusion ${name} to scene`);
+        }
+        
+        // IMPORTANT: Position will be set after setParent is called
+        // For now, set to 0 - it will be adjusted in updatePolygonMaterialByType
+        // to keep base at the same Y as polygon
+        mesh.position.y = 0;
+        
+        console.log(`[createCustomPolygonExtrusion] Extrusion ${name} created: visible=${mesh.isVisible}, enabled=${mesh.isEnabled()}, hasMaterial=${!!mesh.material}, inScene=${scene.meshes.includes(mesh)}`);
+        
         return mesh;
     }
 
     /**
-     * Flip only side wall normals, preserving top and bottom face normals
+     * Fix normals for polygon extrusion
+     * PolygonMeshBuilder creates: top/bottom normals pointing outward (correct), side walls pointing inward (wrong)
+     * We need: top pointing upward (0, 1, 0), bottom pointing downward (0, -1, 0), side walls pointing outward
      */
     flipSideWallNormals(mesh, height) {
         if (!mesh.geometry || !mesh.geometry.getVerticesData(BABYLON.VertexBuffer.NormalKind)) {
-            console.warn('Cannot flip side wall normals: mesh geometry or normals not found');
+            console.warn('Cannot fix normals: mesh geometry or normals not found');
             return;
         }
 
-        // IMPORTANT: Check if normals have already been flipped to prevent double-flipping
-        // This is critical because this function may be called multiple times (e.g., when recreating polygons)
+        // IMPORTANT: Check if normals have already been fixed to prevent double-fixing
         if (mesh.userData && mesh.userData.sideWallNormalsFlipped === true) {
-            console.log(`[flipSideWallNormals] Normals already flipped for ${mesh.name}, skipping to prevent double-flipping`);
+            console.log(`[flipSideWallNormals] Normals already fixed for ${mesh.name}, skipping`);
             return;
         }
 
@@ -11705,19 +13351,41 @@ Transform your 3D models into powerful energy analysis tools.`;
         const indices = mesh.geometry.getIndices();
 
         if (!positions || !normals || !indices) {
-            console.warn('Cannot flip side wall normals: missing geometry data');
+            console.warn('Cannot fix normals: missing geometry data');
             return;
         }
 
-        // Tolerance for identifying top and bottom faces
-        const tolerance = 0.001;
-        const topY = height / 2;
-        const bottomY = -height / 2;
+        // Find actual min/max Y from positions (after flat shading, Y might not be exactly height/2)
+        let minY = Infinity;
+        let maxY = -Infinity;
+        for (let i = 1; i < positions.length; i += 3) {
+            minY = Math.min(minY, positions[i]);
+            maxY = Math.max(maxY, positions[i]);
+        }
+        
+        // Tolerance for identifying top and bottom faces (increased for flat shading)
+        const tolerance = 0.01; // Increased tolerance for flat-shaded geometry
+        const topY = maxY; // Use actual max Y
+        const bottomY = minY; // Use actual min Y
 
-        // Create a new normals array
+        console.log(`[flipSideWallNormals] Starting normal fix for ${mesh.name}`);
+        console.log(`[flipSideWallNormals] height=${height}, expected topY=${height/2}, expected bottomY=${-height/2}`);
+        console.log(`[flipSideWallNormals] actual minY=${minY}, actual maxY=${maxY}, using topY=${topY}, bottomY=${bottomY}`);
+
+        // Create a new normals array - start with original normals
         const newNormals = [...normals];
 
-        // Process each triangle
+        // Statistics for logging
+        let topFaceCount = 0;
+        let bottomFaceCount = 0;
+        let sideWallCount = 0;
+        const sampleNormals = {
+            top: [],
+            bottom: [],
+            sideWall: []
+        };
+
+        // Process each triangle to fix normals
         for (let i = 0; i < indices.length; i += 3) {
             const idx1 = indices[i];
             const idx2 = indices[i + 1];
@@ -11726,48 +13394,190 @@ Transform your 3D models into powerful energy analysis tools.`;
             const y1 = positions[idx1 * 3 + 1];
             const y2 = positions[idx2 * 3 + 1];
             const y3 = positions[idx3 * 3 + 1];
+            const avgY = (y1 + y2 + y3) / 3;
 
-            // Check if this is a top face (all vertices at topY)
+            // Check if this is a top face (all vertices near maxY)
             const isTopFace = Math.abs(y1 - topY) < tolerance && 
                              Math.abs(y2 - topY) < tolerance && 
                              Math.abs(y3 - topY) < tolerance;
 
-            // Check if this is a bottom face (all vertices at bottomY)
+            // Check if this is a bottom face (all vertices near minY)
             const isBottomFace = Math.abs(y1 - bottomY) < tolerance && 
                                 Math.abs(y2 - bottomY) < tolerance && 
                                 Math.abs(y3 - bottomY) < tolerance;
 
-            // Only flip normals for side walls (not top or bottom faces)
-            if (!isTopFace && !isBottomFace) {
-                // Flip normals for this triangle's vertices
-                const normalIdx1 = idx1 * 3;
-                const normalIdx2 = idx2 * 3;
-                const normalIdx3 = idx3 * 3;
+            const normalIdx1 = idx1 * 3;
+            const normalIdx2 = idx2 * 3;
+            const normalIdx3 = idx3 * 3;
 
+            // Get original normal for logging
+            const originalNormal = new BABYLON.Vector3(
+                normals[normalIdx1],
+                normals[normalIdx1 + 1],
+                normals[normalIdx1 + 2]
+            );
+
+            if (isTopFace) {
+                topFaceCount++;
+                if (topFaceCount <= 2) {
+                    sampleNormals.top.push({
+                        triangle: i / 3,
+                        original: originalNormal.clone(),
+                        vertices: { y1, y2, y3 }
+                    });
+                }
+                // Top face: KEEP original normals (don't change them)
+                // newNormals are already set to original normals, so we do nothing
+                // This preserves the normals created by PolygonMeshBuilder
+            } else if (isBottomFace) {
+                bottomFaceCount++;
+                if (bottomFaceCount <= 2) {
+                    sampleNormals.bottom.push({
+                        triangle: i / 3,
+                        original: originalNormal.clone(),
+                        vertices: { y1, y2, y3 }
+                    });
+                }
+                // Bottom face: KEEP original normals (don't change them)
+                // newNormals are already set to original normals, so we do nothing
+                // This preserves the normals created by PolygonMeshBuilder
+            } else {
+                sideWallCount++;
+                // Side walls: ALWAYS flip normals - PolygonMeshBuilder creates them pointing inward
+                // Simple approach: just flip the existing normals
+                // This is more reliable than recalculating from vertices
+                
+                const beforeNormal = new BABYLON.Vector3(
+                    newNormals[normalIdx1],
+                    newNormals[normalIdx1 + 1],
+                    newNormals[normalIdx1 + 2]
+                );
+                
+                // Flip all three vertices' normals
                 newNormals[normalIdx1] = -newNormals[normalIdx1];
                 newNormals[normalIdx1 + 1] = -newNormals[normalIdx1 + 1];
                 newNormals[normalIdx1 + 2] = -newNormals[normalIdx1 + 2];
-
+                
                 newNormals[normalIdx2] = -newNormals[normalIdx2];
                 newNormals[normalIdx2 + 1] = -newNormals[normalIdx2 + 1];
                 newNormals[normalIdx2 + 2] = -newNormals[normalIdx2 + 2];
-
+                
                 newNormals[normalIdx3] = -newNormals[normalIdx3];
                 newNormals[normalIdx3 + 1] = -newNormals[normalIdx3 + 1];
                 newNormals[normalIdx3 + 2] = -newNormals[normalIdx3 + 2];
+                
+                const afterNormal = new BABYLON.Vector3(
+                    newNormals[normalIdx1],
+                    newNormals[normalIdx1 + 1],
+                    newNormals[normalIdx1 + 2]
+                );
+                
+                if (sideWallCount <= 3) {
+                    console.log(`[flipSideWallNormals] Side wall ${sideWallCount} flipped: before=(${beforeNormal.x.toFixed(3)}, ${beforeNormal.y.toFixed(3)}, ${beforeNormal.z.toFixed(3)}), after=(${afterNormal.x.toFixed(3)}, ${afterNormal.y.toFixed(3)}, ${afterNormal.z.toFixed(3)})`);
+                }
             }
         }
 
-        // Update the mesh with new normals
+        // Log statistics
+        console.log(`[flipSideWallNormals] Face counts: Top=${topFaceCount}, Bottom=${bottomFaceCount}, SideWalls=${sideWallCount}, Total=${indices.length / 3}`);
+        
+        if (topFaceCount === 0 && bottomFaceCount === 0) {
+            console.warn(`[flipSideWallNormals] WARNING: No top or bottom faces detected! All faces classified as side walls.`);
+            console.warn(`[flipSideWallNormals] This might indicate that flat shading changed Y coordinates.`);
+            console.warn(`[flipSideWallNormals] Checking first few faces for Y coordinates...`);
+            for (let i = 0; i < Math.min(6, indices.length / 3); i++) {
+                const idx1 = indices[i * 3];
+                const idx2 = indices[i * 3 + 1];
+                const idx3 = indices[i * 3 + 2];
+                const y1 = positions[idx1 * 3 + 1];
+                const y2 = positions[idx2 * 3 + 1];
+                const y3 = positions[idx3 * 3 + 1];
+                const avgY = (y1 + y2 + y3) / 3;
+                console.log(`[flipSideWallNormals] Face ${i}: y1=${y1.toFixed(4)}, y2=${y2.toFixed(4)}, y3=${y3.toFixed(4)}, avgY=${avgY.toFixed(4)}, distFromTop=${Math.abs(avgY - topY).toFixed(4)}, distFromBottom=${Math.abs(avgY - bottomY).toFixed(4)}`);
+            }
+        }
+        
+        if (sampleNormals.top.length > 0) {
+            console.log(`[flipSideWallNormals] Sample TOP faces:`, sampleNormals.top);
+        }
+        if (sampleNormals.bottom.length > 0) {
+            console.log(`[flipSideWallNormals] Sample BOTTOM faces:`, sampleNormals.bottom);
+        }
+        if (sampleNormals.sideWall.length > 0) {
+            console.log(`[flipSideWallNormals] Sample SIDE WALL faces (before/after flip):`, sampleNormals.sideWall);
+            
+            // Analyze side wall normals
+            let inwardCount = 0;
+            let outwardCount = 0;
+            sampleNormals.sideWall.forEach(face => {
+                if (face.isPointingInward) {
+                    inwardCount++;
+                } else {
+                    outwardCount++;
+                }
+            });
+            console.log(`[flipSideWallNormals] Side wall normal analysis: ${inwardCount} pointing inward, ${outwardCount} pointing outward (from sample)`);
+            
+            // Log detailed normal information for first 2 side walls
+            console.log(`[flipSideWallNormals] Detailed normal info for first 2 side walls:`);
+            for (let i = 0; i < Math.min(2, sampleNormals.sideWall.length); i++) {
+                const face = sampleNormals.sideWall[i];
+                console.log(`  Face ${i}:`);
+                console.log(`    Before flip: (${face.beforeActual ? face.beforeActual.x.toFixed(3) : 'N/A'}, ${face.beforeActual ? face.beforeActual.y.toFixed(3) : 'N/A'}, ${face.beforeActual ? face.beforeActual.z.toFixed(3) : 'N/A'})`);
+                console.log(`    After flip: (${face.afterActual ? face.afterActual.x.toFixed(3) : 'N/A'}, ${face.afterActual ? face.afterActual.y.toFixed(3) : 'N/A'}, ${face.afterActual ? face.afterActual.z.toFixed(3) : 'N/A'})`);
+                console.log(`    Face center: (${face.faceCenter.x.toFixed(3)}, ${face.faceCenter.y.toFixed(3)}, ${face.faceCenter.z.toFixed(3)})`);
+                console.log(`    Normal dot center: ${face.normalDotCenter.toFixed(3)}`);
+                console.log(`    Was flipped: ${face.wasFlipped}`);
+            }
+        }
+
+        // Update the mesh with corrected normals
         mesh.geometry.setVerticesData(BABYLON.VertexBuffer.NormalKind, newNormals);
         
-        // Mark that normals have been flipped
+        // IMPORTANT: Force mesh to update and recalculate normals
+        mesh.computeWorldMatrix(true);
+        mesh.refreshBoundingInfo();
+        
+        // CRITICAL: After setting normals, force Babylon.js to recognize the change
+        // This ensures the normals are actually used for lighting calculations
+        if (mesh.geometry) {
+            mesh.geometry._updateBoundingInfo();
+        }
+        
+        // Mark that normals have been fixed
         if (!mesh.userData) {
             mesh.userData = {};
         }
         mesh.userData.sideWallNormalsFlipped = true;
         
-        console.log(`[flipSideWallNormals] Side wall normals flipped for ${mesh.name}, top and bottom normals preserved`);
+        // Log final normal verification
+        const verifyNormals = mesh.geometry.getVerticesData(BABYLON.VertexBuffer.NormalKind);
+        if (verifyNormals && sideWallCount > 0) {
+            // Check a sample side wall normal to verify it's pointing outward
+            let sampleSideWallIdx = -1;
+            for (let i = 0; i < indices.length; i += 3) {
+                const y1 = positions[indices[i] * 3 + 1];
+                const y2 = positions[indices[i + 1] * 3 + 1];
+                const y3 = positions[indices[i + 2] * 3 + 1];
+                const avgY = (y1 + y2 + y3) / 3;
+                const isTop = Math.abs(y1 - topY) < tolerance && Math.abs(y2 - topY) < tolerance && Math.abs(y3 - topY) < tolerance;
+                const isBottom = Math.abs(y1 - bottomY) < tolerance && Math.abs(y2 - bottomY) < tolerance && Math.abs(y3 - bottomY) < tolerance;
+                if (!isTop && !isBottom) {
+                    sampleSideWallIdx = indices[i] * 3;
+                    break;
+                }
+            }
+            if (sampleSideWallIdx >= 0 && sampleSideWallIdx < verifyNormals.length) {
+                const sampleNormal = new BABYLON.Vector3(
+                    verifyNormals[sampleSideWallIdx],
+                    verifyNormals[sampleSideWallIdx + 1],
+                    verifyNormals[sampleSideWallIdx + 2]
+                );
+                console.log(`[flipSideWallNormals] Verification: Sample side wall normal after flip: (${sampleNormal.x.toFixed(3)}, ${sampleNormal.y.toFixed(3)}, ${sampleNormal.z.toFixed(3)})`);
+            }
+        }
+        
+        console.log(`[flipSideWallNormals] Completed normal fix for ${mesh.name} - Flipped ${sideWallCount} side wall faces`);
     }
 
     /**
@@ -11821,8 +13631,8 @@ Transform your 3D models into powerful energy analysis tools.`;
             extrusion.geometry.setVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
         }
         
-        // Now flip only side wall normals (preserving top and bottom)
-        // This preserves the existing normal structure and only flips side walls
+        // Flip all normals to point outward
+        // PolygonMeshBuilder creates geometry with all normals pointing inward
         this.flipSideWallNormals(extrusion, originalHeight);
         
         // Mark that normals have been flipped
@@ -11836,6 +13646,196 @@ Transform your 3D models into powerful energy analysis tools.`;
         extrusion.refreshBoundingInfo();
         
         console.log(`Updated extrusion normals for original height ${originalHeight}`);
+    }
+
+    /**
+     * Apply flat shading to a mesh to prevent unwanted smoothing artifacts
+     * This creates duplicate vertices for each face so each face has its own normal
+     * This ensures all faces have smoothing group 0 (no smoothing between faces)
+     */
+    applyFlatShading(mesh, meshHeight = null) {
+        if (!mesh.geometry) {
+            console.warn('Cannot apply flat shading: mesh geometry not found');
+            return;
+        }
+
+        const positions = mesh.geometry.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+        const indices = mesh.geometry.getIndices();
+        
+        if (!positions || !indices) {
+            console.warn('Cannot apply flat shading: missing position or index data');
+            return;
+        }
+
+        // Get mesh height from parameter, userData, or calculate from positions
+        if (meshHeight === null) {
+            if (mesh.userData && mesh.userData.buildingHeight) {
+                meshHeight = mesh.userData.buildingHeight;
+            } else {
+                // Calculate height from positions
+                let minY = Infinity;
+                let maxY = -Infinity;
+                for (let i = 1; i < positions.length; i += 3) {
+                    minY = Math.min(minY, positions[i]);
+                    maxY = Math.max(maxY, positions[i]);
+                }
+                if (maxY > minY) {
+                    meshHeight = maxY - minY;
+                }
+            }
+        }
+
+        this.applyFlatShadingToMesh(mesh, positions, indices, meshHeight);
+    }
+
+    /**
+     * Apply flat shading to a mesh using provided positions and indices
+     * This creates duplicate vertices for each face so each face has its own normal
+     * This ensures all faces have smoothing group 0 (no smoothing between faces)
+     * Each face will have sharp edges with no blending between adjacent faces
+     * @param {BABYLON.Mesh} mesh - The mesh to apply flat shading to
+     * @param {number[]} positions - Vertex positions array
+     * @param {number[]} indices - Triangle indices array
+     * @param {number|null} meshHeight - Optional mesh height for 3D extrusions
+     */
+    applyFlatShadingToMesh(mesh, positions, indices, meshHeight = null) {
+        if (!positions || !indices || indices.length === 0) {
+            console.warn('Cannot apply flat shading: invalid position or index data');
+            return;
+        }
+
+        // Create new arrays for flat-shaded geometry
+        const newPositions = [];
+        const newNormals = [];
+        const newIndices = [];
+        const newUVs = [];
+        
+        // Get existing UVs if available
+        const existingUVs = mesh.geometry ? mesh.geometry.getVerticesData(BABYLON.VertexBuffer.UVKind) : null;
+
+        // Process each triangle (face)
+        for (let i = 0; i < indices.length; i += 3) {
+            const i0 = indices[i] * 3;
+            const i1 = indices[i + 1] * 3;
+            const i2 = indices[i + 2] * 3;
+
+            // Get triangle vertices
+            const v0 = new BABYLON.Vector3(positions[i0], positions[i0 + 1], positions[i0 + 2]);
+            const v1 = new BABYLON.Vector3(positions[i1], positions[i1 + 1], positions[i1 + 2]);
+            const v2 = new BABYLON.Vector3(positions[i2], positions[i2 + 1], positions[i2 + 2]);
+
+            // Calculate face normal
+            const edge1 = v1.subtract(v0);
+            const edge2 = v2.subtract(v0);
+            let faceNormal = BABYLON.Vector3.Cross(edge1, edge2);
+            faceNormal.normalize();
+            
+            // IMPORTANT: For 3D extrusions, PolygonMeshBuilder may create normals that are inverted
+            // If bottom face is correct, top face normal might be inverted
+            // We'll fix this in the face detection logic below
+            
+            // For 2D polygons (flat surfaces in XZ plane), ensure normal points upward (Y+)
+            // Check if this is a flat polygon (all vertices have same Y coordinate)
+            const y0 = v0.y;
+            const y1 = v1.y;
+            const y2 = v2.y;
+            const isFlatPolygon = Math.abs(y0 - y1) < 0.001 && Math.abs(y1 - y2) < 0.001;
+            
+            if (isFlatPolygon) {
+                // For flat 2D polygons, ALWAYS force normal to point upward (Y+)
+                // This ensures the surface faces upward for proper lighting
+                // Don't rely on cross product calculation - always set to (0, 1, 0)
+                faceNormal = new BABYLON.Vector3(0, 1, 0);
+            } else {
+                // For 3D extrusions, ensure top faces point upward and bottom faces point downward
+                // In local space, extrusion is centered at origin, so:
+                // Top faces have Y near height/2, bottom faces have Y near -height/2
+                const avgY = (y0 + y1 + y2) / 3;
+                const tolerance = 0.001;
+                
+                // Calculate expected top and bottom Y if meshHeight is provided
+                let topY = null;
+                let bottomY = null;
+                if (meshHeight) {
+                    topY = meshHeight / 2;
+                    bottomY = -meshHeight / 2;
+                } else {
+                    // Fallback: find min/max Y from all vertices
+                    let minY = Math.min(y0, y1, y2);
+                    let maxY = Math.max(y0, y1, y2);
+                    // Check if all vertices are at same Y (flat face)
+                    if (Math.abs(y0 - y1) < tolerance && Math.abs(y1 - y2) < tolerance) {
+                        if (avgY > 0) {
+                            topY = avgY;
+                        } else {
+                            bottomY = avgY;
+                        }
+                    }
+                }
+                
+                // Detect top face: all vertices at same Y near topY
+                const isTopFace = topY !== null && 
+                                 Math.abs(y0 - topY) < tolerance && 
+                                 Math.abs(y1 - topY) < tolerance && 
+                                 Math.abs(y2 - topY) < tolerance;
+                
+                // Detect bottom face: all vertices at same Y near bottomY
+                const isBottomFace = bottomY !== null && 
+                                    Math.abs(y0 - bottomY) < tolerance && 
+                                    Math.abs(y1 - bottomY) < tolerance && 
+                                    Math.abs(y2 - bottomY) < tolerance;
+                
+                // IMPORTANT: For side walls (not top or bottom), we'll flip normals in flipSideWallNormals
+                // Don't flip here to avoid double-flipping
+            }
+
+            // Add vertices for this face (duplicate vertices for flat shading)
+            const baseIndex = newPositions.length / 3;
+            
+            // Vertex 0
+            newPositions.push(v0.x, v0.y, v0.z);
+            newNormals.push(faceNormal.x, faceNormal.y, faceNormal.z);
+            if (existingUVs && i0 / 3 * 2 + 1 < existingUVs.length) {
+                const uvIndex = indices[i] * 2;
+                newUVs.push(existingUVs[uvIndex] || 0, existingUVs[uvIndex + 1] || 0);
+            } else {
+                newUVs.push(0, 0);
+            }
+
+            // Vertex 1
+            newPositions.push(v1.x, v1.y, v1.z);
+            newNormals.push(faceNormal.x, faceNormal.y, faceNormal.z);
+            if (existingUVs && i1 / 3 * 2 + 1 < existingUVs.length) {
+                const uvIndex = indices[i + 1] * 2;
+                newUVs.push(existingUVs[uvIndex] || 0, existingUVs[uvIndex + 1] || 0);
+            } else {
+                newUVs.push(0, 0);
+            }
+
+            // Vertex 2
+            newPositions.push(v2.x, v2.y, v2.z);
+            newNormals.push(faceNormal.x, faceNormal.y, faceNormal.z);
+            if (existingUVs && i2 / 3 * 2 + 1 < existingUVs.length) {
+                const uvIndex = indices[i + 2] * 2;
+                newUVs.push(existingUVs[uvIndex] || 0, existingUVs[uvIndex + 1] || 0);
+            } else {
+                newUVs.push(0, 0);
+            }
+
+            // Add triangle indices (counter-clockwise order)
+            newIndices.push(baseIndex, baseIndex + 1, baseIndex + 2);
+        }
+
+        // Update mesh geometry with flat-shaded data
+        mesh.setVerticesData(BABYLON.VertexBuffer.PositionKind, newPositions);
+        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, newNormals);
+        if (newUVs.length > 0) {
+            mesh.setVerticesData(BABYLON.VertexBuffer.UVKind, newUVs);
+        }
+        mesh.setIndices(newIndices);
+
+        // Refresh bounding info
+        mesh.refreshBoundingInfo();
     }
 
     /**
@@ -11932,6 +13932,9 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (polygon.material) {
             const newMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
             newMaterial.diffuseColor = polygon.material.diffuseColor.clone();
+            newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Low specular to prevent flickering
+            newMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0); // No emissive
+            newMaterial.roughness = 0.7; // Slight roughness for better lighting
             newMaterial.backFaceCulling = false; // 2-sided
             newMaterial.twoSidedLighting = true; // Enable lighting on both sides
             extrusion.material = newMaterial;
@@ -11978,6 +13981,36 @@ Transform your 3D models into powerful energy analysis tools.`;
         return extrusion;
     }
 
+
+    /**
+     * Ensure polygon has counter-clockwise winding order for 2D polygon
+     * @param {BABYLON.Vector3[]} points - Polygon points
+     * @returns {BABYLON.Vector3[]} Points with correct winding order
+     */
+    ensureCounterClockwiseFor2DPolygon(points) {
+        if (points.length < 3) return points;
+        
+        let totalCross = 0;
+        for (let i = 0; i < points.length; i++) {
+            const prev = points[(i - 1 + points.length) % points.length];
+            const curr = points[i];
+            const next = points[(i + 1) % points.length];
+            
+            // Calculate cross product in XZ plane (2D polygon)
+            // Cross product: (p2.x - p1.x) * (p3.z - p1.z) - (p2.z - p1.z) * (p3.x - p1.x)
+            const cross = (curr.x - prev.x) * (next.z - prev.z) - (curr.z - prev.z) * (next.x - prev.x);
+            totalCross += cross;
+        }
+        
+        // If clockwise (totalCross < 0), reverse the order to make it counter-clockwise
+        // Counter-clockwise order produces upward normals (Y+)
+        if (totalCross < 0) {
+            console.log(`[ensureCounterClockwiseFor2DPolygon] Reversing polygon winding order (was clockwise, now counter-clockwise) for ${points.length} points`);
+            return points.slice().reverse();
+        }
+        
+        return points;
+    }
 
     /**
      * Ensure polygon has counter-clockwise winding order for extrusion
@@ -12114,15 +14147,29 @@ Transform your 3D models into powerful energy analysis tools.`;
         newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         newMaterial.roughness = 0.7;
         
-        // Restore properties
+        // Restore properties with smart Y positioning
+        // IMPORTANT: Bottom should always be at Y=0 (ground level)
+        // Height should only grow upward, not downward
+        // Calculate the bottom of the original rectangle
+        const originalHeight = currentUserData?.dimensions?.height || currentUserData?.originalHeight || properties.height;
+        const originalBottom = currentPosition.y - (originalHeight / 2);
+        
+        // IMPORTANT: Preserve the original bottom position (don't reset to Y=0)
+        // This ensures that if a rectangle is at height 1m, changing its height won't move it back to ground
+        const targetBottom = originalBottom; // Keep bottom at its current position
+        
         newMesh.position = new BABYLON.Vector3(
             currentPosition.x,
-            properties.height / 2, // Center the box vertically
+            targetBottom + (properties.height / 2), // Bottom at original position, center at targetBottom + properties.height/2
             currentPosition.z
         );
+        
+        console.log(`[RECTANGLE_GEOMETRY_POSITION] Updated rectangle: originalBottom=${originalBottom.toFixed(3)}, targetBottom=${targetBottom}, newHeight=${properties.height.toFixed(3)}, newPosition.y=${(targetBottom + (properties.height / 2)).toFixed(3)}`);
         newMesh.material = newMaterial;
-        newMesh.renderingGroupId = 1;
         newMesh.userData = currentUserData;
+        
+        // Set rendering priority based on type (after userData is set)
+        newMesh.renderingGroupId = SceneManager.getRenderingGroupId(newMesh.userData?.type);
         
         // Ensure no period properties for non-building objects
         if (newMesh.userData && newMesh.userData.type && newMesh.userData.type !== 'building') {
@@ -12261,8 +14308,11 @@ Transform your 3D models into powerful energy analysis tools.`;
                     if (shape.material) {
                         const newMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
                         newMaterial.diffuseColor = shape.material.diffuseColor.clone();
+                        newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Low specular to prevent flickering
+                        newMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0); // No emissive
+                        newMaterial.roughness = 0.7; // Slight roughness for better lighting
                         newMaterial.backFaceCulling = false; // 2-sided
-            newMaterial.twoSidedLighting = true; // Enable lighting on both sides
+                    newMaterial.twoSidedLighting = true; // Enable lighting on both sides
                         extrusion.material = newMaterial;
                     }
                     
@@ -12674,53 +14724,57 @@ Transform your 3D models into powerful energy analysis tools.`;
         if (shape.userData && shape.userData.dimensions) {
             const storedDimensions = shape.userData.dimensions;
             
+            // IMPORTANT: Don't use toFixed(2) - return values as-is to preserve precision
+            // This allows users to see and edit exact values without forced rounding
             if (this.getShapeType(shape) === 'rectangle') {
-                dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(2);
-                dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(2);
-                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
+                dimensions.length = parseFloat(storedDimensions.width || 1.0);
+                dimensions.width = parseFloat(storedDimensions.depth || 1.0);
+                dimensions.height = parseFloat(storedDimensions.height || 0.1);
             } else if (this.getShapeType(shape) === 'building') {
                 // For buildings, check if it's from a circle or rectangle
                 if (storedDimensions.diameterTop !== undefined) {
                     // This is a building from a circle - show diameter and height
-                    dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(2);
-                    dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(2);
-                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
+                    dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0);
+                    dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0);
+                    dimensions.height = parseFloat(storedDimensions.height || 0.1);
                 } else {
                     // This is a building from a rectangle - show length, width, and height
-                    dimensions.length = parseFloat(storedDimensions.width || 1.0).toFixed(2);
-                    dimensions.width = parseFloat(storedDimensions.depth || 1.0).toFixed(2);
-                    dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
+                    dimensions.length = parseFloat(storedDimensions.width || 1.0);
+                    dimensions.width = parseFloat(storedDimensions.depth || 1.0);
+                    dimensions.height = parseFloat(storedDimensions.height || 0.1);
                 }
             } else if (this.getShapeType(shape) === 'circle') {
-                dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0).toFixed(2);
-                dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0).toFixed(2);
-                dimensions.height = parseFloat(storedDimensions.height || 0.1).toFixed(2);
+                dimensions.diameterTop = parseFloat(storedDimensions.diameterTop || 1.0);
+                dimensions.diameterBottom = parseFloat(storedDimensions.diameterBottom || 1.0);
+                dimensions.height = parseFloat(storedDimensions.height || 0.1);
             } else if (this.getShapeType(shape) === 'polygon') {
-                dimensions.area = parseFloat(storedDimensions.area || 0).toFixed(2);
-                dimensions.perimeter = parseFloat(storedDimensions.perimeter || 0).toFixed(2);
+                dimensions.area = parseFloat(storedDimensions.area || 0);
+                dimensions.perimeter = parseFloat(storedDimensions.perimeter || 0);
                 dimensions.vertices = parseInt(storedDimensions.vertices || 0);
             }
             
             // Get building height if available
             if (storedDimensions.buildingHeight !== undefined) {
-                dimensions.height = parseFloat(storedDimensions.buildingHeight || 0).toFixed(2);
+                dimensions.height = parseFloat(storedDimensions.buildingHeight || 0);
             }
         } else if (shape.geometry && shape.geometry.boundingInfo) {
             // Fallback to boundingBox calculation
             const boundingBox = shape.geometry.boundingInfo.boundingBox;
             const size = boundingBox.extendSize;
             
-            dimensions.length = (size.x * 2).toFixed(2);
-            dimensions.width = (size.z * 2).toFixed(2);
-            dimensions.height = (size.y * 2).toFixed(2);
+            // IMPORTANT: Don't use toFixed(2) - return values as-is
+            dimensions.length = size.x * 2;
+            dimensions.width = size.z * 2;
+            dimensions.height = size.y * 2;
             
             // For circles, radius is half the width
+            // IMPORTANT: Don't use toFixed(2) - return values as-is
             if (this.getShapeType(shape) === 'circle') {
-                dimensions.radius = (size.x).toFixed(2);
+                dimensions.radius = size.x;
             } else if (this.getShapeType(shape) === 'polygon') {
                 // For polygons, calculate approximate area and perimeter
-                dimensions.area = (size.x * size.z).toFixed(2);
-                dimensions.perimeter = (2 * (size.x + size.z)).toFixed(2);
+                dimensions.area = size.x * size.z;
+                dimensions.perimeter = 2 * (size.x + size.z);
                 dimensions.vertices = 0; // Will be calculated from mesh data if available
             }
         }
@@ -12765,13 +14819,18 @@ Transform your 3D models into powerful energy analysis tools.`;
 
             const newValue = isIncreasing ? currentValue + step : currentValue - step;
             const constrainedValue = Math.max(min, Math.min(max, newValue));
-            const roundedValue = Math.round(constrainedValue * 100) / 100;
+            
+            // IMPORTANT: Don't round the value - let it be as precise as possible
+            // Only round for display if needed, but don't force formatting
+            const finalValue = constrainedValue;
 
-            if (roundedValue === currentValue) {
+            if (Math.abs(finalValue - currentValue) < 0.0001) {
                 return;
             }
 
-            input.value = roundedValue;
+            // IMPORTANT: Set value as-is without formatting
+            // This allows whole numbers to stay as whole numbers (e.g., 2 stays as 2, not 2.00)
+            input.value = finalValue;
             isTyping = false;
 
             const inputEvent = new Event('input', { bubbles: true });
@@ -12845,7 +14904,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             isTyping = false;
         });
 
-        // Handle blur to round the value when user finishes typing
+        // Handle blur - DON'T format the value, just save it
         input.addEventListener('blur', (e) => {
             isTyping = false;
             
@@ -12855,14 +14914,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 inputTimeout = null;
             }
             
-            // Round to 2 decimal places only when user leaves the field
-            const currentValue = parseFloat(input.value) || 0;
-            const roundedValue = Math.round(currentValue * 100) / 100;
-            
-            // Only update if value actually changed
-            if (roundedValue !== currentValue) {
-                input.value = roundedValue;
-            }
+            // IMPORTANT: Don't format or modify the input value
+            // Let the user enter whatever they want (whole numbers, decimals, etc.)
+            // Only validate that it's a valid number, but don't change the format
             
             // Always update on blur to ensure final value is saved
             updateCallback();
@@ -12881,6 +14935,10 @@ Transform your 3D models into powerful energy analysis tools.`;
         let inputTimeout = null;
         input.addEventListener('input', (e) => {
             isTyping = true; // Mark as typing to prevent interference
+            
+            // IMPORTANT: Don't format the value while user is typing
+            // Only update the model after user stops typing (debounced)
+            // This allows user to type multi-digit numbers without interference
             
             // Clear previous timeout
             if (inputTimeout) {
@@ -12955,8 +15013,12 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Check all meshes in the scene for names of this type
         // Only count enabled meshes that are still in the scene
+        // IMPORTANT: Exclude extrusions (they have _extrusion in their name) from counting
         scene.meshes.forEach(mesh => {
-            if (mesh.name && mesh.isEnabled() && !mesh.isDisposed() && mesh.name.startsWith(type) && /^\d+$/.test(mesh.name.substring(type.length))) {
+            if (mesh.name && mesh.isEnabled() && !mesh.isDisposed() && 
+                mesh.name.startsWith(type) && 
+                !mesh.name.includes('_extrusion') && // Exclude extrusions
+                /^\d+$/.test(mesh.name.substring(type.length))) {
                 const match = mesh.name.match(new RegExp(`^${type}(\\d+)$`));
                 if (match) {
                     const number = parseInt(match[1]);
@@ -12968,8 +15030,9 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         });
         
-        // Start from maxNumber + 1, but check for duplicates
-        let nextNumber = maxNumber + 1;
+        // Start from 1 if no existing names found, otherwise maxNumber + 1
+        // This ensures we always start from ground1, building1, etc.
+        let nextNumber = maxNumber === 0 ? 1 : maxNumber + 1;
         
         // Keep incrementing until we find a unique name
         while (usedNumbers.has(nextNumber)) {
@@ -13185,7 +15248,14 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Get color for a specific type - Centralized color configuration
      */
     getColorByType(type) {
-        switch (type) {
+        // Normalize type to lowercase for case-insensitive comparison
+        if (!type) {
+            return new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
+        }
+        
+        const normalizedType = type.toLowerCase();
+        
+        switch (normalizedType) {
             case 'building':
                 return new BABYLON.Color3(1, 1, 1); // White for buildings
             case 'ground':
@@ -13201,6 +15271,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             case 'tree':
                 return new BABYLON.Color3(0.2, 0.6, 0.2); // Dark green for trees
             default:
+                console.warn(`Unknown type "${type}", using default brown color`);
                 return new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
         }
     }
@@ -13686,30 +15757,54 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Get current values from popup
         const type = document.getElementById('circleType').value;
-        const color = document.getElementById('circleColor').value;
+        // Color is now automatically determined by type, not from color picker
         
         // Get diameter value (same for all types)
         const diameter = Math.max(parseFloat(document.getElementById('circleDiameter').value) || 1.0, 0.1);
         const diameterTop = diameter;
         const diameterBottom = diameter;
         
-        // Get height value (always available for circles)
-        const height = Math.max(parseFloat(document.getElementById('circleHeight').value) || 0.1, 0.1);
+        // For all types except 'building', height should be 0
+        const isBuilding = type?.toLowerCase() === 'building';
+        const heightInput = document.getElementById('circleHeight');
+        let height;
+        if (isBuilding) {
+            // Only building type can have height > 0
+            // IMPORTANT: Don't modify input value while user is typing
+            // Only read the current value, don't format it
+            height = Math.max(parseFloat(heightInput?.value || 0.1) || 0.1, 0.1);
+        } else {
+            // All other types (ground, grass, waterway, highway, etc.) should have height = 0
+            height = 0;
+            // IMPORTANT: Only update height input to 0 if user is not currently typing in it
+            // This prevents interference while user is entering values
+            if (heightInput && document.activeElement !== heightInput) {
+                heightInput.value = 0;
+            }
+        }
         
-        // Round to 2 decimal places
-        const roundedDiameterTop = Math.round(diameterTop * 100) / 100;
-        const roundedDiameterBottom = Math.round(diameterBottom * 100) / 100;
-        const roundedHeight = Math.round(height * 100) / 100;
+        // IMPORTANT: Don't round values - use them as-is to allow any precision
+        // This allows users to enter any number they want without forced rounding
+        const roundedDiameterTop = diameterTop;
+        const roundedDiameterBottom = diameterBottom;
+        const roundedHeight = height;
         
-        console.log('Updating circle with:', { type, diameterTop: roundedDiameterTop, diameterBottom: roundedDiameterBottom, height: roundedHeight });
+        // Log height for non-building types
+        if (!isBuilding) {
+            console.log(`[HEIGHT] Circle type="${type}" height=${roundedHeight} (should be 0 for non-building types)`);
+        }
 
-        // Use the color selected by user (from color picker)
-        const rgbColor = this.hexToRgb(color);
-        const newColor = new BABYLON.Color3(rgbColor.r, rgbColor.g, rgbColor.b);
+        // Get color automatically based on type (user cannot change color manually)
+        const newColor = this.getColorByType(type);
         
         // Update material color immediately for visual feedback
         if (this.currentShape.material && this.currentShape.material.diffuseColor) {
             this.currentShape.material.diffuseColor = newColor;
+        }
+        
+        // Also update extrusion color if it exists (for circles with extrusion)
+        if (this.currentShape.extrusion && this.currentShape.extrusion.material) {
+            this.currentShape.extrusion.material.diffuseColor = newColor;
         }
 
         // Check if type actually changed before updating userData
@@ -13740,15 +15835,19 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.dispatchSceneChangeEvent();
         }
         
-        // Update circle geometry
-        const newCircle = this.circleManager.updateCircle(this.currentShape, roundedDiameterTop, roundedDiameterBottom, roundedHeight);
+        // Update circle geometry - pass type to ensure correct color and userData
+        // Note: wasSelected check is now done in CircleManager.updateCircle and passed to onCircleCreated
+        const newCircle = this.circleManager.updateCircle(this.currentShape, roundedDiameterTop, roundedDiameterBottom, roundedHeight, type);
         if (newCircle) {
             this.currentShape = newCircle;
-            // Update dimensions in userData
+            // Update dimensions in userData (type is already set in updateCircle)
             this.currentShape.userData.dimensions.diameterTop = roundedDiameterTop;
             this.currentShape.userData.dimensions.diameterBottom = roundedDiameterBottom;
             this.currentShape.userData.dimensions.height = roundedHeight;
+            this.currentShape.userData.type = type; // Ensure type is set
+            this.currentShape.userData.shapeType = type === 'building' ? 'building' : 'circle';
             console.log('Circle updated successfully, userData:', this.currentShape.userData);
+            // Note: onCircleCreated callback will handle adding to selection manager and restoring selection
         }
         
         // Restore focus to the input field if it was focused before
@@ -13757,12 +15856,24 @@ Transform your 3D models into powerful energy analysis tools.`;
             setTimeout(() => {
                 const inputElement = document.getElementById(focusedInputId);
                 if (inputElement) {
-                    // Restore cursor position
-                    const cursorPosition = inputElement.selectionStart || 0;
-                    inputElement.focus();
-                    // Try to restore cursor position
-                    if (inputElement.setSelectionRange) {
-                        inputElement.setSelectionRange(cursorPosition, cursorPosition);
+                    // IMPORTANT: setSelectionRange only works for text inputs, not number inputs
+                    // Check if input type supports selection before trying to restore cursor position
+                    const inputType = inputElement.type;
+                    if (inputType === 'text' || inputType === 'textarea' || inputElement.isContentEditable) {
+                        const cursorPosition = inputElement.selectionStart || 0;
+                        inputElement.focus();
+                        // Try to restore cursor position (only for text inputs)
+                        if (inputElement.setSelectionRange) {
+                            try {
+                                inputElement.setSelectionRange(cursorPosition, cursorPosition);
+                            } catch (e) {
+                                // Ignore error if setSelectionRange fails
+                                console.debug('Could not restore cursor position for input type:', inputType);
+                            }
+                        }
+                    } else {
+                        // For number inputs, just focus without trying to restore cursor position
+                        inputElement.focus();
                     }
                 }
             }, 0);
@@ -13807,8 +15918,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Use current polygon name (don't generate new name)
         document.getElementById('polygonName').value = polygon.name;
         
-        // Set color
-        document.getElementById('polygonColor').value = color;
+        // Color is now automatically determined by type (no color picker)
         
         // Show/hide height field based on type
         const heightGroup = document.getElementById('polygonHeightGroup');
@@ -13859,6 +15969,14 @@ Transform your 3D models into powerful energy analysis tools.`;
     hidePolygonPropertiesPopup() {
         document.getElementById('polygonPropertiesPopup').classList.remove('show');
         this.currentShape = null;
+        
+        // IMPORTANT: Reset polygonType dropdown to 'ground' so new polygons default to ground
+        // This prevents new polygons from inheriting the type of the previously edited polygon
+        const polygonTypeSelect = document.getElementById('polygonType');
+        if (polygonTypeSelect) {
+            polygonTypeSelect.value = 'ground';
+            polygonTypeSelect.removeAttribute('data-previous-value');
+        }
     }
 
     /**
@@ -13870,7 +15988,7 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Get values from popup
         const name = document.getElementById('polygonName').value.trim();
         const type = document.getElementById('polygonType').value;
-        const color = document.getElementById('polygonColor').value;
+        // Color is now automatically determined by type, not from color picker
         
         // Validate name (should already be validated by blur event, but double-check)
         if (!name || name === '') {
@@ -13899,10 +16017,13 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
         }
 
+        // Get color automatically based on type (user cannot change color manually)
+        const colorFromType = this.getColorByType(type);
+        
         // Update polygon properties
         this.updatePolygonProperties(this.currentShape, {
             type: type,
-            color: color,
+            color: colorFromType,
             height: height
         });
 
@@ -14001,6 +16122,24 @@ Transform your 3D models into powerful energy analysis tools.`;
     getPolygonBaseWorldY(polygon) {
         if (!polygon) return 0;
 
+        // IMPORTANT: If polygon has extrusion, get base Y from extrusion, not polygon
+        // The extrusion is the actual 3D mesh, polygon is just a container
+        if (polygon.extrusion) {
+            polygon.extrusion.computeWorldMatrix(true);
+            const extrusionBoundingInfo = polygon.extrusion.getBoundingInfo();
+            if (extrusionBoundingInfo && extrusionBoundingInfo.boundingBox) {
+                const rawMinY = extrusionBoundingInfo.boundingBox.minimumWorld.y;
+                const normalizedMinY = Math.abs(rawMinY) < 0.0001 ? 0 : rawMinY;
+                
+                const userData = polygon.userData = polygon.userData || {};
+                if (userData.baseY === undefined || Math.abs(userData.baseY - normalizedMinY) > 0.0001) {
+                    userData.baseY = normalizedMinY;
+                }
+                return userData.baseY;
+            }
+        }
+
+        // For polygons without extrusion, use polygon's own bounding box
         polygon.computeWorldMatrix(true);
         const boundingInfo = polygon.getBoundingInfo();
         if (!boundingInfo || !boundingInfo.boundingBox) {
@@ -14026,20 +16165,41 @@ Transform your 3D models into powerful energy analysis tools.`;
     realignPolygonBase(polygon, baseY) {
         if (!polygon) return;
 
-        polygon.computeWorldMatrix(true);
-        const boundingInfo = polygon.getBoundingInfo();
-        if (!boundingInfo || !boundingInfo.boundingBox) {
-            return;
-        }
+        // IMPORTANT: If polygon has extrusion, adjust polygon position to keep extrusion base at baseY
+        // The extrusion is the actual 3D mesh, polygon is just a container
+        if (polygon.extrusion) {
+            polygon.extrusion.computeWorldMatrix(true);
+            const extrusionBoundingInfo = polygon.extrusion.getBoundingInfo();
+            if (extrusionBoundingInfo && extrusionBoundingInfo.boundingBox) {
+                const minWorldY = extrusionBoundingInfo.boundingBox.minimumWorld.y;
+                const normalizedMinY = Math.abs(minWorldY) < 0.0001 ? 0 : minWorldY;
+                const normalizedBaseY = Math.abs(baseY) < 0.0001 ? 0 : baseY;
+                const deltaY = normalizedBaseY - normalizedMinY;
 
-        const minWorldY = boundingInfo.boundingBox.minimumWorld.y;
-        const normalizedMinY = Math.abs(minWorldY) < 0.0001 ? 0 : minWorldY;
-        const normalizedBaseY = Math.abs(baseY) < 0.0001 ? 0 : baseY;
-        const deltaY = normalizedBaseY - normalizedMinY;
-
-        if (Math.abs(deltaY) > 0.0001) {
-            polygon.position.y += deltaY;
+                if (Math.abs(deltaY) > 0.0001) {
+                    // Adjust polygon position to move extrusion base to baseY
+                    polygon.position.y += deltaY;
+                    polygon.computeWorldMatrix(true);
+                    polygon.extrusion.computeWorldMatrix(true);
+                }
+            }
+        } else {
+            // For polygons without extrusion, use polygon's own bounding box
             polygon.computeWorldMatrix(true);
+            const boundingInfo = polygon.getBoundingInfo();
+            if (!boundingInfo || !boundingInfo.boundingBox) {
+                return;
+            }
+
+            const minWorldY = boundingInfo.boundingBox.minimumWorld.y;
+            const normalizedMinY = Math.abs(minWorldY) < 0.0001 ? 0 : minWorldY;
+            const normalizedBaseY = Math.abs(baseY) < 0.0001 ? 0 : baseY;
+            const deltaY = normalizedBaseY - normalizedMinY;
+
+            if (Math.abs(deltaY) > 0.0001) {
+                polygon.position.y += deltaY;
+                polygon.computeWorldMatrix(true);
+            }
         }
 
         polygon.userData = polygon.userData || {};
@@ -14056,39 +16216,109 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update polygon properties
      */
     updatePolygonProperties(polygon, properties) {
-        // Update userData
-        polygon.userData = polygon.userData || {};
-        polygon.userData.type = properties.type;
+        // IMPORTANT: Create a new userData object to avoid reference sharing issues
+        const oldUserData = polygon.userData || {};
+        const oldType = oldUserData.type;
+        
+        // Create new userData object with spread operator to avoid reference sharing
+        polygon.userData = {
+            ...oldUserData,
+            type: properties.type
+        };
+        
+        console.log(`[UPDATE_POLYGON_PROPERTIES] Updated polygon "${polygon.name}" type from "${oldType}" to "${properties.type}"`);
 
         // Update material color and type
         if (polygon.material) {
-            // If color is provided from color picker, use it; otherwise use standardized color by type
-            if (properties.color && properties.color !== '#000000') {
-                const color = this.hexToRgb(properties.color);
-                polygon.material.diffuseColor = new BABYLON.Color3(color.r, color.g, color.b);
-            } else {
-                // Use standardized color by type for consistency
-                this.updatePolygonMaterialColorByType(polygon, properties.type);
-            }
+            // Color is now automatically determined by type
+            this.updatePolygonMaterialColorByType(polygon, properties.type);
         }
         
-        // Update height if provided (for building type)
+        // Update height based on type (not just for building)
+        // If height is explicitly provided and type is building, use it
+        // Otherwise, use updatePolygonMaterialByType to set height based on type
         if (properties.height !== undefined && properties.type === 'building') {
-            const originalHeight = polygon.userData?.originalHeight || 0.05;
-            const scaleFactor = properties.height / originalHeight;
-            const baseY = this.getPolygonBaseWorldY(polygon);
+            // IMPORTANT: For extrusion, we need to scale extrusion, not polygon
+            // Do NOT use realignPolygonBase as it changes polygon position
+            if (polygon.extrusion) {
+                // IMPORTANT: Keep polygon at its current Y position
+                // Do NOT move polygon - preserve its current position
+                const polygonY = polygon.position.y;
+                
+                // Calculate originalHeight from current scaling to preserve position correctly
+                let originalHeight = polygon.userData?.originalHeight;
+                if (!originalHeight || originalHeight <= 0) {
+                    // If originalHeight is not set, calculate it from current extrusion scaling
+                    const currentScaling = polygon.extrusion.scaling.y;
+                    const currentHeight = polygon.userData?.currentHeight || properties.height;
+                    originalHeight = currentHeight / currentScaling;
+                    if (originalHeight <= 0) originalHeight = 1; // Fallback to 1
+                    // Store it for future use
+                    if (!polygon.userData) polygon.userData = {};
+                    polygon.userData.originalHeight = originalHeight;
+                }
+                
+                const scaleFactor = properties.height / originalHeight;
+                
+                // IMPORTANT: Get current base world Y BEFORE scaling
+                // This is the world Y position of the extrusion's base that we want to preserve
+                // Since extrusion is NOT a child of polygon, position is in world space
+                polygon.extrusion.computeWorldMatrix(true);
+                const extrusionBoundingInfoBefore = polygon.extrusion.getBoundingInfo();
+                const baseWorldYBefore = extrusionBoundingInfoBefore && extrusionBoundingInfoBefore.boundingBox ? 
+                    extrusionBoundingInfoBefore.boundingBox.minimumWorld.y : polygonY;
+                
+                // Scale extrusion (NOT the polygon)
+                polygon.extrusion.scaling.y = scaleFactor;
+                
+                // IMPORTANT: After scaling, extrusion base will move because scaling happens around the mesh center
+                // We need to adjust extrusion position to keep the base at the same world Y
+                // Since extrusion is in world space, we adjust position.y directly
+                polygon.extrusion.computeWorldMatrix(true);
+                const extrusionBoundingInfoAfter = polygon.extrusion.getBoundingInfo();
+                const baseWorldYAfter = extrusionBoundingInfoAfter && extrusionBoundingInfoAfter.boundingBox ? 
+                    extrusionBoundingInfoAfter.boundingBox.minimumWorld.y : baseWorldYBefore;
+                
+                // Calculate the delta - how much the base moved
+                const deltaY = baseWorldYAfter - baseWorldYBefore;
+                
+                // Adjust extrusion position to compensate for the base movement
+                // Move extrusion down by deltaY to bring base back to original position
+                if (Math.abs(deltaY) > 0.001) {
+                    polygon.extrusion.position.y = polygon.extrusion.position.y - deltaY;
+                    polygon.extrusion.computeWorldMatrix(true);
+                }
+                
+                // IMPORTANT: Do NOT scale the polygon itself - only the extrusion
+                polygon.scaling.y = 1; // Keep polygon scaling at 1
+                
+                // Update userData to reflect the new height
+                if (!polygon.userData) polygon.userData = {};
+                polygon.userData.currentHeight = properties.height;
+                
+                // IMPORTANT: Do NOT adjust polygon position - keep it fixed
+                // The extrusion position adjustment handles keeping the base at the correct world Y
+            } else {
+                // For polygons without extrusion (shouldn't happen for building type)
+                const originalHeight = polygon.userData?.originalHeight || 0.05;
+                const scaleFactor = properties.height / originalHeight;
+                const baseY = this.getPolygonBaseWorldY(polygon);
+                
+                polygon.scaling.y = scaleFactor;
+                this.realignPolygonBase(polygon, baseY);
+            }
             
-            polygon.scaling.y = scaleFactor;
-            this.realignPolygonBase(polygon, baseY);
             polygon.userData.currentHeight = properties.height;
             
             // NOTE: When using scaling, normals are automatically scaled correctly by Babylon.js
             // We should NOT recalculate normals when height changes via scaling, as this causes shadow issues
             // Only update normals if the mesh geometry itself is recreated (not when scaling changes)
             // Removed updateExtrusionNormals calls to prevent shadow artifacts
+        } else if (oldType !== properties.type) {
+            // Type changed - update height based on new type using updatePolygonMaterialByType
+            this.updatePolygonMaterialByType(polygon, properties.type);
         }
 
-        console.log('Updated polygon properties:', properties);
     }
 
     /**
@@ -14120,11 +16350,8 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Update polygon color picker based on type
      */
     updatePolygonColorByType(type) {
-        // Use the central color function for consistency
-        const colorHex = this.getHexColorByType(type);
-        
-        // Update color picker
-        document.getElementById('polygonColor').value = colorHex;
+        // Color is now automatically determined by type (no color picker)
+        // This function is kept for compatibility but does nothing
     }
 
     /**
@@ -14136,6 +16363,11 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Use standardized color system for consistency with other drawing tools
         const standardizedColor = this.getColorByType(type);
         polygon.material.diffuseColor = standardizedColor;
+        
+        // Also update extrusion color if it exists
+        if (polygon.extrusion && polygon.extrusion.material) {
+            polygon.extrusion.material.diffuseColor = standardizedColor;
+        }
     }
 
     /**
@@ -14146,38 +16378,619 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Update color using standardized system
         this.updatePolygonMaterialColorByType(polygon, type);
+        
+        // IMPORTANT: Update renderingGroupId based on new type
+        const newRenderingGroupId = SceneManager.getRenderingGroupId(type);
+        if (polygon.renderingGroupId !== newRenderingGroupId) {
+            console.log(`[POLYGON_TYPE_CHANGE] Updating renderingGroupId for polygon "${polygon.name}": ${polygon.renderingGroupId} -> ${newRenderingGroupId} (type: ${type})`);
+            polygon.renderingGroupId = newRenderingGroupId;
+        }
 
         // Set height automatically based on type
+        // For all types except 'building', convert to 2D mesh (no height)
+        const isBuilding = type?.toLowerCase() === 'building';
         let targetHeight;
-        if (type === 'building') {
+        if (isBuilding) {
             targetHeight = 1; // Building height (scale 1)
         } else {
-            targetHeight = 0.1; // Default height for other types
+            targetHeight = 0; // 2D for non-building types (will convert to 2D mesh)
         }
 
-        // Update height using scaling method
-        const originalHeight = polygon.userData?.originalHeight || 0.1;
-        const scaleFactor = targetHeight / originalHeight;
+        // Check if polygon has extrusion (3D) or is just a 2D mesh
+        // IMPORTANT: Check hasExtrusion BEFORE any conversions to ensure we can create extrusion if needed
+        const hasExtrusion = polygon.extrusion !== undefined && polygon.extrusion !== null;
+        const is3D = polygon.userData?.is3D || hasExtrusion;
         
-        // IMPORTANT: Preserve sideWallNormalsFlipped flag before scaling
-        const sideWallNormalsFlipped = polygon.userData?.sideWallNormalsFlipped || false;
+        // IMPORTANT: For building type, create 3D extrusion and hide 2D polygon
+        // For other types, remove extrusion and show 2D polygon
+        // This preserves the 2D drawing mode while allowing 3D visualization for buildings
+        console.log(`[POLYGON_TYPE_CHANGE] Polygon "${polygon.name}": type="${type}", isBuilding=${isBuilding}, hasExtrusion=${hasExtrusion}, is3D=${is3D}`);
         
-        const baseY = this.getPolygonBaseWorldY(polygon);
-        polygon.scaling.y = scaleFactor;
-        this.realignPolygonBase(polygon, baseY);
-        
-        // Update userData
-        polygon.userData.currentHeight = targetHeight;
-        // IMPORTANT: Preserve sideWallNormalsFlipped flag after scaling
-        if (!polygon.userData) {
-            polygon.userData = {};
+        // IMPORTANT: Handle building type FIRST - create extrusion if needed
+        // IMPORTANT: If extrusion already exists, dispose it first to prevent duplicate extrusions
+        if (hasExtrusion && polygon.extrusion) {
+            console.log(`[POLYGON_EXTRUSION] Disposing existing extrusion for polygon "${polygon.name}" before creating new one`);
+            // Remove from selection manager if it's there
+            if (this.selectionManager) {
+                this.selectionManager.removeSelectableObject(polygon.extrusion);
+            }
+            // Dispose material if it exists
+            if (polygon.extrusion.material && polygon.extrusion.material !== this.sceneManager.getScene().defaultMaterial) {
+                try {
+                    const material = polygon.extrusion.material;
+                    polygon.extrusion.material = null;
+                    material.dispose();
+                } catch (error) {
+                    console.warn(`[POLYGON_EXTRUSION] Error disposing material:`, error);
+                }
+            }
+            // Dispose geometry if it exists
+            if (polygon.extrusion.geometry) {
+                try {
+                    polygon.extrusion.geometry.dispose();
+                } catch (error) {
+                    console.warn(`[POLYGON_EXTRUSION] Error disposing geometry:`, error);
+                }
+            }
+            // Dispose the mesh itself
+            try {
+                polygon.extrusion.dispose();
+            } catch (error) {
+                console.warn(`[POLYGON_EXTRUSION] Error disposing old extrusion:`, error);
+            }
+            polygon.extrusion = null;
         }
-        polygon.userData.sideWallNormalsFlipped = sideWallNormalsFlipped;
         
-        // NOTE: When using scaling, normals are automatically scaled correctly by Babylon.js
-        // We should NOT recalculate normals when height changes via scaling, as this causes shadow issues
-        // Only update normals if the mesh geometry itself is recreated (not when scaling changes)
-        // The sideWallNormalsFlipped flag ensures we don't accidentally flip normals again
+        if (isBuilding && !hasExtrusion) {
+            console.log(`[POLYGON_EXTRUSION] Creating 3D extrusion for polygon "${polygon.name}" (type changed to building)`);
+            
+            // Get points from userData
+            const points = polygon.userData?.points || [];
+            if (points.length < 3) {
+                console.warn(`[POLYGON_EXTRUSION] Cannot create extrusion: polygon has less than 3 points`);
+                return;
+            }
+            
+            // Calculate center and relative points
+            const center = BABYLON.Vector3.Zero();
+            points.forEach(point => center.addInPlace(point));
+            center.scaleInPlace(1 / points.length);
+            center.y = 0;
+            
+            const relativePoints = points.map(point => point.subtract(center));
+            const pointsForExtrusion = relativePoints.map(p => new BABYLON.Vector3(p.x, 0, p.z));
+            
+            // Create extrusion with initial height 1 (default building height)
+            const extrusionName = `${polygon.name}_extrusion`;
+            const initialExtrusionHeight = 1; // Default building height
+            const extrusion = this.createCustomPolygonExtrusion(extrusionName, pointsForExtrusion, initialExtrusionHeight);
+            
+            if (extrusion) {
+                // Link extrusion to polygon (but don't set as parent to avoid visibility issues)
+                polygon.extrusion = extrusion;
+                extrusion.basePolygon = polygon;
+                // IMPORTANT: Don't set parent - keep extrusion independent so it remains visible when polygon is hidden
+                // extrusion.setParent(polygon);
+                
+                // Position extrusion in world space (same position as polygon)
+                // Extrusion is created with base at Y=0 in local space, so we need to position it at polygon Y
+                extrusion.position.x = polygon.position.x;
+                extrusion.position.y = polygon.position.y + initialExtrusionHeight / 2; // Base at polygon Y, center at polygon Y + height/2
+                extrusion.position.z = polygon.position.z;
+                
+                // Verify and fix: ensure extrusion base is at polygon Y
+                extrusion.computeWorldMatrix(true);
+                const extrusionBoundingInfo = extrusion.getBoundingInfo();
+                if (extrusionBoundingInfo && extrusionBoundingInfo.boundingBox) {
+                    const extrusionBaseWorldY = extrusionBoundingInfo.boundingBox.minimumWorld.y;
+                    const polygonWorldY = polygon.position.y;
+                    const deltaY = extrusionBaseWorldY - polygonWorldY;
+                    if (Math.abs(deltaY) > 0.01) {
+                        extrusion.position.y = extrusion.position.y - deltaY;
+                        console.log(`[EXTRUSION_CREATE] Fixed extrusion base: was ${extrusionBaseWorldY.toFixed(3)}, should be ${polygonWorldY.toFixed(3)}, adjusted position.y by ${-deltaY.toFixed(3)}`);
+                    }
+                }
+                
+                // Ensure extrusion is visible and enabled
+                extrusion.setEnabled(true);
+                extrusion.isVisible = true;
+                
+                // IMPORTANT: Make extrusion pickable so it can be selected by clicking on walls
+                extrusion.isPickable = true;
+                
+                // IMPORTANT: Make sure extrusion is in the scene and visible
+                const scene = this.sceneManager.getScene();
+                if (!scene.meshes.includes(extrusion)) {
+                    scene.addMesh(extrusion);
+                    console.log(`[EXTRUSION_CREATE] Added extrusion to scene: ${extrusionName}`);
+                }
+                
+                // IMPORTANT: Double-check visibility and material
+                if (!extrusion.isVisible) {
+                    console.warn(`[EXTRUSION_CREATE] Extrusion ${extrusionName} is not visible, fixing...`);
+                    extrusion.isVisible = true;
+                }
+                if (!extrusion.isEnabled()) {
+                    console.warn(`[EXTRUSION_CREATE] Extrusion ${extrusionName} is not enabled, fixing...`);
+                    extrusion.setEnabled(true);
+                }
+                if (!extrusion.material) {
+                    console.warn(`[EXTRUSION_CREATE] Extrusion ${extrusionName} has no material, creating default material...`);
+                    const defaultMaterial = new BABYLON.StandardMaterial(`${extrusionName}_defaultMaterial`, scene);
+                    defaultMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1);
+                    defaultMaterial.backFaceCulling = false;
+                    defaultMaterial.twoSidedLighting = true;
+                    extrusion.material = defaultMaterial;
+                }
+                
+                // Log extrusion visibility status
+                console.log(`[EXTRUSION_CREATE] Extrusion visibility: isVisible=${extrusion.isVisible}, enabled=${extrusion.isEnabled()}, hasMaterial=${!!extrusion.material}, inScene=${scene.meshes.includes(extrusion)}, position=(${extrusion.position.x.toFixed(2)}, ${extrusion.position.y.toFixed(2)}, ${extrusion.position.z.toFixed(2)})`);
+                console.log(`[EXTRUSION_CREATE] Polygon visibility: isVisible=${polygon.isVisible}, enabled=${polygon.isEnabled()}, position=(${polygon.position.x.toFixed(2)}, ${polygon.position.y.toFixed(2)}, ${polygon.position.z.toFixed(2)})`);
+                
+                // Copy material from polygon with proper settings
+                if (polygon.material) {
+                    const newMaterial = new BABYLON.StandardMaterial(`${extrusionName}Material`, this.sceneManager.getScene());
+                    newMaterial.diffuseColor = polygon.material.diffuseColor ? polygon.material.diffuseColor.clone() : new BABYLON.Color3(1, 1, 1);
+                    newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                    newMaterial.emissiveColor = new BABYLON.Color3(0, 0, 0);
+                    newMaterial.roughness = 0.7;
+                    newMaterial.backFaceCulling = false; // 2-sided
+                    newMaterial.twoSidedLighting = true; // Enable lighting on both sides
+                    extrusion.material = newMaterial;
+                } else {
+                    extrusion.material = polygon.material;
+                }
+                extrusion.receiveShadows = true;
+                extrusion.castShadows = true;
+                extrusion.renderingGroupId = SceneManager.getRenderingGroupId(type);
+                
+                // Update userData
+                if (!polygon.userData) polygon.userData = {};
+                polygon.userData.is3D = true;
+                polygon.userData.originalHeight = initialExtrusionHeight;
+                polygon.userData.currentHeight = initialExtrusionHeight;
+                polygon.userData.sideWallNormalsFlipped = true;
+                
+                // IMPORTANT: Hide 2D polygon FIRST before adding extrusion to selection
+                // This ensures polygon is not selectable when extrusion is added
+                polygon.isVisible = false;
+                polygon.setEnabled(false);
+                polygon.isPickable = false; // Make polygon non-pickable
+                
+                // IMPORTANT: Remove polygon from selectable objects since it's now hidden
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(polygon);
+                    console.log(`[POLYGON_EXTRUSION] Removed 2D polygon from selectable objects (now hidden), isPickable=${polygon.isPickable}, isVisible=${polygon.isVisible}, enabled=${polygon.isEnabled()}, inSelectableObjects=${this.selectionManager.selectableObjects.includes(polygon)}`);
+                }
+                
+                // IMPORTANT: Add extrusion to selection manager so it can be selected and shown in object list
+                if (this.selectionManager) {
+                    // Ensure extrusion is pickable
+                    extrusion.isPickable = true;
+                    this.selectionManager.addSelectableObject(extrusion);
+                    console.log(`[POLYGON_EXTRUSION] Added extrusion to selection manager: ${extrusionName}, isPickable=${extrusion.isPickable}, isVisible=${extrusion.isVisible}, enabled=${extrusion.isEnabled()}, inSelectableObjects=${this.selectionManager.selectableObjects.includes(extrusion)}`);
+                    
+                    // IMPORTANT: Always select the extrusion when polygon is converted to building
+                    // This ensures the 3D building model is selected in the scene
+                    const wasPolygonSelected = this.selectionManager.selectedObjects.includes(polygon);
+                    if (wasPolygonSelected) {
+                        console.log(`[POLYGON_EXTRUSION] Polygon was selected, deselecting polygon and selecting extrusion`);
+                        // Remove polygon from selection (it's now hidden)
+                        this.selectionManager.deselectObject(polygon);
+                    }
+                    // Always select extrusion (whether polygon was selected or not)
+                    this.selectionManager.selectObject(extrusion, false, false);
+                    console.log(`[POLYGON_EXTRUSION] Extrusion selected: ${extrusionName}, isSelected=${this.selectionManager.selectedObjects.includes(extrusion)}`);
+                }
+                
+                // Enable shadows
+                if (this.lightingManager && this.lightingManager.updateShadowsForNewObject) {
+                    this.lightingManager.updateShadowsForNewObject(extrusion);
+                }
+                
+                // Update height input field
+                const polygonHeightInput = document.getElementById('polygonHeight');
+                if (polygonHeightInput) {
+                    polygonHeightInput.value = initialExtrusionHeight;
+                }
+                
+                // IMPORTANT: Dispatch scene change event to update object list
+                this.dispatchSceneChangeEvent();
+                
+                console.log(`[POLYGON_EXTRUSION] Extrusion created successfully for polygon "${polygon.name}", 2D polygon hidden`);
+            } else {
+                console.warn(`[POLYGON_EXTRUSION] Failed to create extrusion for polygon "${polygon.name}"`);
+                return;
+            }
+        }
+        
+        // IMPORTANT: Re-check hasExtrusion after potentially creating it
+        const hasExtrusionNow = polygon.extrusion !== undefined && polygon.extrusion !== null;
+        
+        // IMPORTANT: Remove extrusion if type is not building (show 2D polygon instead)
+        console.log(`[POLYGON_TYPE_CHANGE] After extrusion check: hasExtrusionNow=${hasExtrusionNow}, isBuilding=${isBuilding}`);
+        if (!isBuilding && hasExtrusionNow) {
+            console.log(`[POLYGON_EXTRUSION] Removing extrusion from polygon "${polygon.name}" (type changed from building to ${type}), showing 2D polygon`);
+            
+            // IMPORTANT: Mark that polygon had extrusion before removal
+            // This will be used to determine if polygon needs conversion to 2D
+            const hadExtrusionBefore = true;
+            
+            // Remove from selection manager
+            if (this.selectionManager) {
+                // Deselect extrusion if it was selected
+                this.selectionManager.deselectObject(polygon.extrusion);
+                this.selectionManager.removeSelectableObject(polygon.extrusion);
+            }
+            
+            // Dispose extrusion
+            if (polygon.extrusion.geometry) {
+                polygon.extrusion.geometry.dispose();
+            }
+            if (polygon.extrusion.material && polygon.extrusion.material !== this.sceneManager.getScene().defaultMaterial) {
+                try {
+                    const material = polygon.extrusion.material;
+                    // Unlink material from mesh before disposing to prevent WebGL errors
+                    polygon.extrusion.material = null;
+                    material.dispose();
+                } catch (error) {
+                    // Ignore WebGL errors during material disposal (timing issues)
+                }
+            }
+            try {
+                polygon.extrusion.dispose();
+            } catch (error) {
+                // Ignore WebGL errors during extrusion disposal
+            }
+            polygon.extrusion = null;
+            
+            // Show 2D polygon again (it was hidden when extrusion was created)
+            polygon.isVisible = true;
+            polygon.setEnabled(true);
+            
+            // IMPORTANT: Make polygon pickable again so it can be selected
+            polygon.isPickable = true;
+            
+            // IMPORTANT: Re-add polygon to selectable objects since it's now visible
+            // And select it so the user stays in selection after converting from building
+            if (this.selectionManager) {
+                this.selectionManager.addSelectableObject(polygon);
+                this.selectionManager.selectObject(polygon, false, false);
+                console.log(`[POLYGON_EXTRUSION] Re-added 2D polygon to selectable objects and selected it (now visible), isPickable=${polygon.isPickable}, isVisible=${polygon.isVisible}, enabled=${polygon.isEnabled()}`);
+            }
+            
+            // Update userData
+            if (!polygon.userData) polygon.userData = {};
+            polygon.userData.hadExtrusion = true;
+            polygon.userData.is3D = false;
+        }
+
+        // Ensure 2D polygon remains selected after converting from building to other types
+        if (!isBuilding && this.selectionManager) {
+            const isPolygonSelected = this.selectionManager.selectedObjects.includes(polygon);
+            if (!isPolygonSelected) {
+                this.selectionManager.selectObject(polygon, false, false);
+                console.log(`[POLYGON_TYPE_CHANGE] Polygon "${polygon.name}" re-selected after reverting to 2D`);
+            }
+        }
+        
+        // IMPORTANT: If building type with extrusion, ensure 2D polygon is hidden
+        if (isBuilding && hasExtrusionNow) {
+            polygon.isVisible = false;
+            polygon.setEnabled(false);
+            polygon.isPickable = false; // Make polygon non-pickable
+            
+            // IMPORTANT: Ensure polygon is removed from selectable objects
+            if (this.selectionManager) {
+                this.selectionManager.removeSelectableObject(polygon);
+                console.log(`[POLYGON_EXTRUSION] Polygon "${polygon.name}" is building with extrusion, 2D polygon hidden, isPickable=${polygon.isPickable}`);
+            }
+        }
+        
+        // IMPORTANT: For non-building types, ensure polygon is 2D and visible
+        // For building types with extrusion, polygon is hidden and extrusion is shown
+        if (!isBuilding) {
+            // For non-building types, ensure polygon is 2D and visible
+            // IMPORTANT: After removing extrusion, we need to check if polygon needs conversion
+            // A polygon that had extrusion (was building) needs to be converted to 2D mesh
+            // Check if polygon is already 2D (created with createPolygonMesh)
+            const isAlready2D = !polygon.userData?.is3D || polygon.userData?.currentHeight === 0;
+            
+            // IMPORTANT: Always convert to 2D if polygon had extrusion (was building)
+            // Even if isAlready2D is true, we need to ensure the polygon is properly 2D
+            // Check if polygon had extrusion before (was 3D building)
+            const hadExtrusion = polygon.userData?.hadExtrusion === true || polygon.userData?.is3D === true;
+            const needsConversion = !isAlready2D || hadExtrusion;
+            
+            if (needsConversion && polygon.userData?.points && polygon.userData.points.length >= 3) {
+                // Convert 3D polygon to 2D mesh
+                console.log(`[POLYGON_CONVERSION] Converting polygon "${polygon.name}" from 3D to 2D (type: ${type})`);
+                const wasSelected = this.selectionManager && this.selectionManager.isSelected(polygon);
+                const currentName = polygon.name;
+                const currentMaterial = polygon.material;
+                const currentPoints = polygon.userData.points.map(p => 
+                    p instanceof BABYLON.Vector3 ? p.clone() : new BABYLON.Vector3(p.x, p.y || 0, p.z)
+                );
+                const currentPosition = polygon.position.clone();
+                const currentUserData = JSON.parse(JSON.stringify(polygon.userData || {}));
+                
+                // IMPORTANT: Ensure points are world coordinates, not relative
+                // If points are relative (centered at origin), convert them to world coordinates
+                // by adding the original polygon position
+                const pointsCenter = BABYLON.Vector3.Zero();
+                currentPoints.forEach(point => {
+                    const p = point instanceof BABYLON.Vector3 ? point : new BABYLON.Vector3(point.x, point.y || 0, point.z);
+                    pointsCenter.addInPlace(p);
+                });
+                pointsCenter.scaleInPlace(1 / currentPoints.length);
+                
+                // Check if points are relative (center is at origin)
+                const pointsAreRelative = Math.abs(pointsCenter.x) < 0.001 && Math.abs(pointsCenter.z) < 0.001;
+                
+                if (pointsAreRelative) {
+                    // Convert relative points to world coordinates
+                    console.log(`[POLYGON_CONVERSION] Converting relative points to world coordinates for "${currentName}"`);
+                    currentPoints = currentPoints.map(point => {
+                        const p = point instanceof BABYLON.Vector3 ? point : new BABYLON.Vector3(point.x, point.y || 0, point.z);
+                        return new BABYLON.Vector3(
+                            p.x + currentPosition.x,
+                            p.y + currentPosition.y,
+                            p.z + currentPosition.z
+                        );
+                    });
+                }
+                
+                // Update userData
+                currentUserData.type = type;
+                currentUserData.shapeType = 'polygon';
+                currentUserData.is3D = false;
+                currentUserData.originalHeight = 0;
+                currentUserData.currentHeight = 0;
+                // IMPORTANT: Store world coordinates in userData
+                currentUserData.points = currentPoints.map(p => p.clone());
+                
+                // Remove from selection manager before disposing
+                if (this.selectionManager) {
+                    this.selectionManager.removeSelectableObject(polygon);
+                }
+                
+                // Dispose old 3D polygon
+                if (polygon.geometry) {
+                    polygon.geometry.dispose();
+                }
+                if (polygon.material && polygon.material !== this.sceneManager.getScene().defaultMaterial) {
+                    // Check if material is shared
+                    const scene = this.sceneManager.getScene();
+                    const meshesUsingMaterial = scene.meshes.filter(m => m.material === polygon.material && m !== polygon);
+                    if (meshesUsingMaterial.length === 0) {
+                        try {
+                            polygon.material.dispose();
+                        } catch (error) {
+                            // Ignore disposal errors
+                        }
+                    }
+                }
+                polygon.setEnabled(false);
+                try {
+                    polygon.dispose();
+                } catch (error) {
+                    // Ignore disposal errors
+                }
+                
+                // Create new material with correct color for the new type
+                const scene = this.sceneManager.getScene();
+                const newMaterial = new BABYLON.StandardMaterial(`${currentName}Material`, scene);
+                const standardizedColor = this.getColorByType(type);
+                newMaterial.diffuseColor = standardizedColor;
+                        newMaterial.backFaceCulling = false; // 2-sided
+                    newMaterial.twoSidedLighting = true; // Enable lighting on both sides
+                newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                
+                // Create new 2D polygon mesh with new material
+                const newPolygon = this.createPolygonMesh(currentName, currentPoints, currentPosition, newMaterial, currentUserData);
+                
+                if (!newPolygon) {
+                    console.error(`[POLYGON_CONVERSION] Failed to create 2D polygon mesh for "${currentName}"`);
+                    return;
+                }
+                
+                // Ensure material is set (createPolygonMesh might override it)
+                newPolygon.material = newMaterial;
+                
+                // IMPORTANT: Ensure renderingGroupId is set correctly based on type
+                const correctRenderingGroupId = SceneManager.getRenderingGroupId(type);
+                if (newPolygon.renderingGroupId !== correctRenderingGroupId) {
+                    console.log(`[POLYGON_CONVERSION] Updating renderingGroupId for converted polygon "${currentName}": ${newPolygon.renderingGroupId} -> ${correctRenderingGroupId} (type: ${type})`);
+                    newPolygon.renderingGroupId = correctRenderingGroupId;
+                }
+                
+                // Ensure polygon is visible and enabled
+                newPolygon.setEnabled(true);
+                newPolygon.isVisible = true;
+                
+                // Ensure mesh is in the scene (scene already defined above)
+                if (!scene.meshes.includes(newPolygon)) {
+                    scene.addMesh(newPolygon);
+                }
+                
+                // IMPORTANT: createPolygonMesh calculates center from points and sets position
+                // However, if points are relative (centered at origin), the calculated center will be (0,0,0)
+                // So we need to check if the calculated center is at origin, and if so, use the original position
+                // Calculate center from points (as createPolygonMesh does)
+                const calculatedCenter = BABYLON.Vector3.Zero();
+                currentPoints.forEach(point => {
+                    const p = point instanceof BABYLON.Vector3 ? point : new BABYLON.Vector3(point.x, point.y || 0, point.z);
+                    calculatedCenter.addInPlace(p);
+                });
+                calculatedCenter.scaleInPlace(1 / currentPoints.length);
+                
+                // Check if calculated center is at origin (indicating points are relative, not world coordinates)
+                const isAtOrigin = Math.abs(calculatedCenter.x) < 0.001 && Math.abs(calculatedCenter.z) < 0.001;
+                
+                if (isAtOrigin) {
+                    // Points are relative, use original polygon position
+                    // But we need to add the original position to the calculated center
+                    // Since points are relative to center, and center should be at original position
+                    calculatedCenter.x = currentPosition.x;
+                    calculatedCenter.z = currentPosition.z;
+                    console.log(`[POLYGON_CONVERSION] Points are relative for "${currentName}", using original position (${currentPosition.x.toFixed(2)}, ${currentPosition.z.toFixed(2)})`);
+                } else {
+                    // Points are world coordinates, use calculated center
+                    console.log(`[POLYGON_CONVERSION] Points are world coordinates for "${currentName}", using calculated center (${calculatedCenter.x.toFixed(2)}, ${calculatedCenter.z.toFixed(2)})`);
+                }
+                
+                calculatedCenter.y = 0.001; // 2D polygon offset
+                
+                // Use the calculated center (which matches what createPolygonMesh does)
+                newPolygon.position = calculatedCenter;
+                
+                // Ensure mesh has proper rendering settings
+                newPolygon.receiveShadows = true;
+                newPolygon.castShadows = true;
+                newPolygon.renderingGroupId = SceneManager.getRenderingGroupId(type);
+                
+                // Add to selection manager
+                if (this.selectionManager) {
+                    this.selectionManager.addSelectableObject(newPolygon);
+                }
+                
+                // If polygon was selected, select the new one
+                if (wasSelected && this.selectionManager) {
+                    this.selectionManager.selectObject(newPolygon, false);
+                }
+                
+                // Update currentShape reference
+                if (this.currentShape === polygon) {
+                    this.currentShape = newPolygon;
+                }
+                
+                // Update object list
+                if (this.objectListManager && this.objectListManager.updateObjectList) {
+                    this.objectListManager.updateObjectList();
+                }
+                
+                console.log(`[POLYGON_CONVERSION] Successfully converted polygon "${currentName}" to 2D at position (${newPolygon.position.x.toFixed(2)}, ${newPolygon.position.y.toFixed(2)}, ${newPolygon.position.z.toFixed(2)})`);
+                return; // Done - polygon converted to 2D
+            } else {
+                // Already 2D or no points available, just update properties
+                if (!polygon.userData) polygon.userData = {};
+                polygon.userData.type = type;
+                polygon.userData.is3D = false;
+                polygon.userData.currentHeight = 0;
+                polygon.userData.originalHeight = 0;
+                
+                // Update material color for the new type
+                this.updatePolygonMaterialColorByType(polygon, type);
+                
+                // Ensure position Y is at ground level
+                polygon.position.y = 0.001; // Minimal offset to prevent z-fighting (2D polygon)
+                
+                return; // Done for non-building types
+            }
+        }
+
+        // Update height using scaling method (only if has extrusion)
+        // Use hasExtrusionNow to ensure we have the latest state (after potentially creating extrusion)
+        if (hasExtrusionNow) {
+            // IMPORTANT: Calculate originalHeight from current scaling to preserve position correctly
+            // This is the same approach used in height change listener
+            let originalHeight = polygon.userData?.originalHeight;
+            if (!originalHeight || originalHeight <= 0) {
+                // If originalHeight is not set, calculate it from current extrusion scaling
+                if (polygon.extrusion) {
+                    const currentScaling = polygon.extrusion.scaling.y;
+                    const currentHeight = polygon.userData?.currentHeight || targetHeight;
+                    originalHeight = currentHeight / currentScaling;
+                    if (originalHeight <= 0) originalHeight = 1; // Fallback to 1
+                    // Store it for future use
+                    if (!polygon.userData) polygon.userData = {};
+                    polygon.userData.originalHeight = originalHeight;
+                } else {
+                    originalHeight = 1; // Default fallback
+                }
+            }
+            
+            const scaleFactor = targetHeight / originalHeight;
+            
+            // IMPORTANT: Preserve sideWallNormalsFlipped flag before scaling
+            const sideWallNormalsFlipped = polygon.userData?.sideWallNormalsFlipped || false;
+            
+            // IMPORTANT: For extrusion, we need to preserve the current base world Y position
+            // Since extrusion is NOT a child of polygon, we need to:
+            // 1. Get current base world Y BEFORE scaling
+            // 2. Scale extrusion
+            // 3. Adjust extrusion position to keep base at the same world Y
+            
+            if (polygon.extrusion) {
+                // IMPORTANT: Keep polygon at its current Y position
+                // Do NOT move polygon - preserve its current position
+                const polygonY = polygon.position.y;
+                
+                // IMPORTANT: Get current base world Y BEFORE scaling
+                // This is the world Y position of the extrusion's base that we want to preserve
+                // Since extrusion is NOT a child of polygon, position is in world space
+                // IMPORTANT: Use polygon.position.y as the base, not extrusion bounding box
+                // This ensures that if polygon was moved, we preserve its current position
+                // The extrusion base should always be at polygon.position.y (not at Y=0)
+                const baseWorldYBefore = polygonY; // Use polygon Y as the base (not extrusion bounding box)
+                
+                // Scale extrusion (NOT the polygon, since extrusion is the 3D part)
+                polygon.extrusion.scaling.y = scaleFactor;
+                
+                // IMPORTANT: After scaling, extrusion base will move because scaling happens around the mesh center
+                // We need to adjust extrusion position to keep the base at the same world Y
+                // Since extrusion is in world space, we adjust position.y directly
+                polygon.extrusion.computeWorldMatrix(true);
+                const extrusionBoundingInfoAfter = polygon.extrusion.getBoundingInfo();
+                const baseWorldYAfter = extrusionBoundingInfoAfter && extrusionBoundingInfoAfter.boundingBox ? 
+                    extrusionBoundingInfoAfter.boundingBox.minimumWorld.y : baseWorldYBefore;
+                
+                // Calculate the delta - how much the base moved
+                const deltaY = baseWorldYAfter - baseWorldYBefore;
+                
+                // Adjust extrusion position to compensate for the base movement
+                // Move extrusion down by deltaY to bring base back to original position
+                if (Math.abs(deltaY) > 0.001) {
+                    polygon.extrusion.position.y = polygon.extrusion.position.y - deltaY;
+                    polygon.extrusion.computeWorldMatrix(true);
+                }
+                
+                // IMPORTANT: Do NOT scale the polygon itself - only the extrusion
+                // The polygon is just a container/TransformNode for the extrusion
+                polygon.scaling.y = 1; // Keep polygon scaling at 1
+            } else {
+                // If no extrusion, scale polygon directly (shouldn't happen for building type)
+                const baseY = this.getPolygonBaseWorldY(polygon);
+                polygon.scaling.y = scaleFactor;
+                this.realignPolygonBase(polygon, baseY);
+            }
+            
+            // Update userData
+            polygon.userData.currentHeight = targetHeight;
+            // Update originalHeight if it was not set correctly
+            if (!polygon.userData.originalHeight || polygon.userData.originalHeight <= 0) {
+                polygon.userData.originalHeight = originalHeight;
+            }
+            // IMPORTANT: Preserve sideWallNormalsFlipped flag after scaling
+            if (!polygon.userData) {
+                polygon.userData = {};
+            }
+            polygon.userData.sideWallNormalsFlipped = sideWallNormalsFlipped;
+            
+            // NOTE: When using scaling, normals are automatically scaled correctly by Babylon.js
+            // We should NOT recalculate normals when height changes via scaling, as this causes shadow issues
+            // Only update normals if the mesh geometry itself is recreated (not when scaling changes)
+            // The sideWallNormalsFlipped flag ensures we don't accidentally flip normals again
+        } else if (!isBuilding) {
+            // For 2D polygons (non-building), ensure height is 0
+            if (!polygon.userData) polygon.userData = {};
+            polygon.userData.originalHeight = 0;
+            polygon.userData.currentHeight = 0;
+            polygon.userData.is3D = false;
+            polygon.userData.sideWallNormalsFlipped = false;
+            polygon.scaling.y = 1;
+            polygon.position.y = 0;
+        }
 
         // Material settings are now normal since bottom faces are removed
 
@@ -14219,8 +17032,15 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.selectionManager.addSelectableObject(circle);
         }
 
-        // Add to scene
-        this.sceneManager.addBuilding(circle);
+        // Add to scene - only add to buildings list if type is 'building'
+        if (this.sceneManager) {
+            const circleType = circle.userData?.type || 'ground';
+            if (circleType.toLowerCase() === 'building') {
+                // addBuilding expects an object with mesh property
+                this.sceneManager.addBuilding({ mesh: circle });
+            }
+            // For non-building types, the circle is already in the scene
+        }
 
         console.log('Test circle created:', circle.name);
         console.log('Circle position:', circle.position);
@@ -14233,7 +17053,7 @@ Transform your 3D models into powerful energy analysis tools.`;
     initializeObjectListManager() {
         try {
             this.objectListManager = new ObjectListManager(this.sceneManager, this.selectionManager, this.treeManager);
-            console.log('ObjectListManager initialized successfully');
+            // console.log('ObjectListManager initialized successfully');
         } catch (error) {
             console.error('Error initializing ObjectListManager:', error);
         }

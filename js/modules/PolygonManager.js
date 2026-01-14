@@ -27,6 +27,7 @@ class PolygonManager {
         const defaultColor = this.uiManager ? this.uiManager.getDefaultDrawingColor() : new BABYLON.Color3(0.4, 0.3, 0.2);
         this.polygonMaterial.diffuseColor = defaultColor;
         this.polygonMaterial.backFaceCulling = false; // 2-sided
+        this.polygonMaterial.twoSidedLighting = true; // Enable lighting on both sides
         this.polygonMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); // Normal specular
         this.polygonMaterial.roughness = 0.8; // Normal roughness
         this.polygonMaterial.metallic = 0.0; // Non-metallic
@@ -39,6 +40,7 @@ class PolygonManager {
         this.previewMaterial.diffuseColor = previewColor;
         this.previewMaterial.alpha = previewAlpha;
         this.previewMaterial.backFaceCulling = false; // 2-sided
+        this.previewMaterial.twoSidedLighting = true; // Enable lighting on both sides
         
         // Material for points
         this.pointMaterial = new BABYLON.StandardMaterial("polygonPointMaterial", this.scene);
@@ -66,10 +68,88 @@ class PolygonManager {
     }
 
     /**
+     * Snap angle to nearest 45-degree increment (0, 45, 90, 135, 180, 225, 270, 315, 360)
+     * @param {number} angleDegrees - Angle in degrees
+     * @returns {number} Snapped angle in degrees
+     */
+    snapAngle(angleDegrees) {
+        // Normalize angle to 0-360 range
+        let normalizedAngle = angleDegrees % 360;
+        if (normalizedAngle < 0) {
+            normalizedAngle += 360;
+        }
+        
+        // Snap angles: 0, 45, 90, 135, 180, 225, 270, 315, 360
+        const snapAngles = [0, 45, 90, 135, 180, 225, 270, 315, 360];
+        
+        // Find nearest snap angle
+        let nearestAngle = snapAngles[0];
+        let minDiff = Math.abs(normalizedAngle - snapAngles[0]);
+        
+        for (let i = 1; i < snapAngles.length; i++) {
+            const diff = Math.abs(normalizedAngle - snapAngles[i]);
+            if (diff < minDiff) {
+                minDiff = diff;
+                nearestAngle = snapAngles[i];
+            }
+        }
+        
+        return nearestAngle;
+    }
+
+    /**
+     * Snap point to angle based on last point (if Shift is held)
+     * @param {BABYLON.Vector3} point - The point to potentially snap
+     * @param {boolean} shouldSnap - Whether to apply angle snapping
+     * @returns {BABYLON.Vector3} Snapped or original point
+     */
+    snapPointToAngle(point, shouldSnap) {
+        if (!shouldSnap || this.points.length === 0) {
+            return point;
+        }
+        
+        const lastPoint = this.points[this.points.length - 1];
+        
+        // Calculate direction vector from last point to current point (clone to avoid modifying original)
+        const direction = point.subtract(lastPoint).clone();
+        const distance = direction.length();
+        
+        if (distance < 0.001) {
+            // Too close, return original point
+            return point;
+        }
+        
+        // Calculate angle in degrees (0 = right/east, 90 = forward/north, 180 = left/west, 270 = back/south)
+        // In Babylon.js, X is right, Z is forward
+        // atan2(x, z) gives angle from positive Z axis (north) towards positive X axis (east)
+        const angleRadians = Math.atan2(direction.x, direction.z);
+        let angleDegrees = angleRadians * (180 / Math.PI);
+        
+        // Normalize to 0-360 range
+        if (angleDegrees < 0) {
+            angleDegrees += 360;
+        }
+        
+        // Snap angle
+        const snappedAngleDegrees = this.snapAngle(angleDegrees);
+        const snappedAngleRadians = snappedAngleDegrees * (Math.PI / 180);
+        
+        // Calculate new position based on snapped angle and original distance
+        const snappedDirection = new BABYLON.Vector3(
+            Math.sin(snappedAngleRadians) * distance,
+            0,
+            Math.cos(snappedAngleRadians) * distance
+        );
+        
+        return lastPoint.add(snappedDirection);
+    }
+
+    /**
      * Add a point to the current polygon
      * @param {BABYLON.Vector3} point - The point to add
+     * @param {boolean} shouldSnapAngle - Whether to snap to angle (if Shift is held)
      */
-    addPoint(point) {
+    addPoint(point, shouldSnapAngle = false) {
         if (!this.isCurrentlyDrawing) return;
 
         // If we're snapped to first point, complete the polygon instead of adding a new point
@@ -78,8 +158,14 @@ class PolygonManager {
             return;
         }
 
+        // Apply angle snapping if requested
+        let finalPoint = point;
+        if (shouldSnapAngle) {
+            finalPoint = this.snapPointToAngle(point, true);
+        }
+
         // Clone the point to avoid reference issues
-        const newPoint = point.clone();
+        const newPoint = finalPoint.clone();
         newPoint.y = 0.01; // Slightly above ground to avoid z-fighting
         
         this.points.push(newPoint);
@@ -118,7 +204,7 @@ class PolygonManager {
      * Update preview with current points and mouse position
      * @param {BABYLON.Vector3} mousePoint - Current mouse position (optional)
      */
-    updatePreview(mousePoint = null) {
+    updatePreview(mousePoint = null, shouldSnapAngle = false) {
         this.clearPreview();
 
         if (this.points.length === 0) return;
@@ -188,9 +274,14 @@ class PolygonManager {
         if (mousePoint && this.points.length > 0) {
             let actualMousePoint = mousePoint;
             
+            // Apply angle snapping if Shift is held
+            if (shouldSnapAngle) {
+                actualMousePoint = this.snapPointToAngle(mousePoint.clone(), true);
+            }
+            
             // Check for snapping to first point if we have enough points
             if (this.points.length >= this.minPoints) {
-                const distanceToFirst = BABYLON.Vector3.Distance(mousePoint, this.points[0]);
+                const distanceToFirst = BABYLON.Vector3.Distance(actualMousePoint, this.points[0]);
                 
                 if (distanceToFirst <= this.snapDistance) {
                     // Snap to first point
@@ -217,6 +308,8 @@ class PolygonManager {
             const previewLine = this.createLine(this.points[this.points.length - 1], actualMousePoint);
             if (this.isSnappedToFirst) {
                 previewLine.color = new BABYLON.Color3(0.8, 0.2, 0.2); // Red color when snapped
+            } else if (shouldSnapAngle) {
+                previewLine.color = new BABYLON.Color3(0.5, 0.3, 0.1); // Brown color when angle snapped
             }
             this.previewLines.push(previewLine);
             
@@ -241,8 +334,12 @@ class PolygonManager {
         const line = BABYLON.MeshBuilder.CreateLines("polygon_line", {
             points: [start, end]
         }, this.scene);
-        line.color = new BABYLON.Color3(0.8, 0.8, 0.2);
+        line.color = new BABYLON.Color3(0.3, 0.3, 0.6); // سورمه‌ای (indigo/navy blue)
         line.renderingGroupId = 1;
+        // Set line width to 2 (double the default thickness of 1)
+        if (line.width !== undefined) {
+            line.width = 2;
+        }
         return line;
     }
 
@@ -325,8 +422,25 @@ class PolygonManager {
         // Create 3D polygon mesh for preview
         this.currentPolygon = this.create3DPolygonMesh(relativePoints);
 
-        this.currentPolygon.material = this.polygonMaterial;
-        this.currentPolygon.renderingGroupId = 1;
+        // Set rendering priority based on selected type (get from UI, default to ground for preview)
+        let previewType = 'ground';
+        if (this.uiManager) {
+            const polygonTypeSelect = document.getElementById('polygonType');
+            if (polygonTypeSelect && polygonTypeSelect.value) {
+                previewType = polygonTypeSelect.value;
+            }
+        }
+        
+        // IMPORTANT: Create preview material with correct color based on previewType
+        // This ensures preview polygon shows the correct color for the selected type
+        if (this.uiManager) {
+            const typeColor = this.uiManager.getColorByType(previewType);
+            // Update preview material color based on type
+            this.previewMaterial.diffuseColor = typeColor;
+        }
+        
+        this.currentPolygon.material = this.previewMaterial;
+        this.currentPolygon.renderingGroupId = SceneManager.getRenderingGroupId(previewType);
         this.currentPolygon.receiveShadows = true;
         this.currentPolygon.castShadows = true;
 
@@ -1198,61 +1312,108 @@ class PolygonManager {
             this.currentPolygon.dispose();
         }
 
-        // Create final closed polygon
-        const center = this.calculateCenter();
-        const relativePoints = this.points.map(point => point.subtract(center));
+        // IMPORTANT: Ensure counter-clockwise winding order for correct normals
+        // This is the same approach used by test polygon functions
+        // Test polygons work correctly because they use ensureCounterClockwise
+        const correctedPoints = this.ensureCounterClockwise(this.points);
         
-        // Generate unique name based on type (default is 'ground')
-        const defaultType = 'ground';
-        const polygonName = this.uiManager && this.uiManager.generateUniqueNameByType ? 
-            this.uiManager.generateUniqueNameByType(defaultType) : 
-            `ground${Date.now()}`;
+        // Calculate center from corrected points
+        const center = this.calculateCenter(correctedPoints);
         
-        // Create 3D polygon using UIManager's createCustomPolygonExtrusion to ensure normals are correctly flipped
-        // createCustomPolygonExtrusion expects points relative to origin (0,0,0), so we use relativePoints directly
-        // Convert relativePoints to Vector3 format (with y=0 for 2D polygon shape)
-        const pointsForExtrusion = relativePoints.map(p => new BABYLON.Vector3(p.x, 0, p.z));
-        const initialHeight = 0.1;
+        const relativePoints = correctedPoints.map(point => point.subtract(center));
         
-        // Check if uiManager and createCustomPolygonExtrusion are available
-        if (!this.uiManager || !this.uiManager.createCustomPolygonExtrusion) {
-            console.error('UIManager or createCustomPolygonExtrusion not available, falling back to create3DPolygonWithHeight');
-            this.currentPolygon = this.create3DPolygonWithHeight(relativePoints, polygonName, initialHeight);
+        // Get selected type from UI (default is 'ground')
+        let selectedType = 'ground';
+        if (this.uiManager) {
+            // Try to get type from polygon type select element
+            const polygonTypeSelect = document.getElementById('polygonType');
+            if (polygonTypeSelect && polygonTypeSelect.value) {
+                selectedType = polygonTypeSelect.value;
+                console.log(`[POLYGON] Got type from UI: ${selectedType}`);
+            } else {
+                console.warn(`[POLYGON] polygonTypeSelect not found or has no value, using default 'ground'`);
+            }
         } else {
-            this.currentPolygon = this.uiManager.createCustomPolygonExtrusion(polygonName, pointsForExtrusion, initialHeight);
+            console.warn(`[POLYGON] uiManager not available, using default 'ground'`);
         }
         
-        this.currentPolygon.material = this.polygonMaterial;
-        this.currentPolygon.renderingGroupId = 1;
-        this.currentPolygon.receiveShadows = true;
-        this.currentPolygon.castShadows = true;
-        // Position the polygon at center
-        // createCustomPolygonExtrusion sets position.y to height / 2, so we need to adjust
-        this.currentPolygon.position.x = center.x;
-        this.currentPolygon.position.z = center.z;
-        // Y position is already set correctly in createCustomPolygonExtrusion (height / 2 = 0.05)
-        // But if we used create3DPolygonWithHeight, we need to set it differently
-        if (!this.uiManager || !this.uiManager.createCustomPolygonExtrusion) {
-            this.currentPolygon.position.y = initialHeight;
+        // IMPORTANT: Log the selected type and expected renderingGroupId
+        const expectedRenderingGroupId = SceneManager.getRenderingGroupId(selectedType);
+        console.log(`[POLYGON] Selected type: ${selectedType}, Expected renderingGroupId: ${expectedRenderingGroupId}`);
+        
+        // Generate unique name based on selected type
+        const polygonName = this.uiManager && this.uiManager.generateUniqueNameByType ? 
+            this.uiManager.generateUniqueNameByType(selectedType) : 
+            `${selectedType}${Date.now()}`;
+        
+        // Create 2D polygon mesh (no height/thickness) from the start
+        // Convert points to world coordinates (relative to origin, not center)
+        // Use corrected points to ensure correct winding order
+        const worldPoints = correctedPoints.map(p => p.clone());
+        
+        // Check if uiManager and createPolygonMesh are available
+        if (!this.uiManager || !this.uiManager.createPolygonMesh) {
+            console.error('UIManager or createPolygonMesh not available, cannot create 2D polygon');
+            return;
         }
         
-        // Store polygon properties in userData
-        const dimensions = this.calculatePolygonDimensions();
-        this.currentPolygon.computeWorldMatrix(true);
-        const boundingInfo = this.currentPolygon.getBoundingInfo();
-        const rawBaseY = boundingInfo?.boundingBox?.minimumWorld.y || 0;
-        const baseY = Math.abs(rawBaseY) < 0.0001 ? 0 : rawBaseY;
-        this.currentPolygon.userData = {
-            type: 'ground',
+        // Create 2D polygon mesh (height 0.001 to prevent z-fighting)
+        const position = new BABYLON.Vector3(center.x, 0.001, center.z);
+        const userData = {
+            type: selectedType,
             shapeType: 'polygon',
-            dimensions: dimensions,
-            points: this.points.map(p => p.clone()),
-            originalHeight: 0.1, // Initial height
-            currentHeight: 0.1, // Current height (will change based on type)
-            is3D: true,
-            baseY: baseY,
-            sideWallNormalsFlipped: true // Already flipped by createCustomPolygonExtrusion
+            dimensions: this.calculatePolygonDimensions(),
+            points: worldPoints,
+            originalHeight: 0,
+            currentHeight: 0,
+            is3D: false,
+            baseY: 0,
+            sideWallNormalsFlipped: false
         };
+        
+        // IMPORTANT: Create material with correct color based on selectedType
+        // This ensures polygon has the correct color for its type
+        let materialForPolygon = this.polygonMaterial;
+        if (this.uiManager) {
+            const typeColor = this.uiManager.getColorByType(selectedType);
+            // Create a new material for this polygon with the correct color
+            const newMaterial = new BABYLON.StandardMaterial(`${polygonName}Material`, this.scene);
+            newMaterial.diffuseColor = typeColor;
+            newMaterial.backFaceCulling = false; // 2-sided
+            newMaterial.twoSidedLighting = true; // Enable lighting on both sides
+            newMaterial.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            newMaterial.roughness = 0.8;
+            newMaterial.metallic = 0.0;
+            materialForPolygon = newMaterial;
+        }
+        
+        this.currentPolygon = this.uiManager.createPolygonMesh(polygonName, worldPoints, position, materialForPolygon, userData);
+        
+        // Ensure material and properties are set
+        if (this.currentPolygon) {
+            // Material is already set in createPolygonMesh, but ensure it's correct
+            this.currentPolygon.material = materialForPolygon;
+            
+            // IMPORTANT: Get renderingGroupId from SceneManager based on selectedType
+            // This MUST be done AFTER createPolygonMesh because it might override it
+            const correctRenderingGroupId = SceneManager.getRenderingGroupId(selectedType);
+            this.currentPolygon.renderingGroupId = correctRenderingGroupId;
+            
+            // IMPORTANT: Also ensure userData.type matches selectedType
+            if (this.currentPolygon.userData) {
+                this.currentPolygon.userData.type = selectedType;
+            }
+            
+            // IMPORTANT: Apply depth offset based on type to ensure correct render order
+            SceneManager.applyDepthOffset(this.currentPolygon, selectedType);
+            
+            this.currentPolygon.receiveShadows = true;
+            this.currentPolygon.castShadows = true;
+            // Ensure Y position is at 0.001 for 2D polygon (minimal offset to prevent z-fighting)
+            this.currentPolygon.position.y = 0.001;
+            
+            console.log(`[POLYGON] Polygon created: ${polygonName}, type: ${selectedType}, renderingGroupId: ${this.currentPolygon.renderingGroupId}, userData.type: ${this.currentPolygon.userData?.type || 'missing'}, material color: R=${materialForPolygon.diffuseColor.r.toFixed(2)}, G=${materialForPolygon.diffuseColor.g.toFixed(2)}, B=${materialForPolygon.diffuseColor.b.toFixed(2)}`);
+        }
         
         // Set name
         this.currentPolygon.name = polygonName;
@@ -1273,6 +1434,15 @@ class PolygonManager {
 
         // Store the created polygon before resetting
         const createdPolygon = this.currentPolygon;
+        
+        // IMPORTANT: Reset polygonType dropdown to 'ground' after creating polygon
+        // This ensures that the next polygon will default to 'ground' type
+        // This prevents new polygons from inheriting the type of the current polygon
+        const polygonTypeSelect = document.getElementById('polygonType');
+        if (polygonTypeSelect) {
+            polygonTypeSelect.value = 'ground';
+            polygonTypeSelect.removeAttribute('data-previous-value');
+        }
         
         // Reset for next polygon
         this.points = [];

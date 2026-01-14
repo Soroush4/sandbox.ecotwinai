@@ -242,6 +242,11 @@ class BuildingGenerator {
                 console.warn(`Road ${road.name} had no type, set to 'highway'`);
             }
         }
+        
+        // Apply depth offset for highway to ensure it renders above waterways
+        if (road) {
+            SceneManager.applyDepthOffset(road, 'highway');
+        }
 
         return road;
     }
@@ -544,7 +549,11 @@ class BuildingGenerator {
         const halfSize = cellSize * 0.4; // Use 80% of cell size to leave some margin
         const width = halfSize * 2;
         const depth = halfSize * 2;
-        const height = 0.05; // Very low height (5 cm) like roads
+        
+        // For flat types (ground, grass, waterway, highway), height should be 0
+        const flatTypes = ['ground', 'grass', 'waterway', 'highway'];
+        const isFlatType = flatTypes.includes(type?.toLowerCase());
+        const height = isFlatType ? 0 : 0.05; // 0 for flat types, 5 cm for others
         
         const position = new BABYLON.Vector3(cellX, 0, cellZ);
         
@@ -553,11 +562,11 @@ class BuildingGenerator {
         const useCircle = Math.random() < 0.3;
         
         if (useCircle && this.circleManager) {
-            // Create circle (cylinder) with very low height
+            // Create circle (cylinder) with height based on type (0 for flat types)
             const radius = Math.min(width, depth) / 2;
             polygonMesh = this.createBuildingCircle(radius, position, height, type);
         } else {
-            // Create rectangle (box) with very low height
+            // Create rectangle (box) with height based on type (0 for flat types)
             polygonMesh = this.createBuildingRectangle(width, depth, position, height, type);
         }
         
@@ -572,26 +581,18 @@ class BuildingGenerator {
             polygonMesh.userData.type = type;
             polygonMesh.userData.shapeType = useCircle ? 'circle' : 'rectangle';
             
-            // Update dimensions
-            if (useCircle) {
-                const radius = Math.min(width, depth) / 2;
-                polygonMesh.userData.dimensions = {
-                    width: radius * 2,
-                    depth: radius * 2,
-                    height: height,
-                    radius: radius,
-                    diameterTop: radius * 2,
-                    diameterBottom: radius * 2
-                };
-            } else {
-                polygonMesh.userData.dimensions = {
-                    width: width,
-                    depth: depth,
-                    height: height
-                };
-            }
+            // Dimensions are already set correctly by createBuildingRectangle/createBuildingCircle
+            // For flat types, they store 0 in userData even though mesh has 0.001 for rendering
+            // Just ensure originalHeight is set correctly (should be 0 for flat types)
+            const actualHeight = polygonMesh.userData?.dimensions?.height || 0;
+            polygonMesh.userData.originalHeight = actualHeight;
             
-            polygonMesh.userData.originalHeight = height;
+            // Log if dimensions need correction
+            if (isFlatType && actualHeight !== 0 && actualHeight > 0.001) {
+                console.warn(`[HEIGHT] Polygon ${polygonMesh.name} type="${type}" has height=${actualHeight} but should be 0. Correcting...`);
+                polygonMesh.userData.dimensions.height = 0;
+                polygonMesh.userData.originalHeight = 0;
+            }
             polygonMesh.userData.baseY = 0;
             
             // Update material color based on type (if not already set correctly)
@@ -608,6 +609,9 @@ class BuildingGenerator {
                 polygonMesh.userData.type = 'ground'; // Default fallback
                 console.warn(`Polygon ${polygonName} had no type, set to 'ground'`);
             }
+            
+            // Apply depth offset for waterway to ensure it renders above grass
+            SceneManager.applyDepthOffset(polygonMesh, polygonMesh.userData.type);
             
             this.polygons.push(polygonMesh);
             const color = this.uiManager.getColorByType(type);
@@ -659,8 +663,8 @@ class BuildingGenerator {
             
             // Override scaling if tree was created (to ensure exact size)
             if (treeData && treeData.parent) {
-                // Scale tree to desired size (treeSize / 3 because placeTree uses /3 scaling)
-                const scaleFactor = treeSize / 3;
+                // Scale tree to desired size (scale equals treeSize)
+                const scaleFactor = treeSize;
                 treeData.parent.scaling = new BABYLON.Vector3(scaleFactor, scaleFactor, scaleFactor);
             }
         }
@@ -954,22 +958,55 @@ class BuildingGenerator {
             buildingName = this.generateUniqueNameByType(type);
         }
         
-        // Create a 3D box (same as RectangleManager.createRectangle)
-        const rectangle = BABYLON.MeshBuilder.CreateBox(buildingName, {
-            width: width,
-            height: height,
-            depth: depth
-        }, this.scene);
+        // For flat types (ground, grass, waterway, highway), use 2D Ground instead of 3D Box
+        const flatTypes = ['ground', 'grass', 'waterway', 'highway'];
+        const isFlatType = flatTypes.includes(type?.toLowerCase());
+        const finalHeight = isFlatType ? 0 : height;
         
-        // Position the rectangle so its bottom face is on the ground (same as RectangleManager)
+        // Log height for flat types
+        if (isFlatType) {
+            console.log(`[HEIGHT] BuildingGenerator.createBuildingRectangle type="${type}" using 2D Ground (height=0 for flat types)`);
+        }
+        
+        let rectangle;
         // Handle both {x, z} objects and Vector3 objects
         const posY = (position.y !== undefined) ? position.y : 0;
-        const finalY = posY + height / 2; // Center the box vertically (Y=0 is ground level)
-        rectangle.position = new BABYLON.Vector3(
-            position.x,
-            finalY,
-            position.z
-        );
+        
+        if (isFlatType) {
+            // For flat types, use CreateBox with very small height (0.001) instead of 0
+            // This ensures proper picking and rendering while appearing flat
+            const flatHeight = 0.001; // Very small height for flat appearance
+            rectangle = BABYLON.MeshBuilder.CreateBox(buildingName, {
+                width: width,
+                height: flatHeight,
+                depth: depth
+            }, this.scene);
+            
+            // Position the box at Y=0 (centered vertically on the small height)
+            rectangle.position = new BABYLON.Vector3(
+                position.x,
+                posY + flatHeight / 2,  // Center the box vertically
+                position.z
+            );
+            
+            // Make it pickable for drawing interactions
+            rectangle.isPickable = true;
+        } else {
+            // For 3D types (buildings), use CreateBox
+            rectangle = BABYLON.MeshBuilder.CreateBox(buildingName, {
+                width: width,
+                height: finalHeight,
+                depth: depth
+            }, this.scene);
+            
+            // Position the rectangle so its bottom face is on the ground
+            const finalY = posY + finalHeight / 2; // Center the box vertically
+            rectangle.position = new BABYLON.Vector3(
+                position.x,
+                finalY,
+                position.z
+            );
+        }
         
         // Ensure mesh is visible and enabled
         rectangle.setEnabled(true);
@@ -978,7 +1015,8 @@ class BuildingGenerator {
         // Debug log
         console.log(`Building created: ${buildingName} at (${position.x.toFixed(2)}, ${finalY.toFixed(2)}, ${position.z.toFixed(2)}) with size (${width.toFixed(2)}, ${height.toFixed(2)}, ${depth.toFixed(2)})`);
         
-        rectangle.renderingGroupId = 1; // Higher rendering priority than ground
+        // Set rendering priority based on type
+        rectangle.renderingGroupId = SceneManager.getRenderingGroupId(type);
         
         // Create material (same structure as RectangleManager)
         const material = new BABYLON.StandardMaterial(`${buildingName}Material`, this.scene);
@@ -1004,15 +1042,17 @@ class BuildingGenerator {
         const validType = (type && type !== undefined && type !== null && type !== '') ? type : 'building';
         
         // Store rectangle properties in userData (same structure as RectangleManager)
+        // For flat types, store 0 as height in userData even though mesh has 0.001 for rendering
+        const storedHeight = isFlatType ? 0 : finalHeight;
         rectangle.userData = {
             type: validType,
             shapeType: validType === 'building' ? 'building' : 'rectangle', // Mark as building or rectangle based on type
             dimensions: {
                 width: width,
                 depth: depth,
-                height: height
+                height: storedHeight  // Store 0 for flat types in userData
             },
-            originalHeight: height // Store original height for reference
+            originalHeight: storedHeight // Store 0 for flat types in userData
         };
         
         // Final validation: ensure type is set
@@ -1043,23 +1083,57 @@ class BuildingGenerator {
         }
         const diameter = radius * 2;
         
-        // Create a 3D cylinder (same as CircleManager.createCircle)
-        const circle = BABYLON.MeshBuilder.CreateCylinder(buildingName, {
-            height: height,
-            diameterTop: diameter,
-            diameterBottom: diameter,
-            tessellation: 32
-        }, this.scene);
+        // For flat types (ground, grass, waterway, highway), use 2D Disc instead of 3D Cylinder
+        const flatTypes = ['ground', 'grass', 'waterway', 'highway'];
+        const isFlatType = flatTypes.includes(type?.toLowerCase());
+        const finalHeight = isFlatType ? 0 : height;
         
-        // Position the cylinder so its bottom face is on the ground (same as CircleManager)
+        // Log height for flat types
+        if (isFlatType) {
+            console.log(`[HEIGHT] BuildingGenerator.createBuildingCircle type="${type}" using 2D Disc (height=0 for flat types)`);
+        }
+        
+        let circle;
         // Handle both {x, z} objects and Vector3 objects
         const posY = (position.y !== undefined) ? position.y : 0;
-        const finalY = posY + height / 2; // Center the cylinder vertically (Y=0 is ground level)
-        circle.position = new BABYLON.Vector3(
-            position.x,
-            finalY,
-            position.z
-        );
+        
+        if (isFlatType) {
+            // For flat types, use CreateCylinder with very small height (0.001) instead of 0
+            // This ensures proper picking and rendering while appearing flat
+            const flatHeight = 0.001; // Very small height for flat appearance
+            circle = BABYLON.MeshBuilder.CreateCylinder(buildingName, {
+                height: flatHeight,
+                diameterTop: diameter,
+                diameterBottom: diameter,
+                tessellation: 32
+            }, this.scene);
+            
+            // Position the cylinder at Y=0 (centered vertically on the small height)
+            circle.position = new BABYLON.Vector3(
+                position.x,
+                posY + flatHeight / 2,  // Center the cylinder vertically
+                position.z
+            );
+            
+            // Make it pickable for drawing interactions
+            circle.isPickable = true;
+        } else {
+            // For 3D types (buildings), use CreateCylinder
+            circle = BABYLON.MeshBuilder.CreateCylinder(buildingName, {
+                height: finalHeight,
+                diameterTop: diameter,
+                diameterBottom: diameter,
+                tessellation: 32
+            }, this.scene);
+            
+            // Position the cylinder so its bottom face is on the ground
+            const finalY = posY + finalHeight / 2; // Center the cylinder vertically
+            circle.position = new BABYLON.Vector3(
+                position.x,
+                finalY,
+                position.z
+            );
+        }
         
         // Ensure mesh is visible and enabled
         circle.setEnabled(true);
@@ -1068,7 +1142,8 @@ class BuildingGenerator {
         // Debug log
         console.log(`Building (circle) created: ${buildingName} at (${position.x.toFixed(2)}, ${finalY.toFixed(2)}, ${position.z.toFixed(2)}) with radius ${radius.toFixed(2)} and height ${height.toFixed(2)}`);
         
-        circle.renderingGroupId = 1; // Higher rendering priority than ground
+        // Set rendering priority based on type
+        circle.renderingGroupId = SceneManager.getRenderingGroupId(type);
         
         // Create material (same structure as CircleManager)
         const material = new BABYLON.StandardMaterial(`${buildingName}Material`, this.scene);
@@ -1095,18 +1170,20 @@ class BuildingGenerator {
         
         // Store circle properties in userData (same structure as CircleManager)
         // For collision detection, we need width and depth (both equal to diameter for circles)
+        // For flat types, store 0 as height in userData even though mesh has 0.001 for rendering
+        const storedHeight = isFlatType ? 0 : finalHeight;
         circle.userData = {
             type: validType,
             shapeType: validType === 'building' ? 'building' : 'circle', // Mark as building or circle based on type
             dimensions: {
                 diameterTop: diameter,
                 diameterBottom: diameter,
-                height: height,
+                height: storedHeight,  // Store 0 for flat types in userData
                 radius: radius,
                 width: diameter, // For collision detection
                 depth: diameter  // For collision detection
             },
-            originalHeight: height // Store original height for reference
+            originalHeight: storedHeight // Store 0 for flat types in userData
         };
         
         // Final validation: ensure type is set

@@ -21,8 +21,8 @@ class CircleManager {
         const previewAlpha = this.uiManager ? this.uiManager.getDefaultPreviewAlpha() : 0.5;
         this.tempMaterial.diffuseColor = previewColor;
         this.tempMaterial.alpha = previewAlpha;
-        this.tempMaterial.backFaceCulling = true;
-        this.tempMaterial.twoSidedLighting = false;
+        this.tempMaterial.backFaceCulling = false; // 2-sided
+        this.tempMaterial.twoSidedLighting = true; // Enable lighting on both sides
         
         // Counter for unique naming
         this.circleCounter = 0;
@@ -115,6 +115,27 @@ class CircleManager {
     onPointerDown = (pointerInfo) => {
         if (!this.isDrawing) return;
         
+        // IMPORTANT: Only accept left mouse button (button === 0)
+        // Right click (button === 2) and middle click (button === 1) should cancel drawing
+        const button = pointerInfo.event?.button ?? pointerInfo.event?.which ?? -1;
+        
+        // Right click: cancel drawing
+        if (button === 2) {
+            console.log('[CIRCLE] Right click detected - canceling drawing');
+            this.stopInteractiveDrawing();
+            return;
+        }
+        
+        // Middle click: ignore
+        if (button === 1) {
+            return;
+        }
+        
+        // Only proceed with left click (button === 0)
+        if (button !== 0) {
+            return;
+        }
+        
         // Get ground intersection point
         const pickResult = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
         if (pickResult && pickResult.hit && pickResult.pickedPoint) {
@@ -131,6 +152,26 @@ class CircleManager {
      */
     onPointerUp = (pointerInfo) => {
         if (!this.isDrawing || !this.drawingStartPoint) return;
+        
+        // IMPORTANT: Only accept left mouse button (button === 0)
+        const button = pointerInfo.event?.button ?? pointerInfo.event?.which ?? -1;
+        
+        // Right click: cancel drawing
+        if (button === 2) {
+            console.log('[CIRCLE] Right click detected on pointer up - canceling drawing');
+            this.stopInteractiveDrawing();
+            return;
+        }
+        
+        // Middle click: ignore
+        if (button === 1) {
+            return;
+        }
+        
+        // Only proceed with left click (button === 0)
+        if (button !== 0) {
+            return;
+        }
         
         // Prevent multiple circle creation
         if (this.isCompleting) return;
@@ -208,22 +249,35 @@ class CircleManager {
         const dz = this.drawingEndPoint.z - this.drawingStartPoint.z;
         const radius = Math.max(Math.sqrt(dx * dx + dz * dz), 0.5); // Minimum radius 0.5
         
-        console.log('Final circle radius:', radius);
-        console.log('Center:', this.drawingStartPoint);
-        
         // Clean up temporary shape
         if (this.tempShape) {
             this.tempShape.dispose();
             this.tempShape = null;
         }
         
-        // Create final circle with ground type color
+        // Get type from circleType input (circle-specific), not from selected shape/polygon
+        // This ensures each drawing tool uses its own type input, not the type of a previously selected object
+        let drawingType = 'ground';
+        const circleTypeSelect = document.getElementById('circleType');
+        if (circleTypeSelect && circleTypeSelect.value) {
+            drawingType = circleTypeSelect.value;
+        }
+        
+        // Get color from uiManager based on type
+        let circleColor = null;
+        if (this.uiManager) {
+            circleColor = this.uiManager.getColorByType(drawingType);
+        } else {
+            circleColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Fallback brown
+        }
+        
+        // Create final circle with appropriate type
         const circle = this.createCircle(
             radius,
             new BABYLON.Vector3(this.drawingStartPoint.x, 0, this.drawingStartPoint.z),
-            new BABYLON.Color3(0.4, 0.3, 0.2), // Brown
+            circleColor,
             0.2, // Height
-            'ground' // Type
+            drawingType // Type from input
         );
         
         console.log('Circle created:', circle.name, 'with radius:', radius);
@@ -245,21 +299,58 @@ class CircleManager {
         const uniqueName = this.generateUniqueNameByType(type);
         const diameter = radius * 2;
         
-        // Create a 3D cylinder
-        const circle = BABYLON.MeshBuilder.CreateCylinder(uniqueName, {
-            height: height,
-            diameterTop: diameter,
-            diameterBottom: diameter,
-            tessellation: 32
-        }, this.scene);
+        // For all types except 'building', height should be 0 (use flat cylinder)
+        const isBuilding = type.toLowerCase() === 'building';
+        const finalHeight = isBuilding ? height : 0;
         
-        // Position the cylinder so its bottom face is on the ground
-        circle.position = new BABYLON.Vector3(
-            position.x,
-            position.y + height / 2, // Center the cylinder vertically
-            position.z
-        );
-        circle.renderingGroupId = 1; // Higher rendering priority than ground
+        // Log height for non-building types
+        if (!isBuilding) {
+            console.log(`[HEIGHT] CircleManager.createCircle type="${type}" using flat cylinder (height=0 for non-building types)`);
+        }
+        
+        let circle;
+        if (!isBuilding) {
+            // For flat types, use CreateCylinder with very small height (0.001) instead of 0
+            // This ensures proper picking and rendering while appearing flat
+            const flatHeight = 0.001; // Very small height for flat appearance
+            circle = BABYLON.MeshBuilder.CreateCylinder(uniqueName, {
+                height: flatHeight,
+                diameterTop: diameter,
+                diameterBottom: diameter,
+                tessellation: 32
+            }, this.scene);
+            
+            // Position the cylinder with bottom at Y=0 (ground level)
+            // Bottom should always be at Y=0, center at flatHeight/2
+            const baseY = position.y || 0; // Use position.y or default to 0
+            circle.position = new BABYLON.Vector3(
+                position.x,
+                baseY + flatHeight / 2,  // Center the cylinder vertically, bottom at baseY
+                position.z
+            );
+            
+            // Make it pickable for drawing interactions
+            circle.isPickable = true;
+        } else {
+            // For 3D types (buildings), use CreateCylinder
+            circle = BABYLON.MeshBuilder.CreateCylinder(uniqueName, {
+                height: finalHeight,
+                diameterTop: diameter,
+                diameterBottom: diameter,
+                tessellation: 32
+            }, this.scene);
+            
+            // Position the cylinder with bottom at Y=0 (ground level)
+            // Height should only grow upward, not downward
+            const baseY = position.y || 0; // Use position.y or default to 0
+            circle.position = new BABYLON.Vector3(
+                position.x,
+                baseY + finalHeight / 2, // Bottom at baseY, center at baseY + finalHeight/2
+                position.z
+            );
+        }
+        // Set rendering priority based on type
+        circle.renderingGroupId = SceneManager.getRenderingGroupId(type);
         
         // Create material with color based on type
         const material = new BABYLON.StandardMaterial(`${uniqueName}Material`, this.scene);
@@ -292,18 +383,24 @@ class CircleManager {
         console.log('Created cylinder:', uniqueName, 'radius:', radius, 'height:', height, 'position:', circle.position);
         
         // Store circle properties in userData
+        // For non-building types, store 0 as height in userData even though mesh has 0.001 for rendering
+        // Store height: 0 for non-building types, actual height for building type
+        const storedHeight = isBuilding ? finalHeight : 0;
         circle.userData = {
             type: type,
             shapeType: 'circle',
             dimensions: { 
                 diameterTop: diameter, 
                 diameterBottom: diameter, 
-                height: height 
+                height: storedHeight  // Store 0 for flat types in userData
             },
-            originalHeight: height
+            originalHeight: storedHeight  // Store 0 for flat types in userData
         };
         
         console.log('Circle userData set:', circle.userData);
+        
+        // Apply depth offset based on type to ensure correct render order
+        SceneManager.applyDepthOffset(circle, type);
         
         // Enable shadows
         if (this.lightingManager && this.lightingManager.updateShadowsForNewObject) {
@@ -363,8 +460,13 @@ class CircleManager {
 
     /**
      * Update circle diameter and height (simple method)
+     * @param {BABYLON.Mesh} shape - The circle mesh to update
+     * @param {number} newDiameterTop - New top diameter
+     * @param {number} newDiameterBottom - New bottom diameter
+     * @param {number} newHeight - New height
+     * @param {string} newType - New type (optional, will use shape.userData.type if not provided)
      */
-    updateCircle(shape, newDiameterTop, newDiameterBottom, newHeight) {
+    updateCircle(shape, newDiameterTop, newDiameterBottom, newHeight, newType = null) {
         if (!shape || !shape.userData) {
             console.warn('Cannot update: no shape or userData');
             return;
@@ -379,98 +481,175 @@ class CircleManager {
             return;
         }
         
-        console.log('Updating circle:', shape.name, 'diameterTop:', newDiameterTop, 'diameterBottom:', newDiameterBottom, 'height:', newHeight);
+        // Get type from parameter or from userData (parameter takes priority)
+        const typeToUse = newType || shape.userData.type || 'ground';
         
-        // Store current transform properties
+        console.log('Updating circle:', shape.name, 'diameterTop:', newDiameterTop, 'diameterBottom:', newDiameterBottom, 'height:', newHeight, 'type:', typeToUse);
+        
+        // Store current transform properties and userData BEFORE disposing
         const currentPosition = shape.position.clone();
         const currentRotation = shape.rotation.clone();
         const currentScaling = shape.scaling.clone();
+        const oldName = shape.name;
+        const oldUserData = shape.userData ? JSON.parse(JSON.stringify(shape.userData)) : {};
+        
+        // IMPORTANT: Check if circle was selected before update (to restore selection after update)
+        const wasSelected = this.uiManager && this.uiManager.selectionManager && 
+                           this.uiManager.selectionManager.isSelected(shape);
+        
+        // Remove from selection manager BEFORE disposing (if uiManager provides access)
+        if (this.uiManager && this.uiManager.selectionManager) {
+            this.uiManager.selectionManager.removeSelectableObject(shape);
+        }
+        
+        // IMPORTANT: Disable shape first to prevent any rendering issues
+        shape.setEnabled(false);
+        shape.isVisible = false;
+        
+        // Remove from scene before disposing
+        this.scene.removeMesh(shape);
+        
+        // IMPORTANT: Verify that shape is actually removed from scene
+        // If shape is still in scene.meshes, force remove it
+        const meshIndex = this.scene.meshes.indexOf(shape);
+        if (meshIndex !== -1) {
+            console.warn('Shape still in scene.meshes after removeMesh, forcing removal');
+            this.scene.meshes.splice(meshIndex, 1);
+        }
+        
+        // Check if material is shared with other meshes before disposing
+        let shouldDisposeMaterial = true;
+        const oldMaterial = shape.material;
+        if (oldMaterial && oldMaterial !== this.scene.defaultMaterial) {
+            // Check if this material is used by other meshes
+            const meshesUsingMaterial = this.scene.meshes.filter(m => m.material === oldMaterial && m !== shape);
+            if (meshesUsingMaterial.length > 0) {
+                console.log(`Material is shared with ${meshesUsingMaterial.length} other meshes, not disposing`);
+                shouldDisposeMaterial = false;
+            }
+        }
         
         // Dispose old mesh
-        if (shape.geometry) { shape.geometry.dispose(); }
-        if (shape.material && shape.material !== this.scene.defaultMaterial) { shape.material.dispose(); }
-        shape.setEnabled(false);
+        if (shape.geometry) { 
+            shape.geometry.dispose(); 
+        }
+        if (shouldDisposeMaterial && oldMaterial && oldMaterial !== this.scene.defaultMaterial) {
+            oldMaterial.dispose();
+        }
         shape.dispose();
         
+        // IMPORTANT: Check if there's still a mesh with the same name in the scene
+        // This can happen if CreateCylinder doesn't properly replace the old mesh
+        const existingMesh = this.scene.getMeshByName(oldName);
+        if (existingMesh && existingMesh !== shape) {
+            console.warn(`Found existing mesh with name ${oldName}, disposing it before creating new one`);
+            existingMesh.setEnabled(false);
+            existingMesh.isVisible = false;
+            this.scene.removeMesh(existingMesh);
+            if (existingMesh.geometry) {
+                existingMesh.geometry.dispose();
+            }
+            if (existingMesh.material && existingMesh.material !== this.scene.defaultMaterial) {
+                existingMesh.material.dispose();
+            }
+            existingMesh.dispose();
+        }
+        
+        // For all types except 'building', height should be 0 (use flat cylinder)
+        const isBuilding = typeToUse.toLowerCase() === 'building';
+        const actualHeight = isBuilding ? newHeight : 0.001; // Use very small height for non-building types
+        
         // Create new cylinder with updated dimensions
-        const newCircle = BABYLON.MeshBuilder.CreateCylinder(shape.name, {
-            height: newHeight,
+        const newCircle = BABYLON.MeshBuilder.CreateCylinder(oldName, {
+            height: actualHeight,
             diameterTop: newDiameterTop,
             diameterBottom: newDiameterBottom,
             tessellation: 32
         }, this.scene);
         
         // Restore all transform properties with smart Y positioning
+        // IMPORTANT: Preserve the current bottom position when height changes
         // Calculate the bottom of the original circle
-        const originalHeight = shape.userData?.dimensions?.height || shape.userData?.originalHeight || newHeight;
+        const originalHeight = oldUserData?.dimensions?.height || oldUserData?.originalHeight || newHeight;
         const originalBottom = currentPosition.y - (originalHeight / 2);
         
-        // Position new circle with same bottom but new height
+        // IMPORTANT: Preserve the original bottom position (don't reset to Y=0)
+        // This ensures that if a circle is at height 1m, changing its height won't move it back to ground
+        const targetBottom = originalBottom; // Keep bottom at its current position
+        
+        // Position new circle with bottom at the same position, height grows upward only
         newCircle.position = new BABYLON.Vector3(
             currentPosition.x,
-            originalBottom + (newHeight / 2), // Keep same bottom, adjust for new height
+            targetBottom + (actualHeight / 2), // Bottom at original position, center at targetBottom + actualHeight/2
             currentPosition.z
         );
+        
+        console.log(`[CIRCLE_POSITION] Updated circle: type=${typeToUse}, isBuilding=${isBuilding}, originalBottom=${originalBottom.toFixed(3)}, targetBottom=${targetBottom.toFixed(3)}, actualHeight=${actualHeight.toFixed(3)}, newPosition.y=${(targetBottom + (actualHeight / 2)).toFixed(3)}`);
         newCircle.rotation = currentRotation;
         newCircle.scaling = currentScaling;
         
-        // Create new material (color will be set later based on type)
-        const material = new BABYLON.StandardMaterial(`${shape.name}Material`, this.scene);
-        material.diffuseColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown (will be updated)
-        material.backFaceCulling = true;
-        material.twoSidedLighting = false;
+        // Determine shape type based on new type
+        const newShapeType = typeToUse === 'building' ? 'building' : 'circle';
+        
+        // Create new material with color based on type
+        const material = new BABYLON.StandardMaterial(`${oldName}Material`, this.scene);
+        
+        // Get color from uiManager if available, otherwise use default
+        let materialColor;
+        if (this.uiManager && this.uiManager.getColorByType) {
+            materialColor = this.uiManager.getColorByType(typeToUse);
+        } else {
+            // Fallback colors if uiManager is not available
+            switch (typeToUse.toLowerCase()) {
+                case 'building':
+                    materialColor = new BABYLON.Color3(1, 1, 1); // White
+                    break;
+                case 'ground':
+                    materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown
+                    break;
+                case 'waterway':
+                    materialColor = new BABYLON.Color3(0, 0.5, 1); // Light blue
+                    break;
+                case 'highway':
+                    materialColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray
+                    break;
+                case 'grass':
+                    materialColor = new BABYLON.Color3(0, 0.8, 0); // Green
+                    break;
+                default:
+                    materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
+            }
+        }
+        
+        material.diffuseColor = materialColor;
+        material.backFaceCulling = false; // 2-sided
+        material.twoSidedLighting = true; // Enable lighting on both sides
         material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         material.alpha = 1.0;
         newCircle.material = material;
-        newCircle.renderingGroupId = 1; // Same rendering priority as buildings and trees
+        
+        // Set rendering priority based on type
+        newCircle.renderingGroupId = SceneManager.getRenderingGroupId(typeToUse);
         
         // Anti-flickering settings
         newCircle.enableEdgesRendering();
         newCircle.edgesWidth = 2.0;
         newCircle.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
         
-        // Update userData (preserve existing type if available)
-        const existingType = shape.userData?.type || 'ground';
-        const existingShapeType = shape.userData?.shapeType || 'circle';
-        
-        // Keep the same name (don't generate new name for updates)
-        // The name should already be updated in UIManager if type changed
-        newCircle.name = shape.name;
+        // Update userData with new type and dimensions
+        newCircle.name = oldName; // Keep the same name (should already be updated in UIManager if type changed)
         
         newCircle.userData = {
-            type: existingType,
-            shapeType: existingShapeType,
+            type: typeToUse,
+            shapeType: newShapeType,
             dimensions: { 
                 diameterTop: newDiameterTop, 
                 diameterBottom: newDiameterBottom, 
                 height: newHeight 
             },
-            originalHeight: newHeight
+            originalHeight: newHeight,
+            name: oldName // Preserve name
         };
-        
-        // Use the color selected by user (from color picker) if available
-        let materialColor;
-        const colorPicker = document.getElementById('circleColor');
-        if (colorPicker && colorPicker.value) {
-            // Convert hex to RGB
-            const hex = colorPicker.value;
-            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-            if (result) {
-                materialColor = new BABYLON.Color3(
-                    parseInt(result[1], 16) / 255,
-                    parseInt(result[2], 16) / 255,
-                    parseInt(result[3], 16) / 255
-                );
-            } else {
-                materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
-            }
-        } else {
-            // No fallback colors - user must choose from color picker
-            materialColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Default neutral gray
-        }
-        
-        // Update the material color
-        newCircle.material.diffuseColor = materialColor;
         
         // Enable shadows
         if (this.lightingManager && this.lightingManager.updateShadowsForNewObject) {
@@ -480,8 +659,9 @@ class CircleManager {
         }
         
         // Call callback to add to selection manager
+        // IMPORTANT: Pass isUpdate=true and wasSelected to indicate this is an update and restore selection
         if (this.onCircleCreated) {
-            this.onCircleCreated(newCircle);
+            this.onCircleCreated(newCircle, true, wasSelected);
         }
         
         console.log('Circle updated successfully');
