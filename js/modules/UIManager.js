@@ -50,6 +50,9 @@ class UIManager {
         // TransformInputManager reference (set by app.js after initialization)
         this.transformInputManager = null;
         
+        // MeasurementManager reference (set by app.js after initialization)
+        this.measurementManager = null;
+        
         // Current shape/polygon/tree/STL mesh references (used by properties popups)
         this.currentShape = null;
         this.currentTree = null;
@@ -1321,10 +1324,15 @@ class UIManager {
         if (!instructionPanel) {
             instructionPanel = document.createElement('div');
             instructionPanel.id = 'polygon-instructions';
+            // Position to the left of transform panel
+            // Transform panel is at top center (left: 50%, translateX(-50%))
+            // Drawing panel is at left: 20px, width: 60px
+            // Position polygon drawing panel to the left of transform panel, above drawing panel
+            // Calculate position: left of transform panel (approximately left: calc(50% - 200px))
             instructionPanel.style.cssText = `
                 position: fixed;
                 top: 20px;
-                right: 20px;
+                left: 90px;
                 background: rgba(0, 0, 0, 0.8);
                 color: white;
                 padding: 15px;
@@ -1336,6 +1344,10 @@ class UIManager {
                 box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
             `;
             document.body.appendChild(instructionPanel);
+        } else {
+            // Update position if panel already exists
+            instructionPanel.style.left = '90px';
+            instructionPanel.style.right = 'auto';
         }
 
         instructionPanel.innerHTML = `
@@ -10839,6 +10851,40 @@ Transform your 3D models into powerful energy analysis tools.`;
         
         // Also deactivate tree placement
         this.deactivateTreePlacement();
+    }
+
+    /**
+     * Activate measurement tool
+     * @param {string} toolName - 'distance' or 'area'
+     */
+    activateMeasurementTool(toolName) {
+        // Deactivate all drawing tools first
+        this.deactivateAllDrawingTools();
+        
+        // Deactivate all transform tools
+        if (this.toolManager) {
+            this.toolManager.selectTransformTool('select');
+        }
+        
+        // Activate measurement tool
+        if (this.measurementManager) {
+            this.measurementManager.activateTool(toolName);
+        }
+        
+        // Disable camera controls when measurement tool is active
+        this.disableCameraControls();
+    }
+    
+    /**
+     * Deactivate measurement tool
+     */
+    deactivateMeasurementTool() {
+        if (this.measurementManager) {
+            this.measurementManager.deactivateTool();
+        }
+        
+        // Re-enable camera controls
+        this.enableCameraControls();
     }
 
     /**

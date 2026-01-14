@@ -834,6 +834,79 @@ input[type="range"]::-moz-range-thumb {
     filter: brightness(0) saturate(100%) invert(100%);
 }
 
+/* Measurement Tools Panel Styles */
+.measurement-panel {
+    position: fixed;
+    top: 140px; /* Below drawing panel (40px + 60px panel height + 40px gap) */
+    left: 20px;
+    width: 60px;
+    background: rgba(20, 20, 20, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 6px;
+    z-index: 1000;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.measurement-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+}
+
+.measurement-tools .tool-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.measurement-tools .tool-item:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
+}
+
+.measurement-tools .tool-item .tool-icon {
+    width: 16px;
+    height: 16px;
+    filter: brightness(0) saturate(100%) invert(100%);
+}
+
+.measurement-tools .tool-item.active {
+    background: rgba(52, 152, 219, 0.3);
+    border-color: rgba(52, 152, 219, 0.6);
+    box-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
+}
+
+.measurement-tools .tool-item.active .tool-icon {
+    filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(100%) contrast(100%);
+}
+
+/* Mobile specific adjustments for measurement panel */
+@media (max-width: 768px) {
+    .measurement-panel {
+        width: 70px;
+        top: 150px;
+    }
+}
+
+@media (max-width: 480px) {
+    .measurement-panel {
+        width: 100px;
+        top: 160px;
+    }
+}
+
 /* Tree Tool Submenu Indicator */
 .drawing-tools .tool-item[data-tool="tree"] {
     position: relative;

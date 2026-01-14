@@ -174,12 +174,47 @@
                         // Reset all transform tools
                         resetAllTransformTools();
                         
+                        // Reset all measurement tools
+                        const measurementTools = document.querySelectorAll('#measurementPanel .tool-item');
+                        measurementTools.forEach(t => t.classList.remove('active'));
+                        
+                        // Deactivate measurement tools
+                        if (window.uiManager && window.uiManager.deactivateMeasurementTool) {
+                            window.uiManager.deactivateMeasurementTool();
+                        }
+                        
                         // Add active class to clicked tool
                         this.classList.add('active');
                         
                         // Apply active styles to clicked tool
                         applyActiveStyles(this, toolName);
                         
+                    });
+                });
+                
+                // Add event listeners to measurement tools
+                const measurementTools = document.querySelectorAll('#measurementPanel .tool-item');
+                measurementTools.forEach(tool => {
+                    tool.addEventListener('click', function() {
+                        const toolName = this.getAttribute('data-tool');
+                        console.log('Measurement tool clicked:', toolName);
+                        
+                        // Reset all measurement tools first
+                        measurementTools.forEach(t => t.classList.remove('active'));
+                        
+                        // Reset all drawing tools
+                        resetAllDrawingTools();
+                        
+                        // Reset all transform tools
+                        resetAllTransformTools();
+                        
+                        // Add active class to clicked tool
+                        this.classList.add('active');
+                        
+                        // Activate measurement tool
+                        if (window.uiManager && window.uiManager.activateMeasurementTool) {
+                            window.uiManager.activateMeasurementTool(toolName);
+                        }
                     });
                 });
                 
@@ -194,6 +229,14 @@
                         
                         // Reset all drawing tools
                         resetAllDrawingTools();
+                        
+                        // Reset all measurement tools
+                        measurementTools.forEach(t => t.classList.remove('active'));
+                        
+                        // Deactivate measurement tools
+                        if (window.uiManager && window.uiManager.deactivateMeasurementTool) {
+                            window.uiManager.deactivateMeasurementTool();
+                        }
                         
                         // Add active class to clicked tool
                         this.classList.add('active');
@@ -329,6 +372,21 @@
                         <label for="treeDistance">Distance:</label>
                         <input type="number" id="treeDistance" min="0.5" max="20" step="0.1" value="2">
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Measurement Tools Panel -->
+        <div id="measurementPanel" class="measurement-panel">
+            <div class="panel-header">
+                <h3>Measurement</h3>
+            </div>
+            <div class="measurement-tools">
+                <div class="tool-item" data-tool="distance" title="Distance Measurement">
+                    <img src="icons/polyline.svg" alt="Distance" class="tool-icon">
+                </div>
+                <div class="tool-item" data-tool="area" title="Area Measurement">
+                    <img src="icons/chart.svg" alt="Area" class="tool-icon">
                 </div>
             </div>
         </div>
@@ -903,6 +961,7 @@
     <script src="js/modules/ToolManager.js"></script>
     <script src="js/modules/TransformInputManager.js"></script>
     <script src="js/modules/SurfaceTypesManager.js"></script>
+    <script src="js/modules/MeasurementManager.js"></script>
     <script src="js/modules/UIManager.js"></script>
     <!-- Properties Popup -->
     <div id="propertiesPopup" class="properties-popup">

@@ -67,6 +67,12 @@ class DigitalTwinApp {
             this.polygonManager = new PolygonManager(this.sceneManager.getScene(), this.selectionManager, this.uiManager, this.lightingManager);
             this.rectangleManager = new RectangleManager(this.sceneManager.getScene(), this.selectionManager, this.lightingManager);
             this.circleManager = new CircleManager(this.sceneManager.getScene(), this.lightingManager, null);
+            this.measurementManager = new MeasurementManager(
+                this.sceneManager.getScene(),
+                this.cameraController.camera,
+                this.sceneManager.canvas,
+                this.selectionManager
+            );
             
             // Update BuildingGenerator with managers
             this.buildingGenerator.rectangleManager = this.rectangleManager;

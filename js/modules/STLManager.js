@@ -134,14 +134,14 @@ class STLManager {
             try {
                 const content = e.target.result;
                 this.updateSTLImportLoadingStatus('Parsing STL file...');
-                // Use setTimeout to allow UI to update
-                setTimeout(() => {
+                // Use setTimeout to allow UI to update, then parse asynchronously
+                setTimeout(async () => {
                     try {
-                        this.parseSTLFile(content, clearScene, axisUp, flipNormals);
+                        await this.parseSTLFile(content, clearScene, axisUp, flipNormals);
                     } catch (parseError) {
                         console.error('Error parsing STL file:', parseError);
                         this.hideSTLImportLoading();
-                        alert('Error parsing STL file. Please check the file format and try again.');
+                        alert('Error parsing STL file. Please check the file format and try again.\n\nError: ' + parseError.message);
                     }
                 }, 10);
             } catch (error) {
@@ -212,7 +212,7 @@ class STLManager {
      * @param {string} axisUp - Axis up direction ('y-up' or 'z-up')
      * @param {boolean} flipNormals - Whether to flip normals
      */
-    parseSTLFile(content, clearScene = false, axisUp = 'y-up', flipNormals = false) {
+    async parseSTLFile(content, clearScene = false, axisUp = 'y-up', flipNormals = false) {
         try {
             if (!this.sceneManager) {
                 console.error('SceneManager not available');
@@ -246,15 +246,23 @@ class STLManager {
             let inLoop = false;
             let vertexCount = 0;
 
-            // Parse STL file line by line
-            for (let i = 0; i < lines.length; i++) {
-                // Update progress every 10000 lines
-                if (i % 10000 === 0 && i > 0) {
-                    const progress = Math.round((i / totalLines) * 100);
-                    this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`);
-                }
+            // IMPORTANT: Process in chunks to prevent browser freeze for large files
+            // Process 5000 lines at a time, then yield to browser
+            const CHUNK_SIZE = 5000;
+            let currentIndex = 0;
+
+            // Parse STL file line by line in chunks
+            while (currentIndex < lines.length) {
+                const endIndex = Math.min(currentIndex + CHUNK_SIZE, lines.length);
                 
-                const line = lines[i].trim();
+                for (let i = currentIndex; i < endIndex; i++) {
+                    // Update progress every 10000 lines
+                    if (i % 10000 === 0 && i > 0) {
+                        const progress = Math.round((i / totalLines) * 100);
+                        this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`);
+                    }
+                    
+                    const line = lines[i].trim();
 
                 // Check for solid start
                 if (line.startsWith('solid ')) {
@@ -367,24 +375,41 @@ class STLManager {
                         vertexCount++;
                     }
                 }
+                }
+                
+                // Update progress
+                const progress = Math.round((endIndex / totalLines) * 100);
+                this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`);
+                
+                // Yield to browser to prevent freeze
+                currentIndex = endIndex;
+                if (currentIndex < lines.length) {
+                    // Use setTimeout to allow UI to update
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
             }
 
             console.log(`Parsed ${objects.length} objects from STL file`);
             this.updateSTLImportLoadingStatus(`Creating meshes... (${objects.length} objects)`);
 
-            // Create meshes from parsed objects
+            // Create meshes from parsed objects (process one at a time to prevent freeze)
             let createdCount = 0;
-            objects.forEach((obj, index) => {
+            for (let index = 0; index < objects.length; index++) {
+                const obj = objects[index];
                 try {
                     this.updateSTLImportLoadingStatus(`Creating mesh ${index + 1}/${objects.length}: ${obj.name}`);
                     const mesh = this.createMeshFromSTLObject(obj, scene);
                     if (mesh) {
                         createdCount++;
                     }
+                    // Yield to browser after each mesh to prevent freeze
+                    if (index < objects.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                    }
                 } catch (error) {
                     console.error(`Error creating mesh for ${obj.name}:`, error);
                 }
-            });
+            }
 
             console.log(`Created ${createdCount} meshes from STL file`);
             this.updateSTLImportLoadingStatus('Finalizing...');
