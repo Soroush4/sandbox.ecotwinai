@@ -210,7 +210,9 @@ class DigitalTwinApp {
             // Set MeasurementManager reference in UI manager
             if (this.uiManager && this.measurementManager) {
                 this.uiManager.measurementManager = this.measurementManager;
-                console.log('[APP] MeasurementManager assigned to UIManager');
+                // Set UIManager reference in MeasurementManager
+                this.measurementManager.uiManager = this.uiManager;
+                console.log('[APP] MeasurementManager and UIManager references set');
             } else {
                 console.error('[APP] Failed to assign MeasurementManager to UIManager:', {
                     hasUIManager: !!this.uiManager,

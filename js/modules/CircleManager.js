@@ -43,8 +43,6 @@ class CircleManager {
      * Start interactive circle drawing
      */
     startInteractiveDrawing() {
-        console.log('Starting circle drawing...');
-        
         // Stop any previous drawing
         this.stopInteractiveDrawing();
         
@@ -53,20 +51,26 @@ class CircleManager {
         this.drawingStartPoint = null;
         this.drawingEndPoint = null;
         
-        // Disable camera controls
-        this.scene.activeCamera.detachControl();
+        // Disable camera controls via uiManager
+        if (this.uiManager) {
+            this.uiManager.disableCameraControls();
+        } else {
+            this.scene.activeCamera.detachControl();
+        }
         
-        // Add event listeners
-        this.scene.onPointerObservable.add(this.onPointerMove, BABYLON.PointerEventTypes.POINTERMOVE);
-        this.scene.onPointerObservable.add(this.onPointerDown, BABYLON.PointerEventTypes.POINTERDOWN);
-        this.scene.onPointerObservable.add(this.onPointerUp, BABYLON.PointerEventTypes.POINTERUP);
+        // Add event listeners with high priority (add first to execute before CameraController)
+        // Store observers for cleanup
+        this.pointerMoveObserver = this.scene.onPointerObservable.add(this.onPointerMove, BABYLON.PointerEventTypes.POINTERMOVE);
+        this.pointerDownObserver = this.scene.onPointerObservable.add(this.onPointerDown, BABYLON.PointerEventTypes.POINTERDOWN);
+        this.pointerUpObserver = this.scene.onPointerObservable.add(this.onPointerUp, BABYLON.PointerEventTypes.POINTERUP);
     }
 
     /**
      * Stop interactive circle drawing
      */
     stopInteractiveDrawing() {
-        console.log('Stopping circle drawing...');
+        // Only trigger callback if we were actually drawing
+        const wasDrawing = this.isDrawing;
         
         this.isDrawing = false;
         this.isCompleting = false;
@@ -77,21 +81,34 @@ class CircleManager {
             this.tempShape = null;
         }
         
-        // Re-enable camera controls
-        this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
-        
-        // Remove event listeners
-        this.scene.onPointerObservable.removeCallback(this.onPointerMove, BABYLON.PointerEventTypes.POINTERMOVE);
-        this.scene.onPointerObservable.removeCallback(this.onPointerDown, BABYLON.PointerEventTypes.POINTERDOWN);
-        this.scene.onPointerObservable.removeCallback(this.onPointerUp, BABYLON.PointerEventTypes.POINTERUP);
+        // Remove event listeners using stored observers
+        if (this.pointerMoveObserver) {
+            this.scene.onPointerObservable.remove(this.pointerMoveObserver);
+            this.pointerMoveObserver = null;
+        }
+        if (this.pointerDownObserver) {
+            this.scene.onPointerObservable.remove(this.pointerDownObserver);
+            this.pointerDownObserver = null;
+        }
+        if (this.pointerUpObserver) {
+            this.scene.onPointerObservable.remove(this.pointerUpObserver);
+            this.pointerUpObserver = null;
+        }
         
         // Reset state
         this.drawingStartPoint = null;
         this.drawingEndPoint = null;
         
-        // Call callback
-        if (this.onDrawingStopped) {
+        // Only call callback if we were actually drawing (not just cleaning up)
+        if (wasDrawing && this.onDrawingStopped) {
             this.onDrawingStopped();
+        } else if (wasDrawing && !this.onDrawingStopped) {
+            // Fallback: re-enable camera controls if no callback is set
+            if (this.uiManager) {
+                this.uiManager.enableCameraControls();
+            } else {
+                this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
+            }
         }
     }
 
@@ -99,7 +116,15 @@ class CircleManager {
      * Handle pointer move during drawing
      */
     onPointerMove = (pointerInfo) => {
-        if (!this.isDrawing || !this.drawingStartPoint) return;
+        if (!this.isDrawing || !this.drawingStartPoint) {
+            return;
+        }
+        
+        // Prevent camera movement by stopping event propagation
+        if (pointerInfo.event) {
+            pointerInfo.event.preventDefault();
+            pointerInfo.event.stopPropagation();
+        }
         
         // Get current mouse position on ground
         const pickResult = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
@@ -113,7 +138,15 @@ class CircleManager {
      * Handle pointer down during drawing
      */
     onPointerDown = (pointerInfo) => {
-        if (!this.isDrawing) return;
+        if (!this.isDrawing) {
+            return;
+        }
+        
+        // Prevent camera movement by stopping event propagation
+        if (pointerInfo.event) {
+            pointerInfo.event.preventDefault();
+            pointerInfo.event.stopPropagation();
+        }
         
         // IMPORTANT: Only accept left mouse button (button === 0)
         // Right click (button === 2) and middle click (button === 1) should cancel drawing

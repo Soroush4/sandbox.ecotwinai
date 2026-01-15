@@ -10326,7 +10326,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             return null;
         };
 
-        // Mouse down
+        // Mouse down - Use capture phase to execute before CameraController
         canvas.addEventListener('pointerdown', (event) => {
             // Handle polygon drawing
             if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
@@ -10334,6 +10334,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 if (event.button === 2) {
                     event.preventDefault();
                     event.stopPropagation();
+                    event.stopImmediatePropagation();
                     console.log('[POLYGON] Right click detected - canceling drawing');
                     this.cancelPolygonDrawing();
                     
@@ -10347,6 +10348,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 
                 // Middle click: ignore
                 if (event.button === 1) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation();
                     return;
                 }
                 
@@ -10354,6 +10358,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 if (event.button === 0) {
                     event.preventDefault();
                     event.stopPropagation();
+                    event.stopImmediatePropagation();
 
                     // Get ground intersection point
                     const pickResult = this.sceneManager.getScene().pick(event.offsetX, event.offsetY, (mesh) => {
@@ -10416,9 +10421,9 @@ Transform your 3D models into powerful energy analysis tools.`;
                 const point = pickResult.pickedPoint;
                 this.shape2DManager.onMouseDown(point);
             }
-        });
+        }, true); // Use capture phase to execute before CameraController
 
-        // Mouse move
+        // Mouse move - Use capture phase to execute before CameraController
         canvas.addEventListener('pointermove', (event) => {
             // Handle polygon preview
             if (this.polygonManager && this.polygonManager.isCurrentlyDrawing) {
@@ -10451,6 +10456,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                 
                 event.preventDefault();
                 event.stopPropagation();
+                event.stopImmediatePropagation();
 
                 // Get ground intersection point for preview
                 // Use the same coordinates we just set in scene.pointerX/Y
@@ -10526,7 +10532,7 @@ Transform your 3D models into powerful energy analysis tools.`;
                     this.shape2DManager.onMouseMove(point);
                 }
             }
-        });
+        }, true); // Use capture phase to execute before CameraController
 
         // Mouse up
         canvas.addEventListener('pointerup', (event) => {
@@ -10761,14 +10767,17 @@ Transform your 3D models into powerful energy analysis tools.`;
      * Disable camera controls
      */
     disableCameraControls() {
+        console.log('[UIMANAGER] disableCameraControls() called');
         if (this.cameraController && this.cameraController.camera) {
             // Store current camera state
             this.cameraControlsDisabled = true;
             
             // Use CameraController's method to disable controls
             if (typeof this.cameraController.setControlsEnabled === 'function') {
+                console.log('[UIMANAGER] disableCameraControls: Using setControlsEnabled(false)');
                 this.cameraController.setControlsEnabled(false);
             } else {
+                console.log('[UIMANAGER] disableCameraControls: Using direct detachControl()');
                 // Fallback to direct camera control
                 if (typeof this.cameraController.camera.detachControls === 'function') {
                     this.cameraController.camera.detachControls();
@@ -10778,7 +10787,7 @@ Transform your 3D models into powerful energy analysis tools.`;
             }
             
         } else {
-            console.warn('Cannot disable camera controls: cameraController or camera not available');
+            console.warn('[UIMANAGER] Cannot disable camera controls: cameraController or camera not available');
         }
     }
 
@@ -10885,11 +10894,9 @@ Transform your 3D models into powerful energy analysis tools.`;
      */
     deactivateMeasurementTool() {
         if (this.measurementManager) {
+            // deactivateTool() will re-enable camera controls internally
             this.measurementManager.deactivateTool();
         }
-        
-        // Re-enable camera controls
-        this.enableCameraControls();
     }
 
     /**

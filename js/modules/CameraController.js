@@ -17,6 +17,7 @@ class CameraController {
         
         this.setupCamera();
         this.setupControls();
+        this.setupBabylonPointerObservable();
     }
 
     /**
@@ -241,14 +242,25 @@ class CameraController {
         
         // Pointer down event
         this.canvas.addEventListener('pointerdown', (event) => {
+            const isTreeActive = this.isTreePlacementActive();
+            const isDrawingActive = this.isDrawingModeActive();
+            const hasDrawingModeClass = this.canvas.classList.contains('drawing-mode');
+            
             // Don't allow camera interaction if tree placement is active
-            if (this.isTreePlacementActive()) {
-                return; // Don't allow camera interaction when tree placement is active
+            if (isTreeActive) {
+                isPointerDown = false;
+                return;
+            }
+
+            // Don't allow camera interaction if polygon or circle drawing is active
+            if (isDrawingActive) {
+                isPointerDown = false;
+                return;
             }
 
             // Don't change cursor if in drawing mode
-            if (this.canvas.classList.contains('drawing-mode')) {
-                console.log('[CAMERA] pointerdown: Drawing mode active, skipping cursor change');
+            if (hasDrawingModeClass) {
+                isPointerDown = false;
                 return;
             }
 
@@ -258,7 +270,6 @@ class CameraController {
             isPointerDown = true;
             lastPointerX = event.clientX;
             lastPointerY = event.clientY;
-            console.log('[CAMERA] pointerdown: Setting cursor to grabbing');
             this.canvas.style.cursor = 'grabbing';
             
             if (event.button === 0) {
@@ -270,12 +281,16 @@ class CameraController {
         
         // Pointer move event
         this.canvas.addEventListener('pointermove', (event) => {
+            const isTreeActive = this.isTreePlacementActive();
+            const isDrawingActive = this.isDrawingModeActive();
+            
+            // Reset isPointerDown if drawing mode is active (to prevent camera movement during drawing)
+            if (isTreeActive || isDrawingActive) {
+                isPointerDown = false;
+                return;
+            }
+            
             if (isPointerDown) {
-                // Don't allow camera movement if tree placement is active
-                if (this.isTreePlacementActive()) {
-                    return; // Don't allow camera movement when tree placement is active
-                }
-
                 const deltaX = event.clientX - lastPointerX;
                 const deltaY = event.clientY - lastPointerY;
                 
@@ -305,16 +320,21 @@ class CameraController {
         
         // Pointer up event
         this.canvas.addEventListener('pointerup', (event) => {
+            // Always reset isPointerDown on pointer up
+            isPointerDown = false;
+            
+            // Don't allow camera interaction if tree placement or drawing is active
+            if (this.isTreePlacementActive() || this.isDrawingModeActive()) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            
             event.preventDefault();
             event.stopPropagation();
-            
-            isPointerDown = false;
             // Don't change cursor if in drawing mode
             if (!this.canvas.classList.contains('drawing-mode')) {
-                console.log('[CAMERA] pointerup: Setting cursor to grab');
                 this.canvas.style.cursor = 'grab';
-            } else {
-                console.log('[CAMERA] pointerup: Drawing mode active, skipping cursor change');
             }
         });
         
@@ -323,12 +343,19 @@ class CameraController {
             isPointerDown = false;
             // Don't change cursor if in drawing mode
             if (!this.canvas.classList.contains('drawing-mode')) {
-                console.log('[CAMERA] pointerleave: Setting cursor to grab');
                 this.canvas.style.cursor = 'grab';
-            } else {
-                console.log('[CAMERA] pointerleave: Drawing mode active, skipping cursor change');
             }
         });
+    }
+
+    /**
+     * Setup Babylon.js pointer observable to prevent camera movement during drawing
+     * NOTE: This observer is removed because it was blocking drawing events.
+     * Camera movement is now prevented through DOM event handling in setupPointerEvents().
+     */
+    setupBabylonPointerObservable() {
+        // This method is intentionally empty - camera blocking is handled via DOM events
+        // to avoid interfering with drawing tool observers
     }
 
     /**
@@ -533,10 +560,42 @@ class CameraController {
     }
 
     /**
+     * Check if drawing mode is currently active (polygon, circle, or rectangle)
+     */
+    isDrawingModeActive() {
+        if (!window.digitalTwinApp) {
+            console.log('[CAMERA] isDrawingModeActive: digitalTwinApp not found');
+            return false;
+        }
+        
+        const polygonDrawing = window.digitalTwinApp.polygonManager?.isCurrentlyDrawing || false;
+        const circleDrawing = window.digitalTwinApp.circleManager?.isDrawing || false;
+        const rectangleDrawing = window.digitalTwinApp.rectangleManager?.isDrawing || false;
+        
+        const isActive = polygonDrawing || circleDrawing || rectangleDrawing;
+        
+        if (isActive) {
+            console.log('[CAMERA] isDrawingModeActive: TRUE', {
+                polygonDrawing,
+                circleDrawing,
+                rectangleDrawing
+            });
+        }
+        
+        return isActive;
+    }
+
+    /**
      * Enable/disable camera controls
      */
     setControlsEnabled(enabled) {
         if (this.camera) {
+            // SIMPLE FIX: If drawing mode is active, never enable camera controls
+            if (enabled && (this.isTreePlacementActive() || this.isDrawingModeActive())) {
+                console.log('[CAMERA] setControlsEnabled: Blocked - drawing mode is active');
+                return;
+            }
+            
             this.cameraControlsDisabled = !enabled;
             
             if (enabled) {
@@ -546,6 +605,7 @@ class CameraController {
                 } else if (typeof this.camera.attachControls === 'function') {
                     this.camera.attachControls(this.canvas, true);
                 } else {
+                    console.warn('[CAMERA] setControlsEnabled: No attachControl method found');
                     this.setupManualControls();
                 }
             } else {
@@ -554,8 +614,12 @@ class CameraController {
                     this.camera.detachControl();
                 } else if (typeof this.camera.detachControls === 'function') {
                     this.camera.detachControls();
+                } else {
+                    console.warn('[CAMERA] setControlsEnabled: No detachControl method found');
                 }
             }
+        } else {
+            console.warn('[CAMERA] setControlsEnabled: No camera found');
         }
     }
 

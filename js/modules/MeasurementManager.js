@@ -2,11 +2,12 @@
  * MeasurementManager - Manages distance and area measurement tools
  */
 class MeasurementManager {
-    constructor(scene, camera, canvas, selectionManager) {
+    constructor(scene, camera, canvas, selectionManager, uiManager = null) {
         this.scene = scene;
         this.camera = camera;
         this.canvas = canvas;
         this.selectionManager = selectionManager;
+        this.uiManager = uiManager;
         
         // Measurement state
         this.activeTool = null; // 'distance' or 'area'
@@ -15,21 +16,51 @@ class MeasurementManager {
         // Distance measurement state
         this.distancePoints = [];
         this.distanceLines = [];
-        this.distanceLabels = [];
+        this.distanceLabels = []; // Now stores HTML elements instead of 3D meshes
         
         // Area measurement state
         this.areaPoints = [];
         this.areaPolygon = null;
-        this.areaLabel = null;
+        this.areaLabel = null; // Now stores HTML element instead of 3D mesh
         
         // Event handlers
         this.onPointerDown = null;
         this.onPointerMove = null;
         this.onPointerUp = null;
+        this.onContextMenu = null;
         this.onKeyDown = null;
+        
+        // Label position update observer
+        this.labelPositionObserver = null;
+        
+        // Container for HTML labels
+        this.labelContainer = null;
+        this.setupLabelContainer();
         
         // Setup initial state
         this.setupEventListeners();
+        this.setupLabelPositionObserver();
+    }
+    
+    /**
+     * Setup container for HTML labels
+     */
+    setupLabelContainer() {
+        // Create container if it doesn't exist
+        if (!this.labelContainer) {
+            this.labelContainer = document.createElement('div');
+            this.labelContainer.id = 'measurement-labels-container';
+            this.labelContainer.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 10000;
+            `;
+            document.body.appendChild(this.labelContainer);
+        }
     }
     
     /**
@@ -37,6 +68,91 @@ class MeasurementManager {
      */
     setupEventListeners() {
         // Event handlers will be attached/detached when tools are activated/deactivated
+    }
+    
+    /**
+     * Setup observer for label position updates
+     */
+    setupLabelPositionObserver() {
+        if (this.labelPositionObserver) {
+            return; // Already set up
+        }
+        
+        this.labelPositionObserver = this.scene.onBeforeRenderObservable.add(() => {
+            this.updateLabelPositions();
+        });
+    }
+    
+    /**
+     * Remove label position observer
+     */
+    removeLabelPositionObserver() {
+        if (this.labelPositionObserver) {
+            this.scene.onBeforeRenderObservable.remove(this.labelPositionObserver);
+            this.labelPositionObserver = null;
+        }
+    }
+    
+    /**
+     * Convert 3D world position to 2D screen coordinates
+     */
+    worldToScreen(worldPosition) {
+        if (!this.camera || !this.canvas) return null;
+        
+        const viewport = this.camera.viewport.toGlobal(
+            this.scene.getEngine().getRenderWidth(),
+            this.scene.getEngine().getRenderHeight()
+        );
+        
+        const vector = BABYLON.Vector3.Project(
+            worldPosition,
+            BABYLON.Matrix.Identity(),
+            this.scene.getTransformMatrix(),
+            viewport
+        );
+        
+        if (vector.z < 0 || vector.z > 1) {
+            return null; // Behind camera or too far
+        }
+        
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: rect.left + vector.x,
+            y: rect.top + vector.y
+        };
+    }
+    
+    /**
+     * Update label positions based on 3D world positions
+     */
+    updateLabelPositions() {
+        if (!this.camera || !this.canvas) return;
+        
+        // Update distance labels
+        this.distanceLabels.forEach((label) => {
+            if (label && label.element && label.worldPosition) {
+                const screenPos = this.worldToScreen(label.worldPosition);
+                if (screenPos) {
+                    label.element.style.left = screenPos.x + 'px';
+                    label.element.style.top = screenPos.y + 'px';
+                    label.element.style.display = 'block';
+                } else {
+                    label.element.style.display = 'none';
+                }
+            }
+        });
+        
+        // Update area label
+        if (this.areaLabel && this.areaLabel.element && this.areaLabel.worldPosition) {
+            const screenPos = this.worldToScreen(this.areaLabel.worldPosition);
+            if (screenPos) {
+                this.areaLabel.element.style.left = screenPos.x + 'px';
+                this.areaLabel.element.style.top = screenPos.y + 'px';
+                this.areaLabel.element.style.display = 'block';
+            } else {
+                this.areaLabel.element.style.display = 'none';
+            }
+        }
     }
     
     /**
@@ -59,15 +175,7 @@ class MeasurementManager {
         
         console.log(`[MEASUREMENT] Tool state set - activeTool: ${this.activeTool}, isActive: ${this.isActive}`);
         
-        // Disable camera controls when measurement tool is active
-        if (this.camera && this.camera.inputs) {
-            if (this.camera.inputs.attached.keyboard) {
-                this.camera.inputs.attached.keyboard.detachControls();
-            }
-            if (this.camera.inputs.attached.mousewheel) {
-                this.camera.inputs.attached.mousewheel.detachControls();
-            }
-        }
+        // Note: Camera controls are disabled by UIManager, not here
         
         // Attach event listeners
         this.attachEventListeners();
@@ -90,7 +198,10 @@ class MeasurementManager {
         // Detach event listeners
         this.detachEventListeners();
         
-        // Note: Camera controls are re-enabled by UIManager
+        // Re-enable camera controls
+        if (this.uiManager && this.uiManager.enableCameraControls) {
+            this.uiManager.enableCameraControls();
+        }
         
         this.activeTool = null;
         this.isActive = false;
@@ -108,10 +219,17 @@ class MeasurementManager {
         this.onPointerMove = (event) => this.handlePointerMove(event);
         this.onPointerUp = (event) => this.handlePointerUp(event);
         this.onKeyDown = (event) => this.handleKeyDown(event);
+        this.onContextMenu = (event) => {
+            // Prevent context menu when measurement tool is active
+            if (this.isActive) {
+                event.preventDefault();
+            }
+        };
         
         this.canvas.addEventListener('pointerdown', this.onPointerDown);
         this.canvas.addEventListener('pointermove', this.onPointerMove);
         this.canvas.addEventListener('pointerup', this.onPointerUp);
+        this.canvas.addEventListener('contextmenu', this.onContextMenu);
         document.addEventListener('keydown', this.onKeyDown);
         
         console.log('[MEASUREMENT] Event listeners attached');
@@ -130,6 +248,9 @@ class MeasurementManager {
         if (this.onPointerUp) {
             this.canvas.removeEventListener('pointerup', this.onPointerUp);
         }
+        if (this.onContextMenu) {
+            this.canvas.removeEventListener('contextmenu', this.onContextMenu);
+        }
         if (this.onKeyDown) {
             document.removeEventListener('keydown', this.onKeyDown);
         }
@@ -137,6 +258,7 @@ class MeasurementManager {
         this.onPointerDown = null;
         this.onPointerMove = null;
         this.onPointerUp = null;
+        this.onContextMenu = null;
         this.onKeyDown = null;
     }
     
@@ -146,6 +268,32 @@ class MeasurementManager {
     handlePointerDown(event) {
         if (!this.isActive) {
             console.log('[MEASUREMENT] Tool not active, ignoring pointer down');
+            return;
+        }
+        
+        // Check for right-click (button 2) to deactivate tool
+        if (event.button === 2 || event.which === 3) {
+            console.log('[MEASUREMENT] Right-click detected, deactivating tool');
+            // Clear current measurement and deactivate
+            if (this.activeTool === 'distance') {
+                this.clearDistanceMeasurement();
+            } else if (this.activeTool === 'area') {
+                this.clearAreaMeasurement();
+            }
+            // Deactivate tool (this will also re-enable camera controls)
+            this.deactivateTool();
+            
+            // Remove active class from measurement tools
+            const measurementTools = document.querySelectorAll('#measurementPanel .tool-item');
+            measurementTools.forEach(tool => tool.classList.remove('active'));
+            
+            // Prevent context menu from showing
+            event.preventDefault();
+            return;
+        }
+        
+        // Only process left-click (button 0)
+        if (event.button !== 0 && event.which !== 1) {
             return;
         }
         
@@ -227,6 +375,7 @@ class MeasurementManager {
             } else if (this.activeTool === 'area') {
                 this.clearAreaMeasurement();
             }
+            // Deactivate tool (this will also re-enable camera controls)
             this.deactivateTool();
             
             // Remove active class from measurement tools
@@ -290,7 +439,8 @@ class MeasurementManager {
                 points: [start, end],
                 updatable: true
             }, this.scene);
-            line.color = new BABYLON.Color3(1, 1, 0); // Yellow
+            line.color = new BABYLON.Color3(1, 0, 0); // Red
+            line.renderingGroupId = 2; // Higher rendering group for better visibility
             this.distanceLines.push(line);
             
             console.log(`[MEASUREMENT] Line ${i} created:`, line.name, 'visible:', line.isVisible);
@@ -332,7 +482,8 @@ class MeasurementManager {
             points: [lastPoint, previewPoint],
             updatable: true
         }, this.scene);
-        line.color = new BABYLON.Color3(1, 1, 0.5); // Light yellow for preview
+        line.color = new BABYLON.Color3(1, 0, 0); // Red
+        line.renderingGroupId = 2; // Higher rendering group for better visibility
     }
     
     /**
@@ -357,45 +508,50 @@ class MeasurementManager {
         this.distanceLines = [];
         
         this.distanceLabels.forEach(label => {
-            if (label.textPlane) label.textPlane.dispose();
-            if (label.textTexture) label.textTexture.dispose();
+            if (label.element && label.element.parentNode) {
+                label.element.parentNode.removeChild(label.element);
+            }
         });
         this.distanceLabels = [];
     }
     
     /**
-     * Create distance label
+     * Create distance label as HTML popup (similar to drawing coordinates tooltip style)
      */
     createDistanceLabel(position, distance, index) {
-        // Create dynamic texture for text
-        const texture = new BABYLON.DynamicTexture(`distance_label_${index}`, { width: 256, height: 64 }, this.scene);
-        const context = texture.getContext();
-        context.fillStyle = 'yellow';
-        context.font = 'bold 24px Arial';
-        context.fillText(`${distance.toFixed(2)} m`, 10, 40);
-        texture.update();
+        const text = `${distance.toFixed(2)} m`;
         
-        // Create plane for text
-        const plane = BABYLON.MeshBuilder.CreatePlane(`distance_label_plane_${index}`, {
-            size: 2,
-            updatable: true
-        }, this.scene);
-        plane.position = position.clone();
-        plane.position.y += 0.5; // Offset above ground
+        // Create HTML element for label
+        const labelElement = document.createElement('div');
+        labelElement.className = 'measurement-label';
+        labelElement.textContent = text;
+        labelElement.style.cssText = `
+            position: fixed;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.85);
+            color: #ffffff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+            white-space: nowrap;
+            z-index: 10001;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            display: none;
+        `;
         
-        // Create material
-        const material = new BABYLON.StandardMaterial(`distance_label_mat_${index}`, this.scene);
-        material.diffuseTexture = texture;
-        material.emissiveColor = new BABYLON.Color3(1, 1, 0);
-        material.backFaceCulling = false;
-        plane.material = material;
+        // Add to container
+        if (this.labelContainer) {
+            this.labelContainer.appendChild(labelElement);
+        }
         
-        // Make plane always face camera
-        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+        // Store world position for position updates
+        const worldPosition = position.clone();
+        worldPosition.y += 0.5; // Offset above ground
         
         return {
-            textPlane: plane,
-            textTexture: texture
+            element: labelElement,
+            worldPosition: worldPosition
         };
     }
     
@@ -430,8 +586,9 @@ class MeasurementManager {
         }
         
         if (this.areaLabel) {
-            if (this.areaLabel.textPlane) this.areaLabel.textPlane.dispose();
-            if (this.areaLabel.textTexture) this.areaLabel.textTexture.dispose();
+            if (this.areaLabel.element && this.areaLabel.element.parentNode) {
+                this.areaLabel.element.parentNode.removeChild(this.areaLabel.element);
+            }
             this.areaLabel = null;
         }
         
@@ -448,7 +605,8 @@ class MeasurementManager {
             points: points,
             updatable: true
         }, this.scene);
-        polygon.color = new BABYLON.Color3(0, 1, 1); // Cyan
+        polygon.color = new BABYLON.Color3(1, 0, 0); // Red
+        polygon.renderingGroupId = 2; // Higher rendering group for better visibility
         this.areaPolygon = polygon;
         
         // Calculate area
@@ -482,7 +640,8 @@ class MeasurementManager {
             points: points,
             updatable: true
         }, this.scene);
-        polygon.color = new BABYLON.Color3(0, 1, 0.5); // Light cyan for preview
+        polygon.color = new BABYLON.Color3(1, 0, 0); // Red
+        polygon.renderingGroupId = 2; // Higher rendering group for better visibility
     }
     
     /**
@@ -497,8 +656,9 @@ class MeasurementManager {
         }
         
         if (this.areaLabel) {
-            if (this.areaLabel.textPlane) this.areaLabel.textPlane.dispose();
-            if (this.areaLabel.textTexture) this.areaLabel.textTexture.dispose();
+            if (this.areaLabel.element && this.areaLabel.element.parentNode) {
+                this.areaLabel.element.parentNode.removeChild(this.areaLabel.element);
+            }
             this.areaLabel = null;
         }
         
@@ -537,38 +697,42 @@ class MeasurementManager {
     }
     
     /**
-     * Create area label
+     * Create area label as HTML popup (similar to drawing coordinates tooltip style)
      */
     createAreaLabel(position, area) {
-        // Create dynamic texture for text
-        const texture = new BABYLON.DynamicTexture('area_label', { width: 256, height: 64 }, this.scene);
-        const context = texture.getContext();
-        context.fillStyle = 'cyan';
-        context.font = 'bold 24px Arial';
-        context.fillText(`${area.toFixed(2)} m²`, 10, 40);
-        texture.update();
+        const text = `${area.toFixed(2)} m²`;
         
-        // Create plane for text
-        const plane = BABYLON.MeshBuilder.CreatePlane('area_label_plane', {
-            size: 2,
-            updatable: true
-        }, this.scene);
-        plane.position = position.clone();
-        plane.position.y += 0.5; // Offset above ground
+        // Create HTML element for label
+        const labelElement = document.createElement('div');
+        labelElement.className = 'measurement-label';
+        labelElement.textContent = text;
+        labelElement.style.cssText = `
+            position: fixed;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.85);
+            color: #ffffff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-family: monospace;
+            white-space: nowrap;
+            z-index: 10001;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            display: none;
+        `;
         
-        // Create material
-        const material = new BABYLON.StandardMaterial('area_label_mat', this.scene);
-        material.diffuseTexture = texture;
-        material.emissiveColor = new BABYLON.Color3(0, 1, 1);
-        material.backFaceCulling = false;
-        plane.material = material;
+        // Add to container
+        if (this.labelContainer) {
+            this.labelContainer.appendChild(labelElement);
+        }
         
-        // Make plane always face camera
-        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+        // Store world position for position updates
+        const worldPosition = position.clone();
+        worldPosition.y += 0.5; // Offset above ground
         
         return {
-            textPlane: plane,
-            textTexture: texture
+            element: labelElement,
+            worldPosition: worldPosition
         };
     }
 }

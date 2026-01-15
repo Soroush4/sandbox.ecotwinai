@@ -209,33 +209,43 @@ class RectangleManager {
         this.drawingStartPoint = null;
         this.drawingEndPoint = null;
         
-        // Disable camera controls during rectangle drawing
-        if (this.scene.activeCamera) {
+        // Disable camera controls during rectangle drawing via uiManager
+        if (this.uiManager) {
+            this.uiManager.disableCameraControls();
+        } else if (this.scene.activeCamera) {
             this.scene.activeCamera.detachControl();
         }
         
-        // Add mouse event listeners
-        this.scene.onPointerObservable.add(this.onPointerMove, BABYLON.PointerEventTypes.POINTERMOVE);
-        this.scene.onPointerObservable.add(this.onPointerDown, BABYLON.PointerEventTypes.POINTERDOWN);
-        this.scene.onPointerObservable.add(this.onPointerUp, BABYLON.PointerEventTypes.POINTERUP);
+        // Add mouse event listeners with high priority (add first to execute before CameraController)
+        // Store observers for cleanup
+        this.pointerMoveObserver = this.scene.onPointerObservable.add(this.onPointerMove, BABYLON.PointerEventTypes.POINTERMOVE);
+        this.pointerDownObserver = this.scene.onPointerObservable.add(this.onPointerDown, BABYLON.PointerEventTypes.POINTERDOWN);
+        this.pointerUpObserver = this.scene.onPointerObservable.add(this.onPointerUp, BABYLON.PointerEventTypes.POINTERUP);
     }
 
     /**
      * Stop interactive rectangle drawing
      */
     stopInteractiveDrawing() {
+        // Only trigger callback if we were actually drawing
+        const wasDrawing = this.isDrawing;
+        
         this.isDrawing = false;
         this.isCompleting = false;
         
-        // Re-enable camera controls after rectangle drawing
-        if (this.scene.activeCamera) {
-            this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
+        // Remove mouse event listeners using stored observers
+        if (this.pointerMoveObserver) {
+            this.scene.onPointerObservable.remove(this.pointerMoveObserver);
+            this.pointerMoveObserver = null;
         }
-        
-        // Remove mouse event listeners
-        this.scene.onPointerObservable.removeCallback(this.onPointerMove, BABYLON.PointerEventTypes.POINTERMOVE);
-        this.scene.onPointerObservable.removeCallback(this.onPointerDown, BABYLON.PointerEventTypes.POINTERDOWN);
-        this.scene.onPointerObservable.removeCallback(this.onPointerUp, BABYLON.PointerEventTypes.POINTERUP);
+        if (this.pointerDownObserver) {
+            this.scene.onPointerObservable.remove(this.pointerDownObserver);
+            this.pointerDownObserver = null;
+        }
+        if (this.pointerUpObserver) {
+            this.scene.onPointerObservable.remove(this.pointerUpObserver);
+            this.pointerUpObserver = null;
+        }
         
         // Clean up temporary shape
         if (this.tempShape) {
@@ -243,9 +253,16 @@ class RectangleManager {
             this.tempShape = null;
         }
         
-        // Call callback
-        if (this.onDrawingStopped) {
+        // Only call callback if we were actually drawing (not just cleaning up)
+        if (wasDrawing && this.onDrawingStopped) {
             this.onDrawingStopped();
+        } else if (wasDrawing && !this.onDrawingStopped) {
+            // Fallback: re-enable camera controls if no callback is set
+            if (this.uiManager) {
+                this.uiManager.enableCameraControls();
+            } else if (this.scene.activeCamera) {
+                this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
+            }
         }
     }
 
@@ -253,7 +270,15 @@ class RectangleManager {
      * Handle pointer move during drawing
      */
     onPointerMove = (pointerInfo) => {
-        if (!this.isDrawing || !this.drawingStartPoint) return;
+        if (!this.isDrawing || !this.drawingStartPoint) {
+            return;
+        }
+        
+        // Prevent camera movement by stopping event propagation
+        if (pointerInfo.event) {
+            pointerInfo.event.preventDefault();
+            pointerInfo.event.stopPropagation();
+        }
         
         const pickResult = this.scene.pick(this.scene.pointerX, this.scene.pointerY);
         if (pickResult && pickResult.hit && pickResult.pickedPoint) {
@@ -266,7 +291,15 @@ class RectangleManager {
      * Handle pointer down during drawing
      */
     onPointerDown = (pointerInfo) => {
-        if (!this.isDrawing) return;
+        if (!this.isDrawing) {
+            return;
+        }
+        
+        // Prevent camera movement by stopping event propagation
+        if (pointerInfo.event) {
+            pointerInfo.event.preventDefault();
+            pointerInfo.event.stopPropagation();
+        }
         
         // IMPORTANT: Only accept left mouse button (button === 0)
         // Right click (button === 2) and middle click (button === 1) should cancel drawing

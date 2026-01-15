@@ -55,6 +55,15 @@ class PolygonManager {
         this.isCurrentlyDrawing = true;
         this.points = [];
         this.clearPreview();
+        
+        // Disable camera controls during polygon drawing
+        // Use uiManager's method to ensure all camera controls are disabled
+        if (this.uiManager && this.uiManager.disableCameraControls) {
+            this.uiManager.disableCameraControls();
+        } else if (this.scene.activeCamera) {
+            // Fallback to direct detachControl if uiManager is not available
+            this.scene.activeCamera.detachControl();
+        }
     }
 
     /**
@@ -65,6 +74,15 @@ class PolygonManager {
         this.points = [];
         this.isSnappedToFirst = false;
         this.clearPreview();
+        
+        // Re-enable camera controls after polygon drawing
+        // Use uiManager's method to ensure all camera controls are enabled
+        if (this.uiManager && this.uiManager.enableCameraControls) {
+            this.uiManager.enableCameraControls();
+        } else if (this.scene.activeCamera) {
+            // Fallback to direct attachControl if uiManager is not available
+            this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
+        }
     }
 
     /**
@@ -1450,6 +1468,15 @@ class PolygonManager {
         this.isSnappedToFirst = false;
         this.isCurrentlyDrawing = false;
         
+        // Re-enable camera controls after polygon drawing is complete
+        // Use uiManager's method to ensure all camera controls are enabled
+        if (this.uiManager && this.uiManager.enableCameraControls) {
+            this.uiManager.enableCameraControls();
+        } else if (this.scene.activeCamera) {
+            // Fallback to direct attachControl if uiManager is not available
+            this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
+        }
+        
         // Call completion callback with the created polygon
         if (this.onPolygonCompleted) {
             this.onPolygonCompleted(createdPolygon);
@@ -1507,6 +1534,15 @@ class PolygonManager {
         this.points = [];
         this.isSnappedToFirst = false;
         this.isCurrentlyDrawing = false;
+        
+        // Re-enable camera controls after polygon drawing is cancelled
+        // Use uiManager's method to ensure all camera controls are enabled
+        if (this.uiManager && this.uiManager.enableCameraControls) {
+            this.uiManager.enableCameraControls();
+        } else if (this.scene.activeCamera) {
+            // Fallback to direct attachControl if uiManager is not available
+            this.scene.activeCamera.attachControl(this.scene.getEngine().getRenderingCanvas(), true);
+        }
         
         // Call cancellation callback
         if (this.onPolygonCancelled) {
