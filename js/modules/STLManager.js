@@ -423,6 +423,9 @@ class STLManager {
                 typeCounts[obj.type] = (typeCounts[obj.type] || 0) + 1;
             });
             console.log(`[STL Import] Object type counts:`, typeCounts);
+            
+            // Debug: Show first 10 object names and types
+            console.log(`[STL Import] First 10 objects:`, objects.slice(0, 10).map(obj => ({ name: obj.name, type: obj.type })));
 
             // Create meshes from parsed objects (process in batches for better performance)
             // Process all objects in one loop, but use optimization for buildings
@@ -435,6 +438,11 @@ class STLManager {
                 const obj = objects[index];
                 try {
                     const isBuilding = obj.type === 'building';
+                    
+                    // Debug log for non-building objects
+                    if (!isBuilding) {
+                        console.log(`[STL Import] Processing non-building object ${index + 1}/${objects.length}: ${obj.name} (type: ${obj.type})`);
+                    }
                     
                     // Update progress with object name
                     const progress = Math.round(((index + 1) / objects.length) * 100);
@@ -451,6 +459,11 @@ class STLManager {
                     const mesh = this.createMeshFromSTLObject(obj, scene, isBuilding); // optimizeForPerformance = true for buildings only
                     if (mesh) {
                         createdCount++;
+                        if (!isBuilding) {
+                            console.log(`[STL Import] ✓ Successfully created mesh for ${obj.name} (type: ${obj.type})`);
+                        }
+                    } else {
+                        console.warn(`[STL Import] ✗ Failed to create mesh for ${obj.name} (type: ${obj.type}) - mesh is null`);
                     }
                     
                     // Yield to browser - less frequently for buildings
@@ -465,7 +478,8 @@ class STLManager {
                         }
                     }
                 } catch (error) {
-                    console.error(`Error creating mesh for ${obj.name}:`, error);
+                    console.error(`[STL Import] ✗ Error creating mesh for ${obj.name} (type: ${obj.type}):`, error);
+                    console.error(`[STL Import] Error stack:`, error.stack);
                 }
             }
             
@@ -524,39 +538,49 @@ class STLManager {
      */
     detectTypeFromName(name) {
         const lowerName = name.toLowerCase();
+        let detectedType = null;
         
         // Check for numbered types first (tree1, building1, etc.)
         if (lowerName.startsWith('tree') && /^\d+$/.test(lowerName.substring(4))) {
-            return 'tree';
+            detectedType = 'tree';
         } else if (lowerName.startsWith('building') && /^\d+$/.test(lowerName.substring(8))) {
-            return 'building';
+            detectedType = 'building';
         } else if (lowerName.startsWith('highway') && /^\d+$/.test(lowerName.substring(7))) {
-            return 'highway';
+            detectedType = 'highway';
         } else if (lowerName.startsWith('ground') && /^\d+$/.test(lowerName.substring(6))) {
-            return 'ground';
+            detectedType = 'ground';
         } else if (lowerName.startsWith('grass') && /^\d+$/.test(lowerName.substring(5))) {
-            return 'grass';
+            detectedType = 'grass';
         } else if (lowerName.startsWith('waterway') && /^\d+$/.test(lowerName.substring(8))) {
-            return 'waterway';
+            detectedType = 'waterway';
         }
         // Check for non-numbered types (ground, grass, waterway, highway, building, tree)
         else if (lowerName === 'ground' || lowerName.startsWith('ground')) {
-            return 'ground';
+            detectedType = 'ground';
         } else if (lowerName === 'grass' || lowerName.startsWith('grass')) {
-            return 'grass';
+            detectedType = 'grass';
         } else if (lowerName === 'waterway' || lowerName.startsWith('waterway') || lowerName.startsWith('water')) {
-            return 'waterway';
+            detectedType = 'waterway';
         } else if (lowerName === 'highway' || lowerName.startsWith('highway')) {
-            return 'highway';
+            detectedType = 'highway';
         } else if (lowerName === 'building' || lowerName.startsWith('building')) {
-            return 'building';
+            detectedType = 'building';
         } else if (lowerName === 'tree' || lowerName.startsWith('tree')) {
-            return 'tree';
+            detectedType = 'tree';
         }
         
         // Default to ground if type cannot be determined
-        console.warn(`[STL Import] Could not detect type for name: "${name}", defaulting to 'ground'`);
-        return 'ground';
+        if (!detectedType) {
+            console.warn(`[detectTypeFromName] Could not detect type for name: "${name}", defaulting to 'ground'`);
+            detectedType = 'ground';
+        } else {
+            // Only log non-building types to reduce console noise
+            if (detectedType !== 'building') {
+                console.log(`[detectTypeFromName] "${name}" -> "${detectedType}"`);
+            }
+        }
+        
+        return detectedType;
     }
 
     /**
@@ -567,7 +591,13 @@ class STLManager {
      */
     createMeshFromSTLObject(obj, scene, optimizeForPerformance = false) {
         if (!obj || !obj.triangles || obj.triangles.length === 0) {
+            console.warn(`[createMeshFromSTLObject] Skipping ${obj?.name || 'unknown'} - no triangles`);
             return null;
+        }
+        
+        // Debug log for non-building objects
+        if (!optimizeForPerformance) {
+            console.log(`[createMeshFromSTLObject] Creating mesh for ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length}, optimize: false)`);
         }
 
         // Collect all vertices and create indices
