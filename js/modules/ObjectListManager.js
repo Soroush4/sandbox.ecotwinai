@@ -817,30 +817,11 @@ class ObjectListManager {
             return;
         }
         
-        // IMPORTANT: If object is invisible, make it visible first before selecting
-        // This allows users to click on invisible objects in the list to show them
-        const wasInvisible = !this.isObjectVisible(mesh);
-        if (wasInvisible) {
-            // Make object visible first
-            this.applyObjectVisibility(mesh, true);
-            
-            // Update visibility button in the list
-            const item = this.objectListContainer.querySelector(`[data-mesh-id="${mesh.id}"]`);
-            if (item) {
-                const visibilityButton = item.querySelector('.object-visibility');
-                if (visibilityButton) {
-                    visibilityButton.textContent = '👁️';
-                    visibilityButton.style.background = '#28a745';
-                    visibilityButton.title = 'Hide this object';
-                }
-            }
-            
-            // Update category visibility button if needed
-            const categoryKey = this.getObjectCategory(mesh);
-            const category = this.categories[categoryKey];
-            if (category) {
-                this.updateCategoryVisibilityButton(categoryKey, category);
-            }
+        // IMPORTANT: Don't allow selection of invisible objects
+        // They should remain invisible and cannot be selected
+        if (!this.isObjectVisible(mesh)) {
+            console.log(`Cannot select invisible object: ${mesh.name}. Use the visibility button to show it first.`);
+            return;
         }
         
         // Clear current selection

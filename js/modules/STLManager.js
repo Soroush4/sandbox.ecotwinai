@@ -606,6 +606,15 @@ class STLManager {
         const indices = [];
         const normals = [];
         
+        // Initialize smoothingStats for non-optimized path (needed outside the else block)
+        let smoothingStats = {
+            totalVertices: 0,
+            smoothedVertices: 0,
+            hardEdges: 0,
+            uniqueNormals: new Set(),
+            maxVariantsPerPosition: 0
+        };
+        
         if (optimizeForPerformance) {
             // Ultra-fast path for buildings: simple vertex deduplication, no normals stored
             // We'll use ComputeNormals later which is much faster
@@ -639,6 +648,13 @@ class STLManager {
             const vertexMap = new Map(); // key -> array of {index, normal, triangleIndex}
             const angleDegrees = this.smoothingAngleThreshold || 180;
             const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
+            
+            // Reset smoothingStats for this object (already initialized above)
+            smoothingStats.totalVertices = 0;
+            smoothingStats.smoothedVertices = 0;
+            smoothingStats.hardEdges = 0;
+            smoothingStats.uniqueNormals.clear();
+            smoothingStats.maxVariantsPerPosition = 0;
             
             // First pass: collect vertices and group by position
             obj.triangles.forEach((triangle, triIndex) => {
@@ -731,14 +747,7 @@ class STLManager {
             });
             
             // Second pass: calculate final normals for all vertices (only for non-optimized path)
-            let smoothingStats = {
-                totalVertices: 0,
-                smoothedVertices: 0,
-                hardEdges: 0,
-                uniqueNormals: new Set(),
-                maxVariantsPerPosition: 0
-            };
-            
+            // smoothingStats already initialized above
             vertexMap.forEach((vertexGroup) => {
                 smoothingStats.totalVertices++;
                 if (vertexGroup.length > 1) {
@@ -787,6 +796,12 @@ class STLManager {
         }
 
         if (positions.length === 0) {
+            console.warn(`[createMeshFromSTLObject] ✗ No positions generated for ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length})`);
+            return null;
+        }
+        
+        if (indices.length === 0) {
+            console.warn(`[createMeshFromSTLObject] ✗ No indices generated for ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length}, positions: ${positions.length / 3})`);
             return null;
         }
 
@@ -929,20 +944,41 @@ class STLManager {
         // Store original STL data for real-time smoothing updates
         // For performance optimization (buildings), skip deep copy of STL data
         let originalSTLDataCopy = null;
-        if (!optimizeForPerformance) {
-            // Only deep copy for non-buildings (ground, grass, etc.) that might need smoothing updates
-            originalSTLDataCopy = JSON.parse(JSON.stringify(obj));
-            // Remove period properties from originalSTLData if they exist
-            delete originalSTLDataCopy.startPeriod;
-            delete originalSTLDataCopy.endPeriod;
-            delete originalSTLDataCopy.buildingArchetypePeriod;
-            delete originalSTLDataCopy.buildingGroupPeriod;
-        } else {
-            // For buildings, store minimal data (just name and type) to save memory and time
+        try {
+            if (!optimizeForPerformance) {
+                // Only deep copy for non-buildings (ground, grass, etc.) that might need smoothing updates
+                // Try to deep copy, but if it fails (e.g., circular reference or too large), use minimal copy
+                try {
+                    originalSTLDataCopy = JSON.parse(JSON.stringify(obj));
+                    // Remove period properties from originalSTLData if they exist
+                    delete originalSTLDataCopy.startPeriod;
+                    delete originalSTLDataCopy.endPeriod;
+                    delete originalSTLDataCopy.buildingArchetypePeriod;
+                    delete originalSTLDataCopy.buildingGroupPeriod;
+                } catch (jsonError) {
+                    console.warn(`[createMeshFromSTLObject] Failed to deep copy STL data for ${obj.name}, using minimal copy:`, jsonError);
+                    // Fallback to minimal copy if deep copy fails
+                    originalSTLDataCopy = {
+                        name: obj.name,
+                        type: obj.type,
+                        triangles: [] // Empty - not needed if copy fails
+                    };
+                }
+            } else {
+                // For buildings, store minimal data (just name and type) to save memory and time
+                originalSTLDataCopy = {
+                    name: obj.name,
+                    type: obj.type,
+                    triangles: [] // Empty - not needed for buildings
+                };
+            }
+        } catch (error) {
+            console.error(`[createMeshFromSTLObject] Error preparing STL data copy for ${obj.name}:`, error);
+            // Fallback to minimal copy
             originalSTLDataCopy = {
                 name: obj.name,
                 type: obj.type,
-                triangles: [] // Empty - not needed for buildings
+                triangles: []
             };
         }
         
@@ -1054,7 +1090,7 @@ class STLManager {
 
         // Skip console.log for buildings (performance optimization)
         if (!optimizeForPerformance) {
-            console.log(`Created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length}, renderingGroupId: ${mesh.renderingGroupId}, isVisible: ${mesh.isVisible}, isEnabled: ${mesh.isEnabled()})`);
+            console.log(`[createMeshFromSTLObject] ✓ Successfully created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length}, positions: ${positions.length / 3}, indices: ${indices.length / 3}, renderingGroupId: ${mesh.renderingGroupId}, isVisible: ${mesh.isVisible}, isEnabled: ${mesh.isEnabled()})`);
 
             // IMPORTANT: Log highway meshes specifically for debugging
             if (obj.type === 'highway') {
