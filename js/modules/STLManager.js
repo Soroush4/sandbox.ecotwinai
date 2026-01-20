@@ -280,12 +280,13 @@ class STLManager {
                 if (line.startsWith('solid ')) {
                     const objectName = line.substring(6).trim();
                     currentObjectName = objectName; // Store for progress display
+                    const detectedType = this.detectTypeFromName(objectName);
                     currentObject = {
                         name: objectName,
-                        type: this.detectTypeFromName(objectName),
+                        type: detectedType,
                         triangles: []
                     };
-                    console.log(`Found solid: ${objectName}, type: ${currentObject.type}`);
+                    console.log(`[STL Import] Found solid: ${objectName}, detected type: ${detectedType}`);
                     // Update progress with object name
                     const progress = Math.round((i / totalLines) * 100);
                     this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`, objectName);
@@ -420,7 +421,21 @@ class STLManager {
             const buildings = objects.filter(obj => obj.type === 'building');
             const otherObjects = objects.filter(obj => obj.type !== 'building');
             
+            // Debug: Log object types
+            const typeCounts = {};
+            objects.forEach(obj => {
+                typeCounts[obj.type] = (typeCounts[obj.type] || 0) + 1;
+            });
+            console.log(`[STL Import] Object type counts:`, typeCounts);
             console.log(`[STL Import] Processing ${buildings.length} buildings and ${otherObjects.length} other objects`);
+            
+            // Debug: Log first few other objects
+            if (otherObjects.length > 0) {
+                console.log(`[STL Import] First 5 other objects:`, otherObjects.slice(0, 5).map(obj => ({ name: obj.name, type: obj.type, triangles: obj.triangles.length })));
+            } else {
+                console.warn(`[STL Import] WARNING: No other objects found! All objects are buildings?`);
+                console.log(`[STL Import] All object types:`, objects.map(obj => ({ name: obj.name, type: obj.type })));
+            }
 
             // Create meshes from parsed objects (process in batches for better performance)
             let createdCount = 0;
@@ -473,16 +488,21 @@ class STLManager {
             
             // Process other objects (with normal optimization)
             if (otherObjects.length > 0) {
+                console.log(`[STL Import] Starting to process ${otherObjects.length} other objects...`);
                 let otherBatchCount = 0; // Reset batch count for other objects
                 for (let index = 0; index < otherObjects.length; index++) {
                     const obj = otherObjects[index];
                     try {
+                        console.log(`[STL Import] Processing other object ${index + 1}/${otherObjects.length}: ${obj.name} (type: ${obj.type})`);
                         const progress = Math.round(((index + 1) / otherObjects.length) * 100);
                         this.updateSTLImportLoadingStatus(`Creating other objects... ${progress}% (${index + 1}/${otherObjects.length})`, obj.name);
                         
                         const mesh = this.createMeshFromSTLObject(obj, scene, false); // optimizeForPerformance = false
                         if (mesh) {
                             createdCount++;
+                            console.log(`[STL Import] Successfully created mesh for ${obj.name}`);
+                        } else {
+                            console.warn(`[STL Import] Failed to create mesh for ${obj.name} - createMeshFromSTLObject returned null`);
                         }
                         
                         otherBatchCount++;
@@ -495,9 +515,13 @@ class STLManager {
                             }
                         }
                     } catch (error) {
-                        console.error(`Error creating mesh for ${obj.name}:`, error);
+                        console.error(`[STL Import] Error creating mesh for ${obj.name}:`, error);
+                        console.error(`[STL Import] Error stack:`, error.stack);
                     }
                 }
+                console.log(`[STL Import] Finished processing ${otherObjects.length} other objects. Created ${createdCount} meshes total.`);
+            } else {
+                console.warn(`[STL Import] WARNING: otherObjects.length is 0! No non-building objects to process.`);
             }
 
             console.log(`Created ${createdCount} meshes from STL file`);
@@ -536,6 +560,7 @@ class STLManager {
     detectTypeFromName(name) {
         const lowerName = name.toLowerCase();
         
+        // Check for numbered types first (tree1, building1, etc.)
         if (lowerName.startsWith('tree') && /^\d+$/.test(lowerName.substring(4))) {
             return 'tree';
         } else if (lowerName.startsWith('building') && /^\d+$/.test(lowerName.substring(8))) {
@@ -548,19 +573,24 @@ class STLManager {
             return 'grass';
         } else if (lowerName.startsWith('waterway') && /^\d+$/.test(lowerName.substring(8))) {
             return 'waterway';
-        } else if (lowerName.startsWith('building')) {
-            return 'building';
-        } else if (lowerName.startsWith('highway')) {
-            return 'highway';
-        } else if (lowerName.startsWith('ground')) {
+        }
+        // Check for non-numbered types (ground, grass, waterway, highway, building, tree)
+        else if (lowerName === 'ground' || lowerName.startsWith('ground')) {
             return 'ground';
-        } else if (lowerName.startsWith('grass')) {
+        } else if (lowerName === 'grass' || lowerName.startsWith('grass')) {
             return 'grass';
-        } else if (lowerName.startsWith('waterway') || lowerName.startsWith('water')) {
+        } else if (lowerName === 'waterway' || lowerName.startsWith('waterway') || lowerName.startsWith('water')) {
             return 'waterway';
+        } else if (lowerName === 'highway' || lowerName.startsWith('highway')) {
+            return 'highway';
+        } else if (lowerName === 'building' || lowerName.startsWith('building')) {
+            return 'building';
+        } else if (lowerName === 'tree' || lowerName.startsWith('tree')) {
+            return 'tree';
         }
         
         // Default to ground if type cannot be determined
+        console.warn(`[STL Import] Could not detect type for name: "${name}", defaulting to 'ground'`);
         return 'ground';
     }
 

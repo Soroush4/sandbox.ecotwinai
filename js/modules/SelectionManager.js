@@ -245,6 +245,11 @@ class SelectionManager {
                 return false;
             }
             
+            // IMPORTANT: Skip invisible meshes - they should not be selectable
+            if (!mesh.isVisible || !mesh.isEnabled()) {
+                return false;
+            }
+            
             // Check if mesh is in selectableObjects array
             if (this.selectableObjects.includes(mesh)) {
                 // IMPORTANT: For extrusions, also verify that parent/basePolygon is hidden
@@ -860,14 +865,11 @@ class SelectionManager {
 
         // Add to selection if not already selected
         if (!this.selectedObjects.includes(mesh)) {
-            // IMPORTANT: Ensure mesh is visible and enabled before selecting
-            if (!mesh.isVisible) {
-                console.warn(`[SELECT] Mesh ${mesh.name} is not visible, fixing...`);
-                mesh.isVisible = true;
-            }
-            if (!mesh.isEnabled()) {
-                console.warn(`[SELECT] Mesh ${mesh.name} is not enabled, fixing...`);
-                mesh.setEnabled(true);
+            // IMPORTANT: Don't select invisible objects - they should remain invisible
+            // Only select if the object is visible and enabled
+            if (!mesh.isVisible || !mesh.isEnabled()) {
+                console.warn(`[SELECT] Cannot select invisible or disabled mesh: ${mesh.name}`);
+                return; // Don't select invisible objects
             }
             
             // IMPORTANT: TransformNodes cannot be added with addMesh, they're already in the scene

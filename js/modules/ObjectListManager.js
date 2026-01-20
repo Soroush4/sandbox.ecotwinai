@@ -493,6 +493,8 @@ class ObjectListManager {
                     if (child && !child.isDisposed()) {
                         child.isVisible = isVisible;
                         child.setEnabled(isVisible);
+                        // IMPORTANT: Make invisible objects non-pickable
+                        child.isPickable = isVisible;
                     }
                 });
                 // Also hide/show the TransformNode itself
@@ -501,6 +503,8 @@ class ObjectListManager {
                 // Regular mesh - hide/show the mesh itself
                 mesh.isVisible = isVisible;
                 mesh.setEnabled(isVisible);
+                // IMPORTANT: Make invisible objects non-pickable
+                mesh.isPickable = isVisible;
                 
                 // Also handle child meshes if any (for complex objects)
                 const childMeshes = mesh.getChildMeshes();
@@ -509,6 +513,8 @@ class ObjectListManager {
                         if (child && !child.isDisposed()) {
                             child.isVisible = isVisible;
                             child.setEnabled(isVisible);
+                            // IMPORTANT: Make invisible objects non-pickable
+                            child.isPickable = isVisible;
                         }
                     });
                 }
@@ -721,6 +727,8 @@ class ObjectListManager {
                 if (child && !child.isDisposed()) {
                     child.isVisible = isVisible;
                     child.setEnabled(isVisible);
+                    // IMPORTANT: Make invisible objects non-pickable
+                    child.isPickable = isVisible;
                 }
             });
             // Also hide/show the TransformNode itself
@@ -729,6 +737,8 @@ class ObjectListManager {
             // Regular mesh - hide/show the mesh itself
             mesh.isVisible = isVisible;
             mesh.setEnabled(isVisible);
+            // IMPORTANT: Make invisible objects non-pickable
+            mesh.isPickable = isVisible;
             
             // Also handle child meshes if any (for complex objects)
             const childMeshes = mesh.getChildMeshes();
@@ -737,6 +747,8 @@ class ObjectListManager {
                     if (child && !child.isDisposed()) {
                         child.isVisible = isVisible;
                         child.setEnabled(isVisible);
+                        // IMPORTANT: Make invisible objects non-pickable
+                        child.isPickable = isVisible;
                     }
                 });
             }
@@ -803,6 +815,32 @@ class ObjectListManager {
         if (this.getObjectCategory(mesh) === 'wireframe') {
             console.log('Wireframes are not selectable');
             return;
+        }
+        
+        // IMPORTANT: If object is invisible, make it visible first before selecting
+        // This allows users to click on invisible objects in the list to show them
+        const wasInvisible = !this.isObjectVisible(mesh);
+        if (wasInvisible) {
+            // Make object visible first
+            this.applyObjectVisibility(mesh, true);
+            
+            // Update visibility button in the list
+            const item = this.objectListContainer.querySelector(`[data-mesh-id="${mesh.id}"]`);
+            if (item) {
+                const visibilityButton = item.querySelector('.object-visibility');
+                if (visibilityButton) {
+                    visibilityButton.textContent = '👁️';
+                    visibilityButton.style.background = '#28a745';
+                    visibilityButton.title = 'Hide this object';
+                }
+            }
+            
+            // Update category visibility button if needed
+            const categoryKey = this.getObjectCategory(mesh);
+            const category = this.categories[categoryKey];
+            if (category) {
+                this.updateCategoryVisibilityButton(categoryKey, category);
+            }
         }
         
         // Clear current selection
