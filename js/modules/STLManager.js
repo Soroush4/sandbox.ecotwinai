@@ -417,111 +417,76 @@ class STLManager {
             console.log(`Parsed ${objects.length} objects from STL file`);
             this.updateSTLImportLoadingStatus(`Creating meshes... (${objects.length} objects)`);
 
-            // Separate buildings from other objects for batch processing
-            const buildings = objects.filter(obj => obj.type === 'building');
-            const otherObjects = objects.filter(obj => obj.type !== 'building');
-            
             // Debug: Log object types
             const typeCounts = {};
             objects.forEach(obj => {
                 typeCounts[obj.type] = (typeCounts[obj.type] || 0) + 1;
             });
             console.log(`[STL Import] Object type counts:`, typeCounts);
-            console.log(`[STL Import] Processing ${buildings.length} buildings and ${otherObjects.length} other objects`);
-            
-            // Debug: Log first few other objects
-            if (otherObjects.length > 0) {
-                console.log(`[STL Import] First 5 other objects:`, otherObjects.slice(0, 5).map(obj => ({ name: obj.name, type: obj.type, triangles: obj.triangles.length })));
-            } else {
-                console.warn(`[STL Import] WARNING: No other objects found! All objects are buildings?`);
-                console.log(`[STL Import] All object types:`, objects.map(obj => ({ name: obj.name, type: obj.type })));
-            }
 
             // Create meshes from parsed objects (process in batches for better performance)
+            // Process all objects in one loop, but use optimization for buildings
             let createdCount = 0;
             const BATCH_SIZE = 20; // Base batch size
             const BUILDING_BATCH_SIZE = 50; // Larger batch for buildings
+            let batchCount = 0;
             
-            // Process buildings first (with maximum optimization)
-            if (buildings.length > 0) {
-                let buildingBatchCount = 0;
-                for (let index = 0; index < buildings.length; index++) {
-                    const obj = buildings[index];
-                    try {
+            for (let index = 0; index < objects.length; index++) {
+                const obj = objects[index];
+                try {
+                    const isBuilding = obj.type === 'building';
+                    
+                    // Update progress with object name
+                    const progress = Math.round(((index + 1) / objects.length) * 100);
+                    if (isBuilding) {
                         // Update progress less frequently for buildings
-                        if (index % 10 === 0 || index === buildings.length - 1) {
-                            const progress = Math.round(((index + 1) / buildings.length) * 100);
-                            this.updateSTLImportLoadingStatus(`Creating buildings... ${progress}% (${index + 1}/${buildings.length})`, obj.name);
+                        if (index % 10 === 0 || index === objects.length - 1) {
+                            this.updateSTLImportLoadingStatus(`Creating meshes... ${progress}% (${index + 1}/${objects.length})`, obj.name);
                         }
-                        
-                        const mesh = this.createMeshFromSTLObject(obj, scene, true); // optimizeForPerformance = true
-                        if (mesh) {
-                            createdCount++;
-                        }
-                        
-                        // Yield much less frequently for buildings
-                        buildingBatchCount++;
-                        if (buildingBatchCount >= BUILDING_BATCH_SIZE && index < buildings.length - 1) {
-                            buildingBatchCount = 0;
-                            if (window.requestIdleCallback) {
-                                await new Promise(resolve => requestIdleCallback(resolve, { timeout: 100 }));
-                            } else {
-                                await new Promise(resolve => requestAnimationFrame(resolve));
-                            }
-                        }
-                    } catch (error) {
-                        console.error(`Error creating mesh for ${obj.name}:`, error);
+                    } else {
+                        // Update progress for every non-building object
+                        this.updateSTLImportLoadingStatus(`Creating meshes... ${progress}% (${index + 1}/${objects.length})`, obj.name);
                     }
+                    
+                    const mesh = this.createMeshFromSTLObject(obj, scene, isBuilding); // optimizeForPerformance = true for buildings only
+                    if (mesh) {
+                        createdCount++;
+                    }
+                    
+                    // Yield to browser - less frequently for buildings
+                    batchCount++;
+                    const yieldThreshold = isBuilding ? BUILDING_BATCH_SIZE : BATCH_SIZE;
+                    if (batchCount >= yieldThreshold && index < objects.length - 1) {
+                        batchCount = 0;
+                        if (window.requestIdleCallback) {
+                            await new Promise(resolve => requestIdleCallback(resolve, { timeout: 100 }));
+                        } else {
+                            await new Promise(resolve => requestAnimationFrame(resolve));
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error creating mesh for ${obj.name}:`, error);
                 }
-                
-                // Batch update shadows for all buildings at once (much faster)
-                if (this.lightingManager && buildings.length > 0) {
-                    this.updateSTLImportLoadingStatus('Setting up shadows for buildings...', null);
-                    const buildingMeshes = scene.meshes.filter(m => 
-                        m.userData && m.userData.isImportedSTL && m.userData.type === 'building'
-                    );
+            }
+            
+            // Batch update shadows for all buildings at once (much faster)
+            if (this.lightingManager) {
+                this.updateSTLImportLoadingStatus('Setting up shadows...', null);
+                const buildingMeshes = scene.meshes.filter(m => 
+                    m.userData && m.userData.isImportedSTL && m.userData.type === 'building'
+                );
+                if (buildingMeshes.length > 0) {
                     buildingMeshes.forEach(mesh => {
                         this.lightingManager.updateShadowsForNewObject(mesh);
                     });
                 }
-            }
-            
-            // Process other objects (with normal optimization)
-            if (otherObjects.length > 0) {
-                console.log(`[STL Import] Starting to process ${otherObjects.length} other objects...`);
-                let otherBatchCount = 0; // Reset batch count for other objects
-                for (let index = 0; index < otherObjects.length; index++) {
-                    const obj = otherObjects[index];
-                    try {
-                        console.log(`[STL Import] Processing other object ${index + 1}/${otherObjects.length}: ${obj.name} (type: ${obj.type})`);
-                        const progress = Math.round(((index + 1) / otherObjects.length) * 100);
-                        this.updateSTLImportLoadingStatus(`Creating other objects... ${progress}% (${index + 1}/${otherObjects.length})`, obj.name);
-                        
-                        const mesh = this.createMeshFromSTLObject(obj, scene, false); // optimizeForPerformance = false
-                        if (mesh) {
-                            createdCount++;
-                            console.log(`[STL Import] Successfully created mesh for ${obj.name}`);
-                        } else {
-                            console.warn(`[STL Import] Failed to create mesh for ${obj.name} - createMeshFromSTLObject returned null`);
-                        }
-                        
-                        otherBatchCount++;
-                        if (otherBatchCount >= BATCH_SIZE && index < otherObjects.length - 1) {
-                            otherBatchCount = 0;
-                            if (window.requestIdleCallback) {
-                                await new Promise(resolve => requestIdleCallback(resolve, { timeout: 100 }));
-                            } else {
-                                await new Promise(resolve => requestAnimationFrame(resolve));
-                            }
-                        }
-                    } catch (error) {
-                        console.error(`[STL Import] Error creating mesh for ${obj.name}:`, error);
-                        console.error(`[STL Import] Error stack:`, error.stack);
-                    }
-                }
-                console.log(`[STL Import] Finished processing ${otherObjects.length} other objects. Created ${createdCount} meshes total.`);
-            } else {
-                console.warn(`[STL Import] WARNING: otherObjects.length is 0! No non-building objects to process.`);
+                // Also update shadows for other objects
+                const otherMeshes = scene.meshes.filter(m => 
+                    m.userData && m.userData.isImportedSTL && m.userData.type !== 'building'
+                );
+                otherMeshes.forEach(mesh => {
+                    this.lightingManager.updateShadowsForNewObject(mesh);
+                });
             }
 
             console.log(`Created ${createdCount} meshes from STL file`);
