@@ -187,11 +187,22 @@ class STLManager {
     /**
      * Update STL import loading status
      * @param {string} status - New status message
+     * @param {string} objectName - Optional: Name of current object being processed
      */
-    updateSTLImportLoadingStatus(status) {
+    updateSTLImportLoadingStatus(status, objectName = null) {
         const statusElement = document.getElementById('stlImportLoadingStatus');
+        const objectElement = document.getElementById('stlImportLoadingObject');
+        
         if (statusElement) {
             statusElement.textContent = status;
+        }
+        
+        if (objectElement) {
+            if (objectName) {
+                objectElement.textContent = objectName;
+            } else {
+                objectElement.textContent = '';
+            }
         }
     }
 
@@ -247,19 +258,20 @@ class STLManager {
             let vertexCount = 0;
 
             // IMPORTANT: Process in chunks to prevent browser freeze for large files
-            // Process 5000 lines at a time, then yield to browser
-            const CHUNK_SIZE = 5000;
+            // Increased chunk size for better performance
+            const CHUNK_SIZE = 50000; // Increased to 50000 for maximum performance
             let currentIndex = 0;
+            let currentObjectName = '';
 
             // Parse STL file line by line in chunks
             while (currentIndex < lines.length) {
                 const endIndex = Math.min(currentIndex + CHUNK_SIZE, lines.length);
                 
                 for (let i = currentIndex; i < endIndex; i++) {
-                    // Update progress every 10000 lines
-                    if (i % 10000 === 0 && i > 0) {
+                    // Update progress every 100000 lines (less frequent updates for better performance)
+                    if (i % 100000 === 0 && i > 0) {
                         const progress = Math.round((i / totalLines) * 100);
-                        this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`);
+                        this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`, currentObjectName || null);
                     }
                     
                     const line = lines[i].trim();
@@ -267,12 +279,16 @@ class STLManager {
                 // Check for solid start
                 if (line.startsWith('solid ')) {
                     const objectName = line.substring(6).trim();
+                    currentObjectName = objectName; // Store for progress display
                     currentObject = {
                         name: objectName,
                         type: this.detectTypeFromName(objectName),
                         triangles: []
                     };
                     console.log(`Found solid: ${objectName}, type: ${currentObject.type}`);
+                    // Update progress with object name
+                    const progress = Math.round((i / totalLines) * 100);
+                    this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`, objectName);
                 }
                 // Check for solid end
                 else if (line.startsWith('endsolid ')) {
@@ -280,6 +296,7 @@ class STLManager {
                         objects.push(currentObject);
                     }
                     currentObject = null;
+                    currentObjectName = ''; // Clear object name
                 }
                 // Check for facet start
                 else if (line.startsWith('facet normal ')) {
@@ -377,37 +394,109 @@ class STLManager {
                 }
                 }
                 
-                // Update progress
+                // Update progress with current object name if available
                 const progress = Math.round((endIndex / totalLines) * 100);
-                this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`);
+                this.updateSTLImportLoadingStatus(`Parsing STL file... ${progress}%`, currentObjectName || null);
                 
-                // Yield to browser to prevent freeze
+                // Yield to browser to prevent freeze (less frequently for better performance)
                 currentIndex = endIndex;
                 if (currentIndex < lines.length) {
-                    // Use setTimeout to allow UI to update
-                    await new Promise(resolve => setTimeout(resolve, 0));
+                    // Use requestIdleCallback if available for better performance, otherwise requestAnimationFrame
+                    // Yield less frequently for maximum performance
+                    if (currentIndex % (CHUNK_SIZE * 3) === 0) {
+                        if (window.requestIdleCallback) {
+                            await new Promise(resolve => requestIdleCallback(resolve, { timeout: 100 }));
+                        } else {
+                            await new Promise(resolve => requestAnimationFrame(resolve));
+                        }
+                    }
                 }
             }
 
             console.log(`Parsed ${objects.length} objects from STL file`);
             this.updateSTLImportLoadingStatus(`Creating meshes... (${objects.length} objects)`);
 
-            // Create meshes from parsed objects (process one at a time to prevent freeze)
+            // Separate buildings from other objects for batch processing
+            const buildings = objects.filter(obj => obj.type === 'building');
+            const otherObjects = objects.filter(obj => obj.type !== 'building');
+            
+            console.log(`[STL Import] Processing ${buildings.length} buildings and ${otherObjects.length} other objects`);
+
+            // Create meshes from parsed objects (process in batches for better performance)
             let createdCount = 0;
-            for (let index = 0; index < objects.length; index++) {
-                const obj = objects[index];
-                try {
-                    this.updateSTLImportLoadingStatus(`Creating mesh ${index + 1}/${objects.length}: ${obj.name}`);
-                    const mesh = this.createMeshFromSTLObject(obj, scene);
-                    if (mesh) {
-                        createdCount++;
+            const BATCH_SIZE = 20; // Base batch size
+            const BUILDING_BATCH_SIZE = 50; // Larger batch for buildings
+            
+            // Process buildings first (with maximum optimization)
+            if (buildings.length > 0) {
+                let buildingBatchCount = 0;
+                for (let index = 0; index < buildings.length; index++) {
+                    const obj = buildings[index];
+                    try {
+                        // Update progress less frequently for buildings
+                        if (index % 10 === 0 || index === buildings.length - 1) {
+                            const progress = Math.round(((index + 1) / buildings.length) * 100);
+                            this.updateSTLImportLoadingStatus(`Creating buildings... ${progress}% (${index + 1}/${buildings.length})`, obj.name);
+                        }
+                        
+                        const mesh = this.createMeshFromSTLObject(obj, scene, true); // optimizeForPerformance = true
+                        if (mesh) {
+                            createdCount++;
+                        }
+                        
+                        // Yield much less frequently for buildings
+                        buildingBatchCount++;
+                        if (buildingBatchCount >= BUILDING_BATCH_SIZE && index < buildings.length - 1) {
+                            buildingBatchCount = 0;
+                            if (window.requestIdleCallback) {
+                                await new Promise(resolve => requestIdleCallback(resolve, { timeout: 100 }));
+                            } else {
+                                await new Promise(resolve => requestAnimationFrame(resolve));
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Error creating mesh for ${obj.name}:`, error);
                     }
-                    // Yield to browser after each mesh to prevent freeze
-                    if (index < objects.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                
+                // Batch update shadows for all buildings at once (much faster)
+                if (this.lightingManager && buildings.length > 0) {
+                    this.updateSTLImportLoadingStatus('Setting up shadows for buildings...', null);
+                    const buildingMeshes = scene.meshes.filter(m => 
+                        m.userData && m.userData.isImportedSTL && m.userData.type === 'building'
+                    );
+                    buildingMeshes.forEach(mesh => {
+                        this.lightingManager.updateShadowsForNewObject(mesh);
+                    });
+                }
+            }
+            
+            // Process other objects (with normal optimization)
+            if (otherObjects.length > 0) {
+                let otherBatchCount = 0; // Reset batch count for other objects
+                for (let index = 0; index < otherObjects.length; index++) {
+                    const obj = otherObjects[index];
+                    try {
+                        const progress = Math.round(((index + 1) / otherObjects.length) * 100);
+                        this.updateSTLImportLoadingStatus(`Creating other objects... ${progress}% (${index + 1}/${otherObjects.length})`, obj.name);
+                        
+                        const mesh = this.createMeshFromSTLObject(obj, scene, false); // optimizeForPerformance = false
+                        if (mesh) {
+                            createdCount++;
+                        }
+                        
+                        otherBatchCount++;
+                        if (otherBatchCount >= BATCH_SIZE && index < otherObjects.length - 1) {
+                            otherBatchCount = 0;
+                            if (window.requestIdleCallback) {
+                                await new Promise(resolve => requestIdleCallback(resolve, { timeout: 100 }));
+                            } else {
+                                await new Promise(resolve => requestAnimationFrame(resolve));
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Error creating mesh for ${obj.name}:`, error);
                     }
-                } catch (error) {
-                    console.error(`Error creating mesh for ${obj.name}:`, error);
                 }
             }
 
@@ -477,167 +566,200 @@ class STLManager {
 
     /**
      * Create a mesh from STL object data
+     * @param {Object} obj - STL object data
+     * @param {BABYLON.Scene} scene - Babylon.js scene
+     * @param {boolean} optimizeForPerformance - If true, skip some expensive operations for better performance
      */
-    createMeshFromSTLObject(obj, scene) {
+    createMeshFromSTLObject(obj, scene, optimizeForPerformance = false) {
         if (!obj || !obj.triangles || obj.triangles.length === 0) {
             return null;
         }
 
         // Collect all vertices and create indices
-        // Use a smarter approach: group vertices by position AND normal similarity
-        // This allows proper smoothing while preserving hard edges
+        // For performance optimization (buildings), use simpler approach without complex smoothing
         const positions = [];
         const indices = [];
         const normals = [];
-        const vertexMap = new Map(); // key -> array of {index, normal, triangleIndex}
-        // Use smoothing angle threshold from preferences (convert degrees to cosine)
-        // Note: We invert the angle (180 - angle) so that higher slider values = more smoothing
-        // cos(0°) = 1 (less smoothing), cos(180°) = -1 (more smoothing)
-        const angleDegrees = this.smoothingAngleThreshold || 180;
-        const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
         
-        // First pass: collect vertices and group by position
-        obj.triangles.forEach((triangle, triIndex) => {
-            const triangleIndices = [];
-            const triangleNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
-
-            // Process each vertex in the triangle
-            triangle.vertices.forEach((vertex) => {
-                const key = `${vertex.x.toFixed(6)},${vertex.y.toFixed(6)},${vertex.z.toFixed(6)}`;
+        if (optimizeForPerformance) {
+            // Ultra-fast path for buildings: simple vertex deduplication, no normals stored
+            // We'll use ComputeNormals later which is much faster
+            const vertexMap = new Map(); // key -> index
+            
+            obj.triangles.forEach((triangle) => {
+                const triangleIndices = [];
                 
-                if (!vertexMap.has(key)) {
-                    vertexMap.set(key, []);
-                }
-                
-                const vertexGroup = vertexMap.get(key);
-                
-                // Find if there's a similar normal in this vertex group
-                let foundSimilar = false;
-                for (let i = 0; i < vertexGroup.length; i++) {
-                    const existing = vertexGroup[i];
-                    const existingNormal = new BABYLON.Vector3(
-                        existing.normal.x,
-                        existing.normal.y,
-                        existing.normal.z
-                    );
-                    existingNormal.normalize();
+                triangle.vertices.forEach((vertex) => {
+                    // Use integer coordinates for fastest comparison (100x precision is enough for buildings)
+                    const key = `${Math.round(vertex.x * 100)},${Math.round(vertex.y * 100)},${Math.round(vertex.z * 100)}`;
                     
-                    const dotProduct = BABYLON.Vector3.Dot(existingNormal, triangleNormal);
-                    
-                    // If normals are similar (angle < 60°), use the same vertex index
-                    if (dotProduct > smoothingAngleThreshold) {
-                        triangleIndices.push(existing.index);
-                        foundSimilar = true;
-                        
-                        // Update normal by averaging (for better smoothing)
-                        const count = existing.triangleCount || 1;
-                        existing.normal.x = (existing.normal.x * count + triangle.normal.x) / (count + 1);
-                        existing.normal.y = (existing.normal.y * count + triangle.normal.y) / (count + 1);
-                        existing.normal.z = (existing.normal.z * count + triangle.normal.z) / (count + 1);
-                        existing.triangleCount = count + 1;
-                        break;
+                    if (!vertexMap.has(key)) {
+                        const vertexIndex = positions.length / 3;
+                        positions.push(vertex.x, vertex.y, vertex.z);
+                        // Don't store normals - we'll compute them later using ComputeNormals
+                        vertexMap.set(key, vertexIndex);
+                        triangleIndices.push(vertexIndex);
+                    } else {
+                        triangleIndices.push(vertexMap.get(key));
                     }
-                }
+                });
                 
-                // If no similar normal found, create a new vertex (hard edge)
-                if (!foundSimilar) {
-                    const vertexIndex = positions.length / 3;
-                    positions.push(vertex.x, vertex.y, vertex.z);
-                    
-                    vertexGroup.push({
-                        index: vertexIndex,
-                        normal: { x: triangle.normal.x, y: triangle.normal.y, z: triangle.normal.z },
-                        triangleCount: 1
-                    });
-                    
-                    triangleIndices.push(vertexIndex);
-                }
-            });
-
-            // Add triangle indices
-            // Check if we need to flip the triangle order based on normal direction
-            // In STL, normals should point outward. If the normal from STL points inward,
-            // we need to reverse the vertex order to get correct lighting
-            if (triangleIndices.length === 3) {
-                // Calculate normal from triangle vertices to verify direction
-                const v0 = triangle.vertices[0];
-                const v1 = triangle.vertices[1];
-                const v2 = triangle.vertices[2];
-                
-                const edge1 = new BABYLON.Vector3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
-                const edge2 = new BABYLON.Vector3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
-                const calculatedNormal = BABYLON.Vector3.Cross(edge1, edge2);
-                calculatedNormal.normalize();
-                
-                // Compare with STL normal
-                const stlNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
-                stlNormal.normalize();
-                
-                const dotProduct = BABYLON.Vector3.Dot(calculatedNormal, stlNormal);
-                
-                // If normals are opposite (dot product < 0), reverse the triangle order
-                if (dotProduct < 0) {
-                    // Reverse order: (0, 1, 2) -> (0, 2, 1)
-                    indices.push(triangleIndices[0], triangleIndices[2], triangleIndices[1]);
-                } else {
-                    // Keep original order
+                // Add triangle indices (no normal checking for performance)
+                if (triangleIndices.length === 3) {
                     indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
                 }
-            }
-        });
-        
-        // Second pass: calculate final normals for all vertices
-        let smoothingStats = {
-            totalVertices: 0,
-            smoothedVertices: 0,
-            hardEdges: 0,
-            uniqueNormals: new Set(),
-            maxVariantsPerPosition: 0
-        };
-        
-        vertexMap.forEach((vertexGroup) => {
-            smoothingStats.totalVertices++;
-            if (vertexGroup.length > 1) {
-                smoothingStats.hardEdges++;
-            }
-            if (vertexGroup.length > smoothingStats.maxVariantsPerPosition) {
-                smoothingStats.maxVariantsPerPosition = vertexGroup.length;
-            }
+            });
+        } else {
+            // Original approach with smoothing for other objects
+            const vertexMap = new Map(); // key -> array of {index, normal, triangleIndex}
+            const angleDegrees = this.smoothingAngleThreshold || 180;
+            const smoothingAngleThreshold = Math.cos((180 - angleDegrees) * Math.PI / 180);
             
-            vertexGroup.forEach((vertexData) => {
-                const normal = vertexData.normal;
-                
-                // Normalize the normal
-                const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
-                if (length > 0.0001) {
-                    const normalizedX = normal.x / length;
-                    const normalizedY = normal.y / length;
-                    const normalizedZ = normal.z / length;
-                    normals.push(normalizedX, normalizedY, normalizedZ);
+            // First pass: collect vertices and group by position
+            obj.triangles.forEach((triangle, triIndex) => {
+                const triangleIndices = [];
+                const triangleNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
+
+                // Process each vertex in the triangle
+                triangle.vertices.forEach((vertex) => {
+                    const key = `${vertex.x.toFixed(6)},${vertex.y.toFixed(6)},${vertex.z.toFixed(6)}`;
                     
-                    if (vertexData.triangleCount > 1) {
-                        smoothingStats.smoothedVertices++;
+                    if (!vertexMap.has(key)) {
+                        vertexMap.set(key, []);
                     }
                     
-                    // Track unique normals
-                    const normalKey = `${normalizedX.toFixed(3)},${normalizedY.toFixed(3)},${normalizedZ.toFixed(3)}`;
-                    smoothingStats.uniqueNormals.add(normalKey);
-                } else {
-                    normals.push(0, 1, 0);
-                    smoothingStats.uniqueNormals.add('0.000,1.000,0.000');
+                    const vertexGroup = vertexMap.get(key);
+                    
+                    // Find if there's a similar normal in this vertex group
+                    let foundSimilar = false;
+                    for (let i = 0; i < vertexGroup.length; i++) {
+                        const existing = vertexGroup[i];
+                        const existingNormal = new BABYLON.Vector3(
+                            existing.normal.x,
+                            existing.normal.y,
+                            existing.normal.z
+                        );
+                        existingNormal.normalize();
+                        
+                        const dotProduct = BABYLON.Vector3.Dot(existingNormal, triangleNormal);
+                        
+                        // If normals are similar (angle < 60°), use the same vertex index
+                        if (dotProduct > smoothingAngleThreshold) {
+                            triangleIndices.push(existing.index);
+                            foundSimilar = true;
+                            
+                            // Update normal by averaging (for better smoothing)
+                            const count = existing.triangleCount || 1;
+                            existing.normal.x = (existing.normal.x * count + triangle.normal.x) / (count + 1);
+                            existing.normal.y = (existing.normal.y * count + triangle.normal.y) / (count + 1);
+                            existing.normal.z = (existing.normal.z * count + triangle.normal.z) / (count + 1);
+                            existing.triangleCount = count + 1;
+                            break;
+                        }
+                    }
+                    
+                    // If no similar normal found, create a new vertex (hard edge)
+                    if (!foundSimilar) {
+                        const vertexIndex = positions.length / 3;
+                        positions.push(vertex.x, vertex.y, vertex.z);
+                        
+                        vertexGroup.push({
+                            index: vertexIndex,
+                            normal: { x: triangle.normal.x, y: triangle.normal.y, z: triangle.normal.z },
+                            triangleCount: 1
+                        });
+                        
+                        triangleIndices.push(vertexIndex);
+                    }
+                });
+
+                // Add triangle indices
+                // Check if we need to flip the triangle order based on normal direction
+                // In STL, normals should point outward. If the normal from STL points inward,
+                // we need to reverse the vertex order to get correct lighting
+                if (triangleIndices.length === 3) {
+                    // Calculate normal from triangle vertices to verify direction
+                    const v0 = triangle.vertices[0];
+                    const v1 = triangle.vertices[1];
+                    const v2 = triangle.vertices[2];
+                    
+                    const edge1 = new BABYLON.Vector3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
+                    const edge2 = new BABYLON.Vector3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
+                    const calculatedNormal = BABYLON.Vector3.Cross(edge1, edge2);
+                    calculatedNormal.normalize();
+                    
+                    // Compare with STL normal
+                    const stlNormal = new BABYLON.Vector3(triangle.normal.x, triangle.normal.y, triangle.normal.z);
+                    stlNormal.normalize();
+                    
+                    const dotProduct = BABYLON.Vector3.Dot(calculatedNormal, stlNormal);
+                    
+                    // If normals are opposite (dot product < 0), reverse the triangle order
+                    if (dotProduct < 0) {
+                        // Reverse order: (0, 1, 2) -> (0, 2, 1)
+                        indices.push(triangleIndices[0], triangleIndices[2], triangleIndices[1]);
+                    } else {
+                        // Keep original order
+                        indices.push(triangleIndices[0], triangleIndices[1], triangleIndices[2]);
+                    }
                 }
             });
-        });
+            
+            // Second pass: calculate final normals for all vertices (only for non-optimized path)
+            let smoothingStats = {
+                totalVertices: 0,
+                smoothedVertices: 0,
+                hardEdges: 0,
+                uniqueNormals: new Set(),
+                maxVariantsPerPosition: 0
+            };
+            
+            vertexMap.forEach((vertexGroup) => {
+                smoothingStats.totalVertices++;
+                if (vertexGroup.length > 1) {
+                    smoothingStats.hardEdges++;
+                }
+                if (vertexGroup.length > smoothingStats.maxVariantsPerPosition) {
+                    smoothingStats.maxVariantsPerPosition = vertexGroup.length;
+                }
+                
+                vertexGroup.forEach((vertexData) => {
+                    const normal = vertexData.normal;
+                    
+                    // Normalize the normal
+                    const length = Math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+                    if (length > 0.0001) {
+                        const normalizedX = normal.x / length;
+                        const normalizedY = normal.y / length;
+                        const normalizedZ = normal.z / length;
+                        normals.push(normalizedX, normalizedY, normalizedZ);
+                        
+                        if (vertexData.triangleCount > 1) {
+                            smoothingStats.smoothedVertices++;
+                        }
+                        
+                        // Track unique normals
+                        const normalKey = `${normalizedX.toFixed(3)},${normalizedY.toFixed(3)},${normalizedZ.toFixed(3)}`;
+                        smoothingStats.uniqueNormals.add(normalKey);
+                    } else {
+                        normals.push(0, 1, 0);
+                        smoothingStats.uniqueNormals.add('0.000,1.000,0.000');
+                    }
+                });
+            });
+        }
         
-        // Log smoothing information
-        console.log(`[STL Import] ${obj.name} - Smoothing Info:`, {
-            totalPositions: smoothingStats.totalVertices,
-            smoothedVertices: smoothingStats.smoothedVertices,
-            hardEdges: smoothingStats.hardEdges,
-            uniqueNormalCount: smoothingStats.uniqueNormals.size,
-            maxVariantsPerPosition: smoothingStats.maxVariantsPerPosition,
-            note: 'STL format does not have smoothing groups. Smoothing uses 60° angle threshold to preserve hard edges.'
-        });
+        // Log smoothing information (skip for performance optimization)
+        if (!optimizeForPerformance) {
+            console.log(`[STL Import] ${obj.name} - Smoothing Info:`, {
+                totalPositions: smoothingStats.totalVertices,
+                smoothedVertices: smoothingStats.smoothedVertices,
+                hardEdges: smoothingStats.hardEdges,
+                uniqueNormalCount: smoothingStats.uniqueNormals.size,
+                maxVariantsPerPosition: smoothingStats.maxVariantsPerPosition,
+                note: 'STL format does not have smoothing groups. Smoothing uses 60° angle threshold to preserve hard edges.'
+            });
+        }
 
         if (positions.length === 0) {
             return null;
@@ -652,24 +774,51 @@ class STLManager {
         vertexData.indices = indices;
         
         // Use smoothed normals (already calculated from STL normals)
-        // Note: STL format doesn't have smoothing groups, so we smooth by averaging
-        // normals of all triangles sharing each vertex
+        // For optimized path (buildings), use ComputeNormals which is much faster
+        if (optimizeForPerformance) {
+            // Use Babylon.js ComputeNormals - it's optimized and much faster than manual calculation
+            // normals array is empty, ComputeNormals will fill it
+            BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        }
+        // Set normals (either computed for buildings or pre-calculated for others)
         vertexData.normals = normals;
 
         // Apply vertex data to mesh
         vertexData.applyToMesh(mesh);
 
         // Calculate bounding box to determine mesh center and minimum Y
-        mesh.refreshBoundingInfo();
-        const boundingInfo = mesh.getBoundingInfo();
-        const min = boundingInfo.boundingBox.minimum;
-        const max = boundingInfo.boundingBox.maximum;
-        const center = new BABYLON.Vector3(
-            (min.x + max.x) / 2,
-            (min.y + max.y) / 2,
-            (min.z + max.z) / 2
-        );
-        const originalMinY = min.y; // Store original minimum Y before offset
+        // For optimized path, calculate bounding box manually (faster than refreshBoundingInfo)
+        let min, max, center, originalMinY;
+        if (optimizeForPerformance) {
+            // Manual bounding box calculation (much faster for buildings)
+            min = new BABYLON.Vector3(Infinity, Infinity, Infinity);
+            max = new BABYLON.Vector3(-Infinity, -Infinity, -Infinity);
+            for (let i = 0; i < positions.length; i += 3) {
+                min.x = Math.min(min.x, positions[i]);
+                min.y = Math.min(min.y, positions[i + 1]);
+                min.z = Math.min(min.z, positions[i + 2]);
+                max.x = Math.max(max.x, positions[i]);
+                max.y = Math.max(max.y, positions[i + 1]);
+                max.z = Math.max(max.z, positions[i + 2]);
+            }
+            center = new BABYLON.Vector3(
+                (min.x + max.x) / 2,
+                (min.y + max.y) / 2,
+                (min.z + max.z) / 2
+            );
+            originalMinY = min.y;
+        } else {
+            mesh.refreshBoundingInfo();
+            const boundingInfo = mesh.getBoundingInfo();
+            min = boundingInfo.boundingBox.minimum;
+            max = boundingInfo.boundingBox.maximum;
+            center = new BABYLON.Vector3(
+                (min.x + max.x) / 2,
+                (min.y + max.y) / 2,
+                (min.z + max.z) / 2
+            );
+            originalMinY = min.y;
+        }
 
         // Adjust mesh position and vertices:
         // 1. Move mesh to center position (so gizmo appears at center X/Z)
@@ -692,21 +841,42 @@ class STLManager {
         
         // Recalculate normals from geometry to ensure correct direction
         // This fixes the issue where STL normals might be inverted
-        // ComputeNormals calculates normals based on triangle winding order (counter-clockwise = upward)
-        const recalculatedNormals = [];
-        BABYLON.VertexData.ComputeNormals(adjustedPositions, indices, recalculatedNormals);
-        mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, recalculatedNormals);
-        
-        mesh.refreshBoundingInfo();
+        // For optimized path (buildings), skip this as we already computed normals and they're relative to geometry
+        if (!optimizeForPerformance) {
+            const recalculatedNormals = [];
+            BABYLON.VertexData.ComputeNormals(adjustedPositions, indices, recalculatedNormals);
+            mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, recalculatedNormals);
+        } else {
+            // For buildings, adjust normals to match adjusted positions (recompute for adjusted geometry)
+            const recalculatedNormals = [];
+            BABYLON.VertexData.ComputeNormals(adjustedPositions, indices, recalculatedNormals);
+            mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind, recalculatedNormals);
+        }
         
         // Calculate minimum Y after offset (in local space, should be negative or zero)
-        const updatedBoundingInfo = mesh.getBoundingInfo();
-        const updatedMin = updatedBoundingInfo.boundingBox.minimum;
-        const updatedMax = updatedBoundingInfo.boundingBox.maximum;
-        const localMinY = updatedMin.y;
-        
-        // Calculate world-space minimum Y for gizmo positioning
-        const worldMinY = mesh.position.y + localMinY;
+        let updatedMin, updatedMax, localMinY, worldMinY;
+        if (optimizeForPerformance) {
+            // Manual calculation (faster for buildings)
+            updatedMin = new BABYLON.Vector3(Infinity, Infinity, Infinity);
+            updatedMax = new BABYLON.Vector3(-Infinity, -Infinity, -Infinity);
+            for (let i = 0; i < adjustedPositions.length; i += 3) {
+                updatedMin.x = Math.min(updatedMin.x, adjustedPositions[i]);
+                updatedMin.y = Math.min(updatedMin.y, adjustedPositions[i + 1]);
+                updatedMin.z = Math.min(updatedMin.z, adjustedPositions[i + 2]);
+                updatedMax.x = Math.max(updatedMax.x, adjustedPositions[i]);
+                updatedMax.y = Math.max(updatedMax.y, adjustedPositions[i + 1]);
+                updatedMax.z = Math.max(updatedMax.z, adjustedPositions[i + 2]);
+            }
+            localMinY = updatedMin.y;
+            worldMinY = mesh.position.y + localMinY;
+        } else {
+            mesh.refreshBoundingInfo();
+            const updatedBoundingInfo = mesh.getBoundingInfo();
+            updatedMin = updatedBoundingInfo.boundingBox.minimum;
+            updatedMax = updatedBoundingInfo.boundingBox.maximum;
+            localMinY = updatedMin.y;
+            worldMinY = mesh.position.y + localMinY;
+        }
 
         // Create material based on type - ensure color is set correctly
         const material = new BABYLON.StandardMaterial(`${obj.name}Material`, scene);
@@ -723,20 +893,33 @@ class STLManager {
         material.alpha = 1.0; // Ensure full opacity
         mesh.material = material;
 
-        // Enable edges rendering
-        mesh.enableEdgesRendering();
-        mesh.edgesWidth = 1.0;
-        mesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
+        // Enable edges rendering (skip for buildings for better performance)
+        if (!optimizeForPerformance) {
+            mesh.enableEdgesRendering();
+            mesh.edgesWidth = 1.0;
+            mesh.edgesColor = new BABYLON.Color4(0, 0, 0, 1);
+        }
         
         // Set userData based on type
         // Store original STL data for real-time smoothing updates
-        const originalSTLDataCopy = JSON.parse(JSON.stringify(obj));
-        
-        // Remove period properties from originalSTLData if they exist
-        delete originalSTLDataCopy.startPeriod;
-        delete originalSTLDataCopy.endPeriod;
-        delete originalSTLDataCopy.buildingArchetypePeriod;
-        delete originalSTLDataCopy.buildingGroupPeriod;
+        // For performance optimization (buildings), skip deep copy of STL data
+        let originalSTLDataCopy = null;
+        if (!optimizeForPerformance) {
+            // Only deep copy for non-buildings (ground, grass, etc.) that might need smoothing updates
+            originalSTLDataCopy = JSON.parse(JSON.stringify(obj));
+            // Remove period properties from originalSTLData if they exist
+            delete originalSTLDataCopy.startPeriod;
+            delete originalSTLDataCopy.endPeriod;
+            delete originalSTLDataCopy.buildingArchetypePeriod;
+            delete originalSTLDataCopy.buildingGroupPeriod;
+        } else {
+            // For buildings, store minimal data (just name and type) to save memory and time
+            originalSTLDataCopy = {
+                name: obj.name,
+                type: obj.type,
+                triangles: [] // Empty - not needed for buildings
+            };
+        }
         
         const userData = {
             type: obj.type,
@@ -749,7 +932,7 @@ class STLManager {
             originalHeight: updatedMax.y - updatedMin.y,
             baseY: worldMinY, // Store world-space minimum Y for gizmo positioning
             isImportedSTL: true, // Flag to identify imported STL meshes
-            originalSTLData: originalSTLDataCopy // Deep copy of original STL data for rebuilding (without period properties)
+            originalSTLData: originalSTLDataCopy // Minimal copy for buildings, full copy for others
         };
 
         // Add default surface type properties based on object type
@@ -832,26 +1015,36 @@ class STLManager {
             console.log(`Imported tree: ${obj.name} (as simple mesh)`);
         }
 
-        // Update shadows
+        // Update shadows (batch update for buildings for better performance)
         if (this.lightingManager) {
-            this.lightingManager.updateShadowsForNewObject(mesh);
+            if (optimizeForPerformance) {
+                // For buildings, defer shadow update to batch processing
+                // Just set flags, actual shadow setup will be done in batch
+                mesh.receiveShadows = true;
+                mesh.castShadows = true;
+            } else {
+                this.lightingManager.updateShadowsForNewObject(mesh);
+            }
         }
 
-        console.log(`Created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length}, renderingGroupId: ${mesh.renderingGroupId}, isVisible: ${mesh.isVisible}, isEnabled: ${mesh.isEnabled()})`);
+        // Skip console.log for buildings (performance optimization)
+        if (!optimizeForPerformance) {
+            console.log(`Created mesh: ${obj.name} (type: ${obj.type}, triangles: ${obj.triangles.length}, renderingGroupId: ${mesh.renderingGroupId}, isVisible: ${mesh.isVisible}, isEnabled: ${mesh.isEnabled()})`);
 
-        // IMPORTANT: Log highway meshes specifically for debugging
-        if (obj.type === 'highway') {
-            console.log(`[STL Import] Highway mesh created: ${obj.name}`, {
-                type: obj.type,
-                renderingGroupId: mesh.renderingGroupId,
-                isVisible: mesh.isVisible,
-                isEnabled: mesh.isEnabled(),
-                hasMaterial: !!mesh.material,
-                materialAlpha: mesh.material?.alpha,
-                materialDiffuseColor: mesh.material?.diffuseColor,
-                position: mesh.position,
-                triangles: obj.triangles.length
-            });
+            // IMPORTANT: Log highway meshes specifically for debugging
+            if (obj.type === 'highway') {
+                console.log(`[STL Import] Highway mesh created: ${obj.name}`, {
+                    type: obj.type,
+                    renderingGroupId: mesh.renderingGroupId,
+                    isVisible: mesh.isVisible,
+                    isEnabled: mesh.isEnabled(),
+                    hasMaterial: !!mesh.material,
+                    materialAlpha: mesh.material?.alpha,
+                    materialDiffuseColor: mesh.material?.diffuseColor,
+                    position: mesh.position,
+                    triangles: obj.triangles.length
+                });
+            }
         }
 
         return mesh;
@@ -945,6 +1138,15 @@ class STLManager {
     }
 
     /**
+     * Get export order for object types
+     * @returns {Array<string>} Ordered array of type names
+     */
+    getExportOrder() {
+        // Order: ground, grass, waterway, highway, building, tree
+        return ['ground', 'grass', 'waterway', 'highway', 'building', 'tree'];
+    }
+
+    /**
      * Proceed with STL export after user confirms settings
      */
     async proceedWithSTLExport(axisUp) {
@@ -979,8 +1181,11 @@ class STLManager {
             meshesByType[type].push(mesh);
         });
 
-        // Add typed meshes to export list with proper naming
-        Object.keys(meshesByType).forEach(type => {
+        // Add typed meshes to export list with proper naming in specified order
+        const exportOrder = this.getExportOrder();
+        exportOrder.forEach(type => {
+            if (!meshesByType[type]) return; // Skip if no meshes of this type
+            
             meshesByType[type].forEach((mesh, index) => {
                 let exportName;
                 
@@ -1001,12 +1206,21 @@ class STLManager {
             });
         });
 
-        // 2. Get trees from TreeManager
+        // 2. Get trees from TreeManager (last in order)
         if (this.treeManager && this.treeManager.trees) {
             const trees = this.treeManager.trees;
-            console.log(`Found ${trees.length} trees`);
+            console.log(`[STL Export] Found ${trees.length} trees in TreeManager`);
 
             trees.forEach((tree, index) => {
+                console.log(`[STL Export] Processing tree ${index + 1}:`, {
+                    hasParent: !!tree.parent,
+                    hasMeshes: !!tree.meshes,
+                    meshesCount: tree.meshes ? tree.meshes.length : 0,
+                    parentType: tree.parent ? tree.parent.constructor.name : 'none',
+                    treeId: tree.id,
+                    treeType: tree.type
+                });
+
                 if (tree.parent && tree.meshes && tree.meshes.length > 0) {
                     // Combine all meshes of a tree into one export object
                     meshesToExport.push({
@@ -1015,6 +1229,59 @@ class STLManager {
                         name: `tree${index + 1}`, // Name: tree1, tree2, ...
                         type: 'tree'
                     });
+                    console.log(`[STL Export] Added tree ${index + 1} to export list`);
+                } else {
+                    console.warn(`[STL Export] Tree ${index + 1} skipped:`, {
+                        hasParent: !!tree.parent,
+                        hasMeshes: !!tree.meshes,
+                        meshesCount: tree.meshes ? tree.meshes.length : 0
+                    });
+                }
+            });
+        } else {
+            console.warn('[STL Export] TreeManager or trees array not available:', {
+                hasTreeManager: !!this.treeManager,
+                hasTrees: !!(this.treeManager && this.treeManager.trees),
+                treesLength: this.treeManager && this.treeManager.trees ? this.treeManager.trees.length : 0
+            });
+        }
+
+        // 2b. Also check for trees in scene (TransformNodes with name starting with "tree")
+        // This handles trees that might have been imported from STL or created in other ways
+        if (scene) {
+            const treeTransformNodes = scene.transformNodes.filter(node => {
+                if (!node || !node.isEnabled() || !node.isVisible) return false;
+                const nodeName = node.name ? node.name.toLowerCase() : '';
+                return nodeName.startsWith('tree') && /^tree\d+$/.test(nodeName);
+            });
+
+            console.log(`[STL Export] Found ${treeTransformNodes.length} tree TransformNodes in scene`);
+
+            treeTransformNodes.forEach((treeNode, index) => {
+                // Get child meshes of this TransformNode
+                const childMeshes = treeNode.getChildMeshes ? treeNode.getChildMeshes() : [];
+                const validChildMeshes = childMeshes.filter(mesh => 
+                    mesh && mesh.isEnabled() && mesh.isVisible && !mesh.isDisposed()
+                );
+
+                console.log(`[STL Export] Tree TransformNode ${treeNode.name}:`, {
+                    childMeshesCount: validChildMeshes.length,
+                    isInTreeManager: this.treeManager && this.treeManager.trees ? 
+                        this.treeManager.trees.some(t => t.parent === treeNode) : false
+                });
+
+                // Only add if not already in TreeManager
+                const alreadyInTreeManager = this.treeManager && this.treeManager.trees ? 
+                    this.treeManager.trees.some(t => t.parent === treeNode) : false;
+
+                if (!alreadyInTreeManager && validChildMeshes.length > 0) {
+                    meshesToExport.push({
+                        mesh: treeNode,
+                        childMeshes: validChildMeshes,
+                        name: treeNode.name,
+                        type: 'tree'
+                    });
+                    console.log(`[STL Export] Added tree TransformNode ${treeNode.name} to export list (not in TreeManager)`);
                 }
             });
         }
@@ -1069,8 +1336,11 @@ class STLManager {
             meshesByType[type].push(mesh);
         });
 
-        // Add typed meshes to export list with proper naming
-        Object.keys(meshesByType).forEach(type => {
+        // Add typed meshes to export list with proper naming in specified order
+        const exportOrder = this.getExportOrder();
+        exportOrder.forEach(type => {
+            if (!meshesByType[type]) return; // Skip if no meshes of this type
+            
             meshesByType[type].forEach((mesh, index) => {
                 let exportName;
                 
@@ -1088,7 +1358,7 @@ class STLManager {
             });
         });
 
-        // 2. Get all STL imported meshes
+        // 2. Get all STL imported meshes (preserve their original type order)
         const stlMeshes = scene.meshes.filter(mesh => {
             if (!mesh || !mesh.isEnabled() || !mesh.isVisible) return false;
             return mesh.userData && mesh.userData.isImportedSTL;
@@ -1096,21 +1366,42 @@ class STLManager {
 
         console.log(`Found ${stlMeshes.length} STL imported meshes`);
 
-        stlMeshes.forEach((mesh, index) => {
-            const name = mesh.name || `stl_import_${index + 1}`;
-            meshesToExport.push({
-                mesh: mesh,
-                name: name,
-                type: 'stl'
+        // Group STL meshes by type and add in export order
+        const stlMeshesByType = {};
+        stlMeshes.forEach(mesh => {
+            const type = mesh.userData?.type || 'ground';
+            if (!stlMeshesByType[type]) {
+                stlMeshesByType[type] = [];
+            }
+            stlMeshesByType[type].push(mesh);
+        });
+
+        // Add STL meshes in export order
+        exportOrder.forEach(type => {
+            if (!stlMeshesByType[type]) return; // Skip if no STL meshes of this type
+            
+            stlMeshesByType[type].forEach((mesh, index) => {
+                const name = mesh.name || `${type}_stl_${index + 1}`;
+                meshesToExport.push({
+                    mesh: mesh,
+                    name: name,
+                    type: type
+                });
             });
         });
 
-        // 3. Get all trees from TreeManager (same logic as proceedWithSTLExport)
+        // 3. Get all trees from TreeManager (last in order)
         if (this.treeManager && this.treeManager.trees) {
             const trees = this.treeManager.trees;
-            console.log(`Found ${trees.length} trees`);
+            console.log(`[STL Export] Found ${trees.length} trees in TreeManager (exportSTLToDirectory)`);
             
             trees.forEach((tree, index) => {
+                console.log(`[STL Export] Processing tree ${index + 1} (exportSTLToDirectory):`, {
+                    hasParent: !!tree.parent,
+                    hasMeshes: !!tree.meshes,
+                    meshesCount: tree.meshes ? tree.meshes.length : 0
+                });
+
                 if (tree.parent && tree.meshes && tree.meshes.length > 0) {
                     // Combine all meshes of a tree into one export object
                     meshesToExport.push({
@@ -1119,9 +1410,56 @@ class STLManager {
                         name: `tree${index + 1}`, // Name: tree1, tree2, ...
                         type: 'tree'
                     });
+                    console.log(`[STL Export] Added tree ${index + 1} to export list (exportSTLToDirectory)`);
+                } else {
+                    console.warn(`[STL Export] Tree ${index + 1} skipped (exportSTLToDirectory):`, {
+                        hasParent: !!tree.parent,
+                        hasMeshes: !!tree.meshes,
+                        meshesCount: tree.meshes ? tree.meshes.length : 0
+                    });
+                }
+            });
+        } else {
+            console.warn('[STL Export] TreeManager or trees array not available (exportSTLToDirectory):', {
+                hasTreeManager: !!this.treeManager,
+                hasTrees: !!(this.treeManager && this.treeManager.trees)
+            });
+        }
+
+        // 3b. Also check for trees in scene (TransformNodes with name starting with "tree")
+        if (scene) {
+            const treeTransformNodes = scene.transformNodes.filter(node => {
+                if (!node || !node.isEnabled() || !node.isVisible) return false;
+                const nodeName = node.name ? node.name.toLowerCase() : '';
+                return nodeName.startsWith('tree') && /^tree\d+$/.test(nodeName);
+            });
+
+            console.log(`[STL Export] Found ${treeTransformNodes.length} tree TransformNodes in scene (exportSTLToDirectory)`);
+
+            treeTransformNodes.forEach((treeNode, index) => {
+                const childMeshes = treeNode.getChildMeshes ? treeNode.getChildMeshes() : [];
+                const validChildMeshes = childMeshes.filter(mesh => 
+                    mesh && mesh.isEnabled() && mesh.isVisible && !mesh.isDisposed()
+                );
+
+                const alreadyInTreeManager = this.treeManager && this.treeManager.trees ? 
+                    this.treeManager.trees.some(t => t.parent === treeNode) : false;
+
+                if (!alreadyInTreeManager && validChildMeshes.length > 0) {
+                    meshesToExport.push({
+                        mesh: treeNode,
+                        childMeshes: validChildMeshes,
+                        name: treeNode.name,
+                        type: 'tree'
+                    });
+                    console.log(`[STL Export] Added tree TransformNode ${treeNode.name} to export list (exportSTLToDirectory, not in TreeManager)`);
                 }
             });
         }
+
+        console.log(`[STL Export] Total objects to export (exportSTLToDirectory): ${meshesToExport.length}`);
+        const treeCount = meshesToExport.filter(obj => obj.type === 'tree').length;
+        console.log(`[STL Export] Trees in export list (exportSTLToDirectory): ${treeCount}`);
 
         if (meshesToExport.length === 0) {
             throw new Error('No meshes to export');
@@ -1146,6 +1484,8 @@ class STLManager {
     generateSTLContent(meshesToExport, axisUp = 'z-up') {
         let stlContent = '';
 
+        console.log(`[STL Export] Generating STL content for ${meshesToExport.length} objects`);
+
         meshesToExport.forEach((obj, index) => {
             const objectName = obj.name || `object_${index + 1}`;
             stlContent += `solid ${objectName}\n`;
@@ -1153,13 +1493,29 @@ class STLManager {
             if (obj.type === 'tree') {
                 // Handle trees: combine all child meshes
                 // Note: getWorldMatrix() of child meshes already includes parent TransformNode transform
+                console.log(`[STL Export] Processing tree: ${objectName}`, {
+                    hasChildMeshes: !!obj.childMeshes,
+                    childMeshesCount: obj.childMeshes ? obj.childMeshes.length : 0
+                });
+
                 if (obj.childMeshes && obj.childMeshes.length > 0) {
-                    obj.childMeshes.forEach(childMesh => {
+                    let treeTriangleCount = 0;
+                    obj.childMeshes.forEach((childMesh, meshIndex) => {
+                        console.log(`[STL Export] Processing child mesh ${meshIndex + 1} of tree ${objectName}:`, {
+                            meshName: childMesh.name,
+                            isEnabled: childMesh.isEnabled(),
+                            isVisible: childMesh.isVisible
+                        });
                         const triangles = this.meshToTriangles(childMesh);
+                        console.log(`[STL Export] Child mesh ${meshIndex + 1} has ${triangles.length} triangles`);
+                        treeTriangleCount += triangles.length;
                         triangles.forEach(triangle => {
                             stlContent += this.triangleToSTL(triangle, axisUp);
                         });
                     });
+                    console.log(`[STL Export] Tree ${objectName} total triangles: ${treeTriangleCount}`);
+                } else {
+                    console.warn(`[STL Export] Tree ${objectName} has no child meshes!`);
                 }
             } else {
                 // Handle regular meshes
@@ -1172,6 +1528,7 @@ class STLManager {
             stlContent += `endsolid ${objectName}\n`;
         });
 
+        console.log(`[STL Export] STL content generated, length: ${stlContent.length} characters`);
         return stlContent;
     }
 
@@ -1211,8 +1568,11 @@ class STLManager {
             meshesByType[type].push(mesh);
         });
 
-        // Add typed meshes to export list with proper naming
-        Object.keys(meshesByType).forEach(type => {
+        // Add typed meshes to export list with proper naming in specified order
+        const exportOrder = this.getExportOrder();
+        exportOrder.forEach(type => {
+            if (!meshesByType[type]) return; // Skip if no meshes of this type
+            
             meshesByType[type].forEach((mesh, index) => {
                 let exportName;
                 
@@ -1230,7 +1590,7 @@ class STLManager {
             });
         });
 
-        // 2. Get all STL imported meshes
+        // 2. Get all STL imported meshes (preserve their original type order)
         const stlMeshes = scene.meshes.filter(mesh => {
             if (!mesh || !mesh.isEnabled() || !mesh.isVisible) return false;
             return mesh.userData && mesh.userData.isImportedSTL;
@@ -1238,21 +1598,42 @@ class STLManager {
 
         console.log(`Found ${stlMeshes.length} STL imported meshes`);
 
-        stlMeshes.forEach((mesh, index) => {
-            const name = mesh.name || `stl_import_${index + 1}`;
-            meshesToExport.push({
-                mesh: mesh,
-                name: name,
-                type: 'stl'
+        // Group STL meshes by type and add in export order
+        const stlMeshesByType = {};
+        stlMeshes.forEach(mesh => {
+            const type = mesh.userData?.type || 'ground';
+            if (!stlMeshesByType[type]) {
+                stlMeshesByType[type] = [];
+            }
+            stlMeshesByType[type].push(mesh);
+        });
+
+        // Add STL meshes in export order
+        exportOrder.forEach(type => {
+            if (!stlMeshesByType[type]) return; // Skip if no STL meshes of this type
+            
+            stlMeshesByType[type].forEach((mesh, index) => {
+                const name = mesh.name || `${type}_stl_${index + 1}`;
+                meshesToExport.push({
+                    mesh: mesh,
+                    name: name,
+                    type: type
+                });
             });
         });
 
-        // 3. Get all trees from TreeManager
+        // 3. Get all trees from TreeManager (last in order)
         if (this.treeManager && this.treeManager.trees) {
             const trees = this.treeManager.trees;
-            console.log(`Found ${trees.length} trees`);
+            console.log(`[STL Export] Found ${trees.length} trees in TreeManager (generateSTLContentForZip)`);
             
             trees.forEach((tree, index) => {
+                console.log(`[STL Export] Processing tree ${index + 1} (generateSTLContentForZip):`, {
+                    hasParent: !!tree.parent,
+                    hasMeshes: !!tree.meshes,
+                    meshesCount: tree.meshes ? tree.meshes.length : 0
+                });
+
                 if (tree.parent && tree.meshes && tree.meshes.length > 0) {
                     // Combine all meshes of a tree into one export object
                     meshesToExport.push({
@@ -1261,9 +1642,56 @@ class STLManager {
                         name: `tree${index + 1}`, // Name: tree1, tree2, ...
                         type: 'tree'
                     });
+                    console.log(`[STL Export] Added tree ${index + 1} to export list (generateSTLContentForZip)`);
+                } else {
+                    console.warn(`[STL Export] Tree ${index + 1} skipped (generateSTLContentForZip):`, {
+                        hasParent: !!tree.parent,
+                        hasMeshes: !!tree.meshes,
+                        meshesCount: tree.meshes ? tree.meshes.length : 0
+                    });
+                }
+            });
+        } else {
+            console.warn('[STL Export] TreeManager or trees array not available (generateSTLContentForZip):', {
+                hasTreeManager: !!this.treeManager,
+                hasTrees: !!(this.treeManager && this.treeManager.trees)
+            });
+        }
+
+        // 3b. Also check for trees in scene (TransformNodes with name starting with "tree")
+        if (scene) {
+            const treeTransformNodes = scene.transformNodes.filter(node => {
+                if (!node || !node.isEnabled() || !node.isVisible) return false;
+                const nodeName = node.name ? node.name.toLowerCase() : '';
+                return nodeName.startsWith('tree') && /^tree\d+$/.test(nodeName);
+            });
+
+            console.log(`[STL Export] Found ${treeTransformNodes.length} tree TransformNodes in scene (generateSTLContentForZip)`);
+
+            treeTransformNodes.forEach((treeNode, index) => {
+                const childMeshes = treeNode.getChildMeshes ? treeNode.getChildMeshes() : [];
+                const validChildMeshes = childMeshes.filter(mesh => 
+                    mesh && mesh.isEnabled() && mesh.isVisible && !mesh.isDisposed()
+                );
+
+                const alreadyInTreeManager = this.treeManager && this.treeManager.trees ? 
+                    this.treeManager.trees.some(t => t.parent === treeNode) : false;
+
+                if (!alreadyInTreeManager && validChildMeshes.length > 0) {
+                    meshesToExport.push({
+                        mesh: treeNode,
+                        childMeshes: validChildMeshes,
+                        name: treeNode.name,
+                        type: 'tree'
+                    });
+                    console.log(`[STL Export] Added tree TransformNode ${treeNode.name} to export list (generateSTLContentForZip, not in TreeManager)`);
                 }
             });
         }
+
+        console.log(`[STL Export] Total objects to export: ${meshesToExport.length}`);
+        const treeCount = meshesToExport.filter(obj => obj.type === 'tree').length;
+        console.log(`[STL Export] Trees in export list: ${treeCount}`);
 
         if (meshesToExport.length === 0) {
             console.warn('No meshes to export');
@@ -1278,12 +1706,21 @@ class STLManager {
      * Note: For child meshes parented to TransformNode, getWorldMatrix() automatically includes parent transform
      */
     meshToTriangles(mesh) {
-        if (!mesh || !mesh.isEnabled()) return [];
+        if (!mesh) {
+            console.warn('[STL Export] meshToTriangles: mesh is null or undefined');
+            return [];
+        }
+
+        if (!mesh.isEnabled()) {
+            console.warn(`[STL Export] meshToTriangles: mesh ${mesh.name} is not enabled`);
+            return [];
+        }
 
         try {
             // Get vertex data from mesh
             const vertexData = BABYLON.VertexData.ExtractFromMesh(mesh);
             if (!vertexData.positions || vertexData.positions.length === 0) {
+                console.warn(`[STL Export] meshToTriangles: mesh ${mesh.name} has no positions`);
                 return [];
             }
 

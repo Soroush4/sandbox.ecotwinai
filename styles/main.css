@@ -1497,6 +1497,30 @@ input[type="range"]::-moz-range-thumb {
     gap: 10px;
 }
 
+.category-visibility {
+    cursor: pointer;
+    padding: 2px 6px;
+    background: #28a745;
+    color: white;
+    border-radius: 3px;
+    font-size: 12px;
+    transition: background-color 0.2s ease;
+    user-select: none;
+}
+
+.category-visibility:hover {
+    background: #218838;
+    transform: scale(1.1);
+}
+
+.category-visibility.hidden {
+    background: #dc3545;
+}
+
+.category-visibility.hidden:hover {
+    background: #c82333;
+}
+
 .category-select {
     cursor: pointer;
     padding: 2px 6px;
@@ -1543,6 +1567,7 @@ input[type="range"]::-moz-range-thumb {
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
     transition: all 0.2s ease;
     background: white;
+    gap: 8px;
 }
 
 .object-item:last-child {
@@ -1585,6 +1610,31 @@ input[type="range"]::-moz-range-thumb {
     color: #666;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.object-visibility {
+    cursor: pointer;
+    padding: 2px 6px;
+    background: #28a745;
+    color: white;
+    border-radius: 3px;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.object-visibility:hover {
+    background: #218838;
+    transform: scale(1.1);
+}
+
+.object-visibility.hidden {
+    background: #dc3545;
+}
+
+.object-visibility.hidden:hover {
+    background: #c82333;
 }
 
 /* Empty State */

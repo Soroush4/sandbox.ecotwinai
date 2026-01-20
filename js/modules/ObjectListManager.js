@@ -9,13 +9,13 @@ class ObjectListManager {
         this.objectListPanel = null;
         this.objectListContainer = null;
         this.categories = {
-            building: { name: 'Building', objects: [], expanded: false },
-            highway: { name: 'Highway', objects: [], expanded: false },
-            waterway: { name: 'Waterway', objects: [], expanded: false },
-            grass: { name: 'Grass', objects: [], expanded: false },
-            tree: { name: 'Tree', objects: [], expanded: false },
-            ground: { name: 'Ground', objects: [], expanded: false },
-            wireframe: { name: 'Wireframe', objects: [], expanded: false } // Hidden category for wireframes
+            building: { name: 'Building', objects: [], expanded: false, visible: true },
+            highway: { name: 'Highway', objects: [], expanded: false, visible: true },
+            waterway: { name: 'Waterway', objects: [], expanded: false, visible: true },
+            grass: { name: 'Grass', objects: [], expanded: false, visible: true },
+            tree: { name: 'Tree', objects: [], expanded: false, visible: true },
+            ground: { name: 'Ground', objects: [], expanded: false, visible: true },
+            wireframe: { name: 'Wireframe', objects: [], expanded: false, visible: true } // Hidden category for wireframes
         };
         this.isInitialized = false;
         
@@ -141,9 +141,11 @@ class ObjectListManager {
         // Clear existing content
         this.objectListContainer.innerHTML = '';
 
-        // Reset categories
+        // Reset categories (preserve visibility state)
         Object.keys(this.categories).forEach(key => {
+            const wasVisible = this.categories[key].visible !== false; // Preserve visibility state
             this.categories[key].objects = [];
+            this.categories[key].visible = wasVisible; // Restore visibility state
         });
 
         // Get all meshes from the scene
@@ -363,12 +365,15 @@ class ObjectListManager {
         // Category header
         const header = document.createElement('div');
         header.className = 'category-header';
+        const visibilityIcon = category.visible !== false ? '👁️' : '🚫';
+        const visibilityTitle = category.visible !== false ? 'Hide all objects in this category' : 'Show all objects in this category';
         header.innerHTML = `
             <div class="category-info" style="display: flex; align-items: center; flex: 1;">
                 <span class="category-name">${category.name}</span>
                 <span class="category-count">(${category.objects.length})</span>
             </div>
             <div class="category-actions" style="display: flex; align-items: center; gap: 10px;">
+                <span class="category-visibility" title="${visibilityTitle}" style="cursor: pointer; padding: 2px 6px; background: ${category.visible !== false ? '#28a745' : '#dc3545'}; color: white; border-radius: 3px; font-size: 12px; user-select: none;">${visibilityIcon}</span>
                 <span class="category-select" title="Select all objects in this category" style="cursor: pointer; padding: 2px 6px; background: #007acc; color: white; border-radius: 3px; font-size: 12px;">Select All</span>
                 <span class="category-toggle">${category.expanded ? '▼' : '▶'}</span>
             </div>
@@ -409,6 +414,16 @@ class ObjectListManager {
             this.selectAllObjectsInCategory(categoryKey, category);
         });
 
+        // Visibility toggle functionality
+        const visibilityButton = header.querySelector('.category-visibility');
+        visibilityButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleCategoryVisibility(categoryKey, category, visibilityButton);
+        });
+
+        // Apply initial visibility state
+        this.applyCategoryVisibility(categoryKey, category);
+
         section.appendChild(header);
         section.appendChild(content);
         this.objectListContainer.appendChild(section);
@@ -437,6 +452,68 @@ class ObjectListManager {
         this.updateSelectionInList();
 
         console.log(`Selected ${category.objects.length} objects in category: ${category.name}`);
+    }
+
+    /**
+     * Toggle visibility of all objects in a category
+     */
+    toggleCategoryVisibility(categoryKey, category, visibilityButton) {
+        // Toggle visibility state
+        category.visible = !category.visible;
+        
+        // Apply visibility to all objects in the category
+        this.applyCategoryVisibility(categoryKey, category);
+        
+        // Update button appearance
+        if (visibilityButton) {
+            visibilityButton.textContent = category.visible ? '👁️' : '🚫';
+            visibilityButton.style.background = category.visible ? '#28a745' : '#dc3545';
+            visibilityButton.title = category.visible ? 'Hide all objects in this category' : 'Show all objects in this category';
+        }
+        
+        // Update individual object visibility buttons in the list
+        this.updateObjectVisibilityButtons(categoryKey, category);
+        
+        console.log(`${category.visible ? 'Showed' : 'Hid'} all objects in category: ${category.name}`);
+    }
+
+    /**
+     * Apply visibility state to all objects in a category
+     */
+    applyCategoryVisibility(categoryKey, category) {
+        const isVisible = category.visible !== false;
+        
+        category.objects.forEach(mesh => {
+            if (!mesh || mesh.isDisposed()) return;
+            
+            // For TransformNodes (like trees), we need to handle children
+            if (mesh instanceof BABYLON.TransformNode && !(mesh instanceof BABYLON.Mesh)) {
+                // Hide/show all children of the TransformNode
+                mesh.getChildMeshes().forEach(child => {
+                    if (child && !child.isDisposed()) {
+                        child.isVisible = isVisible;
+                        child.setEnabled(isVisible);
+                    }
+                });
+                // Also hide/show the TransformNode itself
+                mesh.setEnabled(isVisible);
+            } else if (mesh instanceof BABYLON.Mesh) {
+                // Regular mesh - hide/show the mesh itself
+                mesh.isVisible = isVisible;
+                mesh.setEnabled(isVisible);
+                
+                // Also handle child meshes if any (for complex objects)
+                const childMeshes = mesh.getChildMeshes();
+                if (childMeshes && childMeshes.length > 0) {
+                    childMeshes.forEach(child => {
+                        if (child && !child.isDisposed()) {
+                            child.isVisible = isVisible;
+                            child.setEnabled(isVisible);
+                        }
+                    });
+                }
+            }
+        });
     }
 
     /**
@@ -469,22 +546,43 @@ class ObjectListManager {
         type.className = 'object-type';
         type.textContent = this.getObjectType(mesh);
 
+        // Check initial visibility state
+        const isVisible = this.isObjectVisible(mesh);
+        const visibilityIcon = isVisible ? '👁️' : '🚫';
+        const visibilityTitle = isVisible ? 'Hide this object' : 'Show this object';
+
         item.innerHTML = `
             <span class="object-icon">${icon}</span>
             <span class="object-info">
                 <span class="object-name">${displayName}</span>
                 <span class="object-type">${this.getObjectType(mesh)}</span>
             </span>
+            <span class="object-visibility" title="${visibilityTitle}" style="cursor: pointer; padding: 2px 6px; background: ${isVisible ? '#28a745' : '#dc3545'}; color: white; border-radius: 3px; font-size: 12px; user-select: none; margin-left: auto;">${visibilityIcon}</span>
         `;
 
-        // Click handler for selection
+        // Visibility toggle handler
+        const visibilityButton = item.querySelector('.object-visibility');
+        visibilityButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleObjectVisibility(mesh, visibilityButton);
+        });
+
+        // Click handler for selection (on the item, but not on visibility button)
         item.addEventListener('click', (e) => {
+            // Don't select if clicking on visibility button
+            if (e.target.classList.contains('object-visibility') || e.target.closest('.object-visibility')) {
+                return;
+            }
             e.stopPropagation();
             this.selectObject(mesh);
         });
 
         // Double-click handler for zoom to extent
         item.addEventListener('dblclick', (e) => {
+            // Don't zoom if double-clicking on visibility button
+            if (e.target.classList.contains('object-visibility') || e.target.closest('.object-visibility')) {
+                return;
+            }
             e.stopPropagation();
             e.preventDefault();
             // First select the object
@@ -496,6 +594,153 @@ class ObjectListManager {
         });
 
         return item;
+    }
+
+    /**
+     * Check if an object is currently visible
+     */
+    isObjectVisible(mesh) {
+        if (!mesh || mesh.isDisposed()) return false;
+        
+        // For TransformNodes (like trees), check children
+        if (mesh instanceof BABYLON.TransformNode && !(mesh instanceof BABYLON.Mesh)) {
+            const childMeshes = mesh.getChildMeshes();
+            if (childMeshes && childMeshes.length > 0) {
+                // Check if at least one child is visible
+                return childMeshes.some(child => child && !child.isDisposed() && child.isVisible);
+            }
+            return mesh.isEnabled();
+        } else if (mesh instanceof BABYLON.Mesh) {
+            return mesh.isVisible && mesh.isEnabled();
+        }
+        
+        return false;
+    }
+
+    /**
+     * Toggle visibility of a single object
+     */
+    toggleObjectVisibility(mesh, visibilityButton) {
+        if (!mesh || mesh.isDisposed()) return;
+        
+        // Determine current visibility state
+        const currentlyVisible = this.isObjectVisible(mesh);
+        const newVisibility = !currentlyVisible;
+        
+        // Apply visibility to the object
+        this.applyObjectVisibility(mesh, newVisibility);
+        
+        // Update button appearance
+        if (visibilityButton) {
+            visibilityButton.textContent = newVisibility ? '👁️' : '🚫';
+            visibilityButton.style.background = newVisibility ? '#28a745' : '#dc3545';
+            visibilityButton.title = newVisibility ? 'Hide this object' : 'Show this object';
+        }
+        
+        // Update category visibility button if needed
+        const categoryKey = this.getObjectCategory(mesh);
+        const category = this.categories[categoryKey];
+        if (category) {
+            this.updateCategoryVisibilityButton(categoryKey, category);
+        }
+        
+        console.log(`${newVisibility ? 'Showed' : 'Hid'} object: ${mesh.name}`);
+    }
+
+    /**
+     * Update all object visibility buttons in a category
+     */
+    updateObjectVisibilityButtons(categoryKey, category) {
+        if (!this.objectListContainer) return;
+        
+        category.objects.forEach(mesh => {
+            if (!mesh || mesh.isDisposed()) return;
+            
+            const item = this.objectListContainer.querySelector(`[data-mesh-id="${mesh.id}"]`);
+            if (item) {
+                const visibilityButton = item.querySelector('.object-visibility');
+                if (visibilityButton) {
+                    const isVisible = this.isObjectVisible(mesh);
+                    visibilityButton.textContent = isVisible ? '👁️' : '🚫';
+                    visibilityButton.style.background = isVisible ? '#28a745' : '#dc3545';
+                    visibilityButton.title = isVisible ? 'Hide this object' : 'Show this object';
+                }
+            }
+        });
+    }
+
+    /**
+     * Update category visibility button based on current object visibility states
+     */
+    updateCategoryVisibilityButton(categoryKey, category) {
+        if (!this.objectListContainer || category.objects.length === 0) return;
+        
+        // Check if all objects are visible, all hidden, or mixed
+        let visibleCount = 0;
+        category.objects.forEach(mesh => {
+            if (this.isObjectVisible(mesh)) {
+                visibleCount++;
+            }
+        });
+        
+        // If all visible, category is visible
+        // If all hidden, category is hidden
+        // If mixed, keep current state (or set to visible if we want to show all)
+        const allVisible = visibleCount === category.objects.length;
+        const allHidden = visibleCount === 0;
+        
+        if (allVisible) {
+            category.visible = true;
+        } else if (allHidden) {
+            category.visible = false;
+        }
+        // If mixed, we don't change category.visible (keep current state)
+        
+        // Update category visibility button
+        const categorySection = this.objectListContainer.querySelector(`[data-category="${categoryKey}"]`);
+        if (categorySection) {
+            const categoryVisibilityButton = categorySection.querySelector('.category-visibility');
+            if (categoryVisibilityButton) {
+                categoryVisibilityButton.textContent = category.visible ? '👁️' : '🚫';
+                categoryVisibilityButton.style.background = category.visible ? '#28a745' : '#dc3545';
+                categoryVisibilityButton.title = category.visible ? 'Hide all objects in this category' : 'Show all objects in this category';
+            }
+        }
+    }
+
+    /**
+     * Apply visibility state to a single object
+     */
+    applyObjectVisibility(mesh, isVisible) {
+        if (!mesh || mesh.isDisposed()) return;
+        
+        // For TransformNodes (like trees), handle children
+        if (mesh instanceof BABYLON.TransformNode && !(mesh instanceof BABYLON.Mesh)) {
+            // Hide/show all children of the TransformNode
+            mesh.getChildMeshes().forEach(child => {
+                if (child && !child.isDisposed()) {
+                    child.isVisible = isVisible;
+                    child.setEnabled(isVisible);
+                }
+            });
+            // Also hide/show the TransformNode itself
+            mesh.setEnabled(isVisible);
+        } else if (mesh instanceof BABYLON.Mesh) {
+            // Regular mesh - hide/show the mesh itself
+            mesh.isVisible = isVisible;
+            mesh.setEnabled(isVisible);
+            
+            // Also handle child meshes if any (for complex objects)
+            const childMeshes = mesh.getChildMeshes();
+            if (childMeshes && childMeshes.length > 0) {
+                childMeshes.forEach(child => {
+                    if (child && !child.isDisposed()) {
+                        child.isVisible = isVisible;
+                        child.setEnabled(isVisible);
+                    }
+                });
+            }
+        }
     }
 
     /**
