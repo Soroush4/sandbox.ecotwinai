@@ -527,12 +527,22 @@ class CircleManager {
         const oldUserData = shape.userData ? JSON.parse(JSON.stringify(shape.userData)) : {};
         
         // IMPORTANT: Check if circle was selected before update (to restore selection after update)
-        const wasSelected = this.uiManager && this.uiManager.selectionManager && 
-                           this.uiManager.selectionManager.isSelected(shape);
+        // Check both shape and extrusion selection state
+        const oldExtrusion = shape.extrusion;
+        const wasShapeSelected = this.uiManager && this.uiManager.selectionManager && 
+                                this.uiManager.selectionManager.isSelected(shape);
+        const wasExtrusionSelected = oldExtrusion && this.uiManager && this.uiManager.selectionManager && 
+                                     this.uiManager.selectionManager.isSelected(oldExtrusion);
+        const wasSelected = wasShapeSelected || wasExtrusionSelected;
+        
+        console.log(`[SELECTION_RESTORE] Circle update: shape=${shape.name}, wasShapeSelected=${wasShapeSelected}, wasExtrusionSelected=${wasExtrusionSelected}, wasSelected=${wasSelected}`);
         
         // Remove from selection manager BEFORE disposing (if uiManager provides access)
         if (this.uiManager && this.uiManager.selectionManager) {
             this.uiManager.selectionManager.removeSelectableObject(shape);
+            if (oldExtrusion) {
+                this.uiManager.selectionManager.removeSelectableObject(oldExtrusion);
+            }
         }
         
         // IMPORTANT: Disable shape first to prevent any rendering issues
@@ -600,6 +610,11 @@ class CircleManager {
             tessellation: 32
         }, this.scene);
         
+        // IMPORTANT: Ensure new circle is visible and enabled immediately after creation
+        // CreateCylinder adds mesh to scene automatically, but we need to ensure it's visible and enabled
+        newCircle.isVisible = true;
+        newCircle.setEnabled(true);
+        
         // Restore all transform properties with smart Y positioning
         // IMPORTANT: Preserve the current bottom position when height changes
         // Calculate the bottom of the original circle
@@ -624,43 +639,6 @@ class CircleManager {
         // Determine shape type based on new type
         const newShapeType = typeToUse === 'building' ? 'building' : 'circle';
         
-        // Create new material with color based on type
-        const material = new BABYLON.StandardMaterial(`${oldName}Material`, this.scene);
-        
-        // Get color from uiManager if available, otherwise use default
-        let materialColor;
-        if (this.uiManager && this.uiManager.getColorByType) {
-            materialColor = this.uiManager.getColorByType(typeToUse);
-        } else {
-            // Fallback colors if uiManager is not available
-            switch (typeToUse.toLowerCase()) {
-                case 'building':
-                    materialColor = new BABYLON.Color3(1, 1, 1); // White
-                    break;
-                case 'ground':
-                    materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Brown
-                    break;
-                case 'waterway':
-                    materialColor = new BABYLON.Color3(0, 0.5, 1); // Light blue
-                    break;
-                case 'highway':
-                    materialColor = new BABYLON.Color3(0.3, 0.3, 0.3); // Gray
-                    break;
-                case 'grass':
-                    materialColor = new BABYLON.Color3(0, 0.8, 0); // Green
-                    break;
-                default:
-                    materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
-            }
-        }
-        
-        material.diffuseColor = materialColor;
-        material.backFaceCulling = false; // 2-sided
-        material.twoSidedLighting = true; // Enable lighting on both sides
-        material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        material.alpha = 1.0;
-        newCircle.material = material;
-        
         // Set rendering priority based on type
         newCircle.renderingGroupId = SceneManager.getRenderingGroupId(typeToUse);
         
@@ -684,17 +662,86 @@ class CircleManager {
             name: oldName // Preserve name
         };
         
+        // Re-link extrusion to new circle if it existed
+        // IMPORTANT: Similar to rectangle, we need to re-parent extrusion to new circle
+        let newExtrusion = null;
+        if (oldExtrusion) {
+            // Re-parent extrusion to new circle (similar to rectangle)
+            oldExtrusion.setParent(newCircle);
+            // Re-link bidirectional references
+            newCircle.extrusion = oldExtrusion;
+            oldExtrusion.basePolygon = newCircle;
+            newExtrusion = oldExtrusion;
+            
+            // IMPORTANT: Ensure extrusion is visible and enabled (similar to rectangle)
+            oldExtrusion.isVisible = true;
+            oldExtrusion.setEnabled(true);
+            // Note: Extrusion will be added to selection manager in onCircleCreated callback
+        }
+        
+        // IMPORTANT: Ensure new circle is visible and enabled before adding to selection manager
+        // This is similar to rectangle to prevent "Cannot select invisible or disabled mesh" error
+        newCircle.isVisible = true;
+        newCircle.setEnabled(true);
+        
+        // IMPORTANT: Ensure new circle is in the scene FIRST
+        // CreateCylinder automatically adds mesh to scene, but we verify it's there
+        if (!this.scene.meshes.includes(newCircle)) {
+            this.scene.addMesh(newCircle);
+            console.log(`[CIRCLE_UPDATE] Added new circle ${newCircle.name} to scene`);
+        }
+        
+        // IMPORTANT: Always assign material AFTER mesh is in scene to ensure it persists
+        // Material must be assigned after mesh is added to scene, otherwise it may be lost
+        console.log(`[CIRCLE_UPDATE] Ensuring material is assigned to ${newCircle.name} (current material: ${newCircle.material ? newCircle.material.name : 'none'})`);
+        
+        // Create or get material
+        let material = this.scene.getMaterialByName(`${oldName}Material`);
+        if (!material) {
+            material = new BABYLON.StandardMaterial(`${oldName}Material`, this.scene);
+        }
+        
+        // Get color from uiManager if available
+        let materialColor;
+        if (this.uiManager && this.uiManager.getColorByType) {
+            materialColor = this.uiManager.getColorByType(typeToUse);
+        } else {
+            materialColor = new BABYLON.Color3(0.4, 0.3, 0.2); // Default brown
+        }
+        
+        // Update material properties
+        material.diffuseColor = materialColor;
+        material.backFaceCulling = false;
+        material.twoSidedLighting = true;
+        material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        material.alpha = 1.0;
+        
+        // IMPORTANT: Always assign material to ensure it's set
+        newCircle.material = material;
+        console.log(`[CIRCLE_UPDATE] Material assigned to ${newCircle.name}: ${material.name}, color: (${materialColor.r}, ${materialColor.g}, ${materialColor.b})`);
+        
+        // Double-check that material is actually assigned
+        if (!newCircle.material) {
+            console.error(`[CIRCLE_UPDATE] ERROR: Material assignment failed for ${newCircle.name}!`);
+        }
+        
         // Enable shadows
         if (this.lightingManager && this.lightingManager.updateShadowsForNewObject) {
             this.lightingManager.updateShadowsForNewObject(newCircle);
+            if (newExtrusion) {
+                this.lightingManager.updateShadowsForNewObject(newExtrusion);
+            }
         } else if (this.lightingManager && this.lightingManager.addShadowCaster) {
             this.lightingManager.addShadowCaster(newCircle);
+            if (newExtrusion) {
+                this.lightingManager.addShadowCaster(newExtrusion);
+            }
         }
         
         // Call callback to add to selection manager
-        // IMPORTANT: Pass isUpdate=true and wasSelected to indicate this is an update and restore selection
+        // IMPORTANT: Pass isUpdate=true, wasSelected, and wasExtrusionSelected to indicate this is an update and restore selection
         if (this.onCircleCreated) {
-            this.onCircleCreated(newCircle, true, wasSelected);
+            this.onCircleCreated(newCircle, true, wasSelected, wasExtrusionSelected, newExtrusion);
         }
         
         console.log('Circle updated successfully');

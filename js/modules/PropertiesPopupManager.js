@@ -4,6 +4,11 @@
 class PropertiesPopupManager {
     constructor(uiManager) {
         this.uiManager = uiManager;
+        
+        // Debounce timers for input fields to prevent cursor jumping
+        this.inputDebounceTimers = new Map();
+        
+        // Initialize properties
         this.currentShape = null;
         this.currentTree = null;
         this.currentPolygon = null;
@@ -17,6 +22,46 @@ class PropertiesPopupManager {
         this.setupTreeVegetationTypeListeners();
         this.setupBuildingEnvelopePropertiesListeners();
     }
+    
+    /**
+     * Check if a string is a valid complete number (not partial like "5." or ".")
+     * @param {string} value - The value to check
+     * @returns {boolean} - True if the value is a complete valid number
+     */
+    isValidCompleteNumber(value) {
+        if (value === '' || value === '-') return false;
+        // Check if value ends with decimal point (incomplete number like "5." or ".")
+        if (value.endsWith('.')) return false;
+        // Check if value is a valid number
+        const num = parseFloat(value);
+        return !isNaN(num) && isFinite(num);
+    }
+    
+    /**
+     * Setup debounced input handler for number fields to prevent cursor jumping
+     * @param {HTMLElement} field - The input field
+     * @param {Function} callback - The callback to execute when value is complete
+     * @param {number} delay - Debounce delay in milliseconds (default: 500)
+     */
+    setupDebouncedNumberInput(field, callback, delay = 500) {
+        // Clear existing timer for this field
+        if (this.inputDebounceTimers.has(field)) {
+            clearTimeout(this.inputDebounceTimers.get(field));
+        }
+        
+        // Set new timer
+        const timer = setTimeout(() => {
+            const value = field.value.trim();
+            // Only execute callback if value is complete and valid
+            if (value === '' || this.isValidCompleteNumber(value)) {
+                callback();
+            }
+            this.inputDebounceTimers.delete(field);
+        }, delay);
+        
+        this.inputDebounceTimers.set(field, timer);
+    }
+    
     
     /**
      * Setup event listeners for highway road type dropdowns
@@ -73,7 +118,18 @@ class PropertiesPopupManager {
                     const field = document.getElementById(fieldId);
                     if (field && !field.hasAttribute('data-highway-listener')) {
                         field.setAttribute('data-highway-listener', 'true');
+                        // Use debounced input to prevent cursor jumping when typing decimals
                         field.addEventListener('input', () => {
+                            this.setupDebouncedNumberInput(field, () => {
+                                this.saveCustomizeValues(prefix);
+                            });
+                        });
+                        // Also save on blur (when user leaves the field)
+                        field.addEventListener('blur', () => {
+                            if (this.inputDebounceTimers.has(field)) {
+                                clearTimeout(this.inputDebounceTimers.get(field));
+                                this.inputDebounceTimers.delete(field);
+                            }
                             this.saveCustomizeValues(prefix);
                         });
                     }
@@ -119,7 +175,18 @@ class PropertiesPopupManager {
                     const field = document.getElementById(fieldId);
                     if (field && !field.hasAttribute('data-waterway-listener')) {
                         field.setAttribute('data-waterway-listener', 'true');
+                        // Use debounced input to prevent cursor jumping when typing decimals
                         field.addEventListener('input', () => {
+                            this.setupDebouncedNumberInput(field, () => {
+                                this.saveWaterwayCustomizeValues(prefix);
+                            });
+                        });
+                        // Also save on blur (when user leaves the field)
+                        field.addEventListener('blur', () => {
+                            if (this.inputDebounceTimers.has(field)) {
+                                clearTimeout(this.inputDebounceTimers.get(field));
+                                this.inputDebounceTimers.delete(field);
+                            }
                             this.saveWaterwayCustomizeValues(prefix);
                         });
                     }
@@ -1250,7 +1317,18 @@ class PropertiesPopupManager {
                     const field = document.getElementById(fieldId);
                     if (field && !field.hasAttribute('data-grass-listener')) {
                         field.setAttribute('data-grass-listener', 'true');
+                        // Use debounced input to prevent cursor jumping when typing decimals
                         field.addEventListener('input', () => {
+                            this.setupDebouncedNumberInput(field, () => {
+                                this.saveGrassCustomizeValues(prefix);
+                            });
+                        });
+                        // Also save on blur (when user leaves the field)
+                        field.addEventListener('blur', () => {
+                            if (this.inputDebounceTimers.has(field)) {
+                                clearTimeout(this.inputDebounceTimers.get(field));
+                                this.inputDebounceTimers.delete(field);
+                            }
                             this.saveGrassCustomizeValues(prefix);
                         });
                     }
@@ -2237,7 +2315,18 @@ class PropertiesPopupManager {
                     const field = document.getElementById(fieldId);
                     if (field && !field.hasAttribute('data-ground-listener')) {
                         field.setAttribute('data-ground-listener', 'true');
+                        // Use debounced input to prevent cursor jumping when typing decimals
                         field.addEventListener('input', () => {
+                            this.setupDebouncedNumberInput(field, () => {
+                                this.saveGroundCustomizeValues(prefix);
+                            });
+                        });
+                        // Also save on blur (when user leaves the field)
+                        field.addEventListener('blur', () => {
+                            if (this.inputDebounceTimers.has(field)) {
+                                clearTimeout(this.inputDebounceTimers.get(field));
+                                this.inputDebounceTimers.delete(field);
+                            }
                             this.saveGroundCustomizeValues(prefix);
                         });
                     }
@@ -2660,7 +2749,18 @@ class PropertiesPopupManager {
                     const field = document.getElementById(fieldId);
                     if (field && !field.hasAttribute('data-building-custom-listener')) {
                         field.setAttribute('data-building-custom-listener', 'true');
+                        // Use debounced input to prevent cursor jumping when typing decimals
                         field.addEventListener('input', () => {
+                            this.setupDebouncedNumberInput(field, () => {
+                                this.saveBuildingCustomSpecValues(prefix);
+                            });
+                        });
+                        // Also save on blur (when user leaves the field)
+                        field.addEventListener('blur', () => {
+                            if (this.inputDebounceTimers.has(field)) {
+                                clearTimeout(this.inputDebounceTimers.get(field));
+                                this.inputDebounceTimers.delete(field);
+                            }
                             this.saveBuildingCustomSpecValues(prefix);
                         });
                     }
@@ -3887,7 +3987,18 @@ class PropertiesPopupManager {
                     const field = document.getElementById(fieldId);
                     if (field && !field.hasAttribute('data-tree-listener')) {
                         field.setAttribute('data-tree-listener', 'true');
+                        // Use debounced input to prevent cursor jumping when typing decimals
                         field.addEventListener('input', () => {
+                            this.setupDebouncedNumberInput(field, () => {
+                                this.saveTreeCustomizeValues(prefix);
+                            });
+                        });
+                        // Also save on blur (when user leaves the field)
+                        field.addEventListener('blur', () => {
+                            if (this.inputDebounceTimers.has(field)) {
+                                clearTimeout(this.inputDebounceTimers.get(field));
+                                this.inputDebounceTimers.delete(field);
+                            }
                             this.saveTreeCustomizeValues(prefix);
                         });
                     }

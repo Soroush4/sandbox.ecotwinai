@@ -27,16 +27,27 @@ class TransformInputManager {
         }
 
         // Listen for input changes - update object transform
-        transformX.addEventListener('input', () => {
-            this.handleTransformInputChange('x', parseFloat(transformX.value) || 0);
+        // IMPORTANT: Use 'change' event instead of 'input' to avoid cursor jumping when typing decimals
+        // 'change' only fires when input loses focus or Enter is pressed, allowing users to type decimals
+        transformX.addEventListener('change', () => {
+            const value = parseFloat(transformX.value);
+            if (!isNaN(value)) {
+                this.handleTransformInputChange('x', value);
+            }
         });
         
-        transformY.addEventListener('input', () => {
-            this.handleTransformInputChange('y', parseFloat(transformY.value) || 0);
+        transformY.addEventListener('change', () => {
+            const value = parseFloat(transformY.value);
+            if (!isNaN(value)) {
+                this.handleTransformInputChange('y', value);
+            }
         });
         
-        transformZ.addEventListener('input', () => {
-            this.handleTransformInputChange('z', parseFloat(transformZ.value) || 0);
+        transformZ.addEventListener('change', () => {
+            const value = parseFloat(transformZ.value);
+            if (!isNaN(value)) {
+                this.handleTransformInputChange('z', value);
+            }
         });
 
         // Listen for transform changes from gizmos via scene render loop

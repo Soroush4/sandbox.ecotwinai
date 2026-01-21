@@ -59,10 +59,20 @@ class SceneOperationsManager {
 
         selectedObjects.forEach((obj, index) => {
             try {
-                // Skip if object is an extrusion (we'll duplicate the parent shape instead)
+                // Handle extrusions: if extrusion is selected, duplicate the parent polygon instead
                 if (obj.name && obj.name.includes('_extrusion')) {
-                    console.log(`Skipping extrusion ${obj.name}, will be handled by parent shape`);
-                    return;
+                    // Find parent polygon (basePolygon or parent)
+                    const basePolygon = obj.basePolygon || 
+                        (obj.parent && obj.parent instanceof BABYLON.Mesh && !obj.parent.name.includes('_extrusion') ? obj.parent : null);
+                    
+                    if (basePolygon) {
+                        console.log(`[Duplicate] Extrusion ${obj.name} selected, duplicating parent polygon ${basePolygon.name} instead`);
+                        // Replace obj with basePolygon to duplicate the polygon (which will also duplicate the extrusion)
+                        obj = basePolygon;
+                    } else {
+                        console.log(`[Duplicate] Skipping extrusion ${obj.name}, no parent polygon found`);
+                        return;
+                    }
                 }
 
                 // Get object properties
@@ -820,8 +830,11 @@ class SceneOperationsManager {
                         // Extract extrusion vertex data
                         const extrusionVertexData = BABYLON.VertexData.ExtractFromMesh(originalExtrusion);
                         
+                        // IMPORTANT: Use polygon name + "_extrusion" for extrusion name (consistent naming)
+                        const extrusionName = clonedMesh.name ? `${clonedMesh.name}_extrusion` : `${originalExtrusion.name}_copy_${uniqueId}`;
+                        
                         // Create new extrusion mesh
-                        const clonedExtrusion = new BABYLON.Mesh(`${originalExtrusion.name}_copy_${uniqueId}`, scene);
+                        const clonedExtrusion = new BABYLON.Mesh(extrusionName, scene);
                         extrusionVertexData.applyToMesh(clonedExtrusion);
                         
                         // Create new material for extrusion
@@ -843,24 +856,73 @@ class SceneOperationsManager {
                             clonedExtrusion.userData = JSON.parse(JSON.stringify(originalExtrusion.userData));
                         }
                         
+                        // IMPORTANT: Copy extrusion scaling (height is stored in scaling.y)
+                        clonedExtrusion.scaling = originalExtrusion.scaling.clone();
+                        clonedExtrusion.rotation = originalExtrusion.rotation.clone();
+                        
+                        // IMPORTANT: Copy height information from polygon userData to cloned polygon userData
+                        if (obj.userData) {
+                            if (obj.userData.currentHeight !== undefined) {
+                                clonedMesh.userData.currentHeight = obj.userData.currentHeight;
+                            }
+                            if (obj.userData.originalHeight !== undefined) {
+                                clonedMesh.userData.originalHeight = obj.userData.originalHeight;
+                            }
+                        }
+                        
                         // Set renderingGroupId based on type (use SceneManager helper)
                         const extrusionType = originalExtrusion.userData?.type || 'building';
                         clonedExtrusion.renderingGroupId = SceneManager.getRenderingGroupId(extrusionType);
                         
-                        // Set extrusion position relative to cloned mesh
-                        const originalExtrusionRelativePos = originalExtrusion.parent === obj ? originalExtrusion.position.clone() : originalExtrusion.position.clone();
-                        clonedExtrusion.position = originalExtrusionRelativePos;
+                        // IMPORTANT: If polygon type is 'building', extrusion should be independent (not parented)
+                        // This matches the behavior when a polygon is converted to building type
+                        const isBuildingType = clonedMesh.userData && clonedMesh.userData.type === 'building';
                         
-                        // Parent to cloned mesh
-                        clonedExtrusion.setParent(clonedMesh);
-                        
-                        // Link bidirectional
-                        clonedMesh.extrusion = clonedExtrusion;
-                        clonedExtrusion.basePolygon = clonedMesh;
-                        
-                        // Enable and make visible
-                        clonedExtrusion.setEnabled(true);
-                        clonedExtrusion.isVisible = true;
+                        if (isBuildingType) {
+                            // For building type: extrusion is independent, positioned in world space
+                            // Get world position from original extrusion
+                            const originalExtrusionWorldPos = originalExtrusion.getAbsolutePosition();
+                            clonedExtrusion.position = originalExtrusionWorldPos.clone();
+                            
+                            // IMPORTANT: Adjust extrusion position Y to ensure base is at polygon Y
+                            // Extrusion base should be at polygon.position.y (same as original)
+                            clonedExtrusion.computeWorldMatrix(true);
+                            const clonedExtrusionBoundingInfo = clonedExtrusion.getBoundingInfo();
+                            if (clonedExtrusionBoundingInfo && clonedExtrusionBoundingInfo.boundingBox) {
+                                const clonedExtrusionBaseWorldY = clonedExtrusionBoundingInfo.boundingBox.minimumWorld.y;
+                                const polygonWorldY = clonedMesh.position.y;
+                                const deltaY = clonedExtrusionBaseWorldY - polygonWorldY;
+                                if (Math.abs(deltaY) > 0.01) {
+                                    clonedExtrusion.position.y = clonedExtrusion.position.y - deltaY;
+                                    console.log(`[Duplicate] Adjusted extrusion base Y: was ${clonedExtrusionBaseWorldY.toFixed(3)}, should be ${polygonWorldY.toFixed(3)}, adjusted by ${-deltaY.toFixed(3)}`);
+                                }
+                            }
+                            
+                            // Don't parent extrusion to polygon (keep it independent)
+                            // Link bidirectional but don't set parent
+                            clonedMesh.extrusion = clonedExtrusion;
+                            clonedExtrusion.basePolygon = clonedMesh;
+                            
+                            // Hide polygon, show extrusion
+                            clonedMesh.isVisible = false;
+                            clonedMesh.setEnabled(false);
+                            clonedExtrusion.isVisible = true;
+                            clonedExtrusion.setEnabled(true);
+                            console.log(`[Duplicate] Polygon ${clonedMesh.name} is building type - hiding polygon, showing extrusion (independent), height: ${clonedExtrusion.scaling.y}`);
+                        } else {
+                            // For non-building types: extrusion is parented to polygon
+                            const originalExtrusionRelativePos = originalExtrusion.parent === obj ? originalExtrusion.position.clone() : originalExtrusion.position.clone();
+                            clonedExtrusion.position = originalExtrusionRelativePos;
+                            clonedExtrusion.setParent(clonedMesh);
+                            
+                            // Link bidirectional
+                            clonedMesh.extrusion = clonedExtrusion;
+                            clonedExtrusion.basePolygon = clonedMesh;
+                            
+                            // Enable and make visible
+                            clonedExtrusion.setEnabled(true);
+                            clonedExtrusion.isVisible = true;
+                        }
                         
                         // Add to selection manager
                         if (this.selectionManager) {
@@ -894,8 +956,15 @@ class SceneOperationsManager {
                     }
                 }
 
-                duplicatedObjects.push(clonedMesh);
-                console.log(`Duplicated object: ${obj.name} -> ${clonedMesh.name} (created from scratch)`);
+                // IMPORTANT: If polygon type is 'building', add extrusion to selection instead of polygon
+                // This matches the behavior when a polygon is converted to building type
+                if (clonedMesh.userData && clonedMesh.userData.type === 'building' && clonedMesh.extrusion) {
+                    duplicatedObjects.push(clonedMesh.extrusion);
+                    console.log(`Duplicated object: ${obj.name} -> ${clonedMesh.extrusion.name} (extrusion for building type)`);
+                } else {
+                    duplicatedObjects.push(clonedMesh);
+                    console.log(`Duplicated object: ${obj.name} -> ${clonedMesh.name} (created from scratch)`);
+                }
             } catch (error) {
                 console.error(`Error duplicating object ${obj.name}:`, error);
             }
@@ -905,9 +974,10 @@ class SceneOperationsManager {
             // Clear current selection
             this.selectionManager.clearSelection();
             
-            // Select duplicated objects
-            duplicatedObjects.forEach(obj => {
-                this.selectionManager.selectObject(obj, false, true);
+            // Select duplicated objects (first one without multi-select, rest with multi-select)
+            duplicatedObjects.forEach((obj, index) => {
+                const isMultiSelect = index > 0; // First object clears selection, rest add to selection
+                this.selectionManager.selectObject(obj, isMultiSelect, true);
             });
 
             // Dispatch scene change event
@@ -1545,9 +1615,10 @@ class SceneOperationsManager {
             let maxNumber = 0;
             
             // Check all meshes in the scene for building names
+            // IMPORTANT: Include hidden meshes (isEnabled check removed) because building polygons are hidden
             // Support both formats: building_1 (old), building1 (new)
             scene.meshes.forEach(mesh => {
-                if (mesh.name && mesh.isEnabled() && !mesh.isDisposed()) {
+                if (mesh.name && !mesh.isDisposed()) {
                     // Check for buildingشماره format (without underscore) - new format
                     const noUnderscoreMatch = mesh.name.match(/^building(\d+)$/);
                     if (noUnderscoreMatch) {
@@ -1569,6 +1640,31 @@ class SceneOperationsManager {
                 }
             });
             
+            // IMPORTANT: Also check extrusions for building polygons
+            // Extrusions have names like "building127_extrusion", so we need to extract the polygon name
+            scene.meshes.forEach(mesh => {
+                if (mesh.name && mesh.name.includes('_extrusion') && !mesh.isDisposed()) {
+                    // Extract base polygon name from extrusion name (e.g., "building127_extrusion" -> "building127")
+                    const baseName = mesh.name.replace('_extrusion', '');
+                    const noUnderscoreMatch = baseName.match(/^building(\d+)$/);
+                    if (noUnderscoreMatch) {
+                        const number = parseInt(noUnderscoreMatch[1]);
+                        usedNumbers.add(number);
+                        if (number > maxNumber) {
+                            maxNumber = number;
+                        }
+                    }
+                    const underscoreMatch = baseName.match(/^building_(\d+)$/);
+                    if (underscoreMatch) {
+                        const number = parseInt(underscoreMatch[1]);
+                        usedNumbers.add(number);
+                        if (number > maxNumber) {
+                            maxNumber = number;
+                        }
+                    }
+                }
+            });
+            
             // Start from maxNumber + 1, but check for duplicates
             let nextNumber = maxNumber + 1;
             
@@ -1577,12 +1673,14 @@ class SceneOperationsManager {
                 nextNumber++;
             }
             
-            // Verify the name doesn't exist in the scene
+            // Verify the name doesn't exist in the scene (including hidden meshes)
             let proposedName = `building${nextNumber}`;
             while (scene.meshes.some(mesh => mesh.name === proposedName && !mesh.isDisposed())) {
                 nextNumber++;
                 proposedName = `building${nextNumber}`;
             }
+            
+            console.log(`[Duplicate] Generated unique building name: ${proposedName} (maxNumber was ${maxNumber}, usedNumbers: ${Array.from(usedNumbers).sort((a,b) => a-b).join(', ')})`);
             
             return proposedName;
         }

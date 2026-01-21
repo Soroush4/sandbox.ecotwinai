@@ -10227,18 +10227,49 @@ Transform your 3D models into powerful energy analysis tools.`;
         };
 
         // Set callback for when circle is created
-        this.circleManager.onCircleCreated = (circle, isUpdate = false, wasSelected = false) => {
+        this.circleManager.onCircleCreated = (circle, isUpdate = false, wasSelected = false, wasExtrusionSelected = false, extrusion = null) => {
+            // IMPORTANT: Double-check material is assigned (it should be from CircleManager, but verify)
+            if (!circle.material) {
+                console.warn(`[CIRCLE_CALLBACK] Circle ${circle.name} has no material in callback, reassigning...`);
+                // Get material name from circle name
+                const materialName = circle.name ? `${circle.name}Material` : 'circleMaterial';
+                let material = this.sceneManager.getScene().getMaterialByName(materialName);
+                if (!material) {
+                    material = new BABYLON.StandardMaterial(materialName, this.sceneManager.getScene());
+                    // Get color from type
+                    const type = circle.userData?.type || 'ground';
+                    const materialColor = this.getColorByType(type);
+                    material.diffuseColor = materialColor;
+                    material.backFaceCulling = false;
+                    material.twoSidedLighting = true;
+                    material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                    material.alpha = 1.0;
+                }
+                circle.material = material;
+                console.log(`[CIRCLE_CALLBACK] Material reassigned to ${circle.name}: ${material.name}`);
+            }
+            
             // Add to selection manager (if not already added)
             if (this.selectionManager) {
                 // Check if circle is already in selection manager (means it's an update, not a new creation)
                 // Since circle is a new mesh after update, we need to check by name or add it
                 // The old circle was removed, so we always need to add the new one
                 this.selectionManager.addSelectableObject(circle);
+                
+                // Also add extrusion to selection manager if it exists
+                // IMPORTANT: Use circle.extrusion instead of extrusion parameter to ensure we get the linked extrusion
+                const circleExtrusion = circle.extrusion;
+                if (circleExtrusion) {
+                    this.selectionManager.addSelectableObject(circleExtrusion);
+                    // Ensure extrusion is visible and enabled
+                    circleExtrusion.isVisible = true;
+                    circleExtrusion.setEnabled(true);
+                }
             }
             
             // Note: Circle is already added to scene by CreateCylinder
             // No need to call addBuilding as it expects {mesh: ...} format
-            // Just ensure it's visible and enabled
+            // Just ensure it's visible and enabled (though it should already be set in CircleManager)
             if (circle) {
                 circle.setEnabled(true);
                 circle.isVisible = true;
@@ -10274,17 +10305,64 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // IMPORTANT: If this is an update and the circle was selected before, restore selection
                 // This ensures the circle remains selected after property changes
                 if (this.selectionManager) {
-                    // Use setTimeout to ensure selection manager has finished adding the circle
+                    // Use setTimeout with a small delay to ensure mesh is fully initialized and visible/enabled
                     setTimeout(() => {
-                        this.selectionManager.selectObject(circle, false, true);
-                    }, 0);
+                        // IMPORTANT: Double-check that circle is visible and enabled before selecting
+                        if (!circle.isVisible || !circle.isEnabled()) {
+                            console.warn(`[SELECTION_RESTORE] Circle ${circle.name} is not visible or enabled, setting it now...`);
+                            circle.isVisible = true;
+                            circle.setEnabled(true);
+                        }
+                        
+                        // IMPORTANT: Ensure circle is in scene
+                        const scene = this.sceneManager ? this.sceneManager.getScene() : null;
+                        if (scene && !scene.meshes.includes(circle)) {
+                            console.warn(`[SELECTION_RESTORE] Circle ${circle.name} is not in scene, adding it now...`);
+                            scene.addMesh(circle);
+                        }
+                        
+                        // IMPORTANT: Ensure circle has material
+                        if (!circle.material) {
+                            console.warn(`[SELECTION_RESTORE] Circle ${circle.name} has no material, this should not happen!`);
+                            // Material should have been set in CircleManager.updateCircle
+                            // If it's missing, we can't highlight it, so skip selection restore
+                            return;
+                        }
+                        
+                        // IMPORTANT: Use circle.extrusion instead of extrusion parameter to ensure we get the linked extrusion
+                        const circleExtrusion = circle.extrusion;
+                        // If extrusion was selected, select the extrusion; otherwise select the circle
+                        if (wasExtrusionSelected && circleExtrusion) {
+                            // Double-check extrusion is visible and enabled
+                            if (!circleExtrusion.isVisible || !circleExtrusion.isEnabled()) {
+                                console.warn(`[SELECTION_RESTORE] Circle extrusion ${circleExtrusion.name} is not visible or enabled, setting it now...`);
+                                circleExtrusion.isVisible = true;
+                                circleExtrusion.setEnabled(true);
+                            }
+                            // Ensure extrusion is in scene
+                            if (scene && !scene.meshes.includes(circleExtrusion)) {
+                                console.warn(`[SELECTION_RESTORE] Circle extrusion ${circleExtrusion.name} is not in scene, adding it now...`);
+                                scene.addMesh(circleExtrusion);
+                            }
+                            // Ensure extrusion has material
+                            if (!circleExtrusion.material) {
+                                console.warn(`[SELECTION_RESTORE] Circle extrusion ${circleExtrusion.name} has no material, skipping selection restore`);
+                                return;
+                            }
+                            console.log(`[SELECTION_RESTORE] Restoring selection for circle extrusion ${circleExtrusion.name}`);
+                            this.selectionManager.selectObject(circleExtrusion, false, false);
+                        } else {
+                            console.log(`[SELECTION_RESTORE] Restoring selection for circle ${circle.name}`);
+                            this.selectionManager.selectObject(circle, false, false);
+                        }
+                    }, 10); // Small delay to ensure mesh is fully initialized
                 }
             }
             
             // Dispatch scene change event to update object list
             this.dispatchSceneChangeEvent();
             
-            console.log('Circle created:', circle.name, isUpdate ? '(update)' : '(new)', wasSelected ? '[was selected]' : '');
+            console.log('Circle created:', circle.name, isUpdate ? '(update)' : '(new)', wasSelected ? '[was selected]' : '', wasExtrusionSelected ? '[extrusion was selected]' : '');
         };
 
         // Start interactive circle drawing
@@ -11226,11 +11304,11 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Shape properties auto-save
         // Note: shapeType has its own dedicated listener, so we exclude it here
-        // IMPORTANT: Don't add input/change listeners for shapeLength, shapeWidth, shapeHeight
-        // These are handled by setupContinuousParameterChange which provides better typing experience
-        // Only add listeners for fields that don't use setupContinuousParameterChange
+        // NOTE: shapeLength, shapeWidth, and shapeHeight are handled by simple change event listeners
+        // (see setupAutoSaveListeners below) to allow easy typing of integers and decimals
+        // Only add listeners for fields that need special handling
         const shapeInputs = [
-            'shapeColor', 'shapeRadius'
+            'shapeColor'
         ];
         
         shapeInputs.forEach(inputId => {
@@ -11244,9 +11322,6 @@ Transform your 3D models into powerful energy analysis tools.`;
                 });
             }
         });
-        
-        // NOTE: shapeLength, shapeWidth, and shapeHeight are handled by setupContinuousParameterChange
-        // which provides debounced updates and better typing experience without interference
 
         // Circle properties auto-save
         const circleInputs = [
@@ -11256,12 +11331,19 @@ Transform your 3D models into powerful energy analysis tools.`;
         circleInputs.forEach(inputId => {
             const element = document.getElementById(inputId);
             if (element) {
-                element.addEventListener('input', () => {
-                    this.saveCircleProperties();
-                });
-                element.addEventListener('change', () => {
-                    this.saveCircleProperties();
-                });
+                // For number inputs, use change event to prevent cursor jumping when typing decimals
+                if (element.type === 'number') {
+                    element.addEventListener('change', () => {
+                        this.saveCircleProperties();
+                    });
+                } else {
+                    element.addEventListener('input', () => {
+                        this.saveCircleProperties();
+                    });
+                    element.addEventListener('change', () => {
+                        this.saveCircleProperties();
+                    });
+                }
             }
         });
 
@@ -11503,15 +11585,25 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Color picker removed - color is now automatically determined by type
 
         // Polygon height change listener (only for building type)
+        // IMPORTANT: Use 'change' event instead of 'input' to prevent cursor jumping when typing decimals
         const polygonHeightInput = document.getElementById('polygonHeight');
         if (polygonHeightInput) {
-            polygonHeightInput.addEventListener('input', (e) => {
+            polygonHeightInput.addEventListener('change', (e) => {
                 // IMPORTANT: Only process if currentShape is set (polygon is selected)
                 if (!this.currentShape || this.currentShape.userData?.type !== 'building') {
                     return;
                 }
                 
-                const newHeight = parseFloat(e.target.value) || 1;
+                const value = e.target.value.trim();
+                // Only process if value is a complete valid number
+                if (value === '' || value.endsWith('.') || value === '-') {
+                    return; // Don't process incomplete numbers
+                }
+                
+                const newHeight = parseFloat(value);
+                if (isNaN(newHeight) || !isFinite(newHeight)) {
+                    return; // Don't process invalid numbers
+                }
                 console.log('[HEIGHT_CHANGE] Polygon height changed to:', newHeight, 'for polygon:', this.currentShape.name);
                 
                 // Update polygon height in real-time (only for building type)
@@ -11778,14 +11870,37 @@ Transform your 3D models into powerful energy analysis tools.`;
         // Real-time updates for all input fields
         // Color picker removed - color is now automatically determined by type
 
-        // Add continuous parameter change functionality
-        this.setupContinuousParameterChange('shapeLength', () => this.updateShapeInRealTime());
-        this.setupContinuousParameterChange('shapeWidth', () => this.updateShapeInRealTime());
-        this.setupContinuousParameterChange('shapeHeight', () => {
-            this.updateShapeInRealTime();
-            this.previewHeightChanges();
-        });
-        this.setupContinuousParameterChange('shapeRadius', () => this.updateShapeInRealTime());
+        // Setup simple change event listeners for length, width, height (no continuous parameter change)
+        // This allows users to easily type integers and decimals without cursor jumping
+        const shapeLengthInput = document.getElementById('shapeLength');
+        const shapeWidthInput = document.getElementById('shapeWidth');
+        const shapeHeightInput = document.getElementById('shapeHeight');
+        const shapeRadiusInput = document.getElementById('shapeRadius');
+        
+        if (shapeLengthInput) {
+            shapeLengthInput.addEventListener('change', () => {
+                this.updateShapeInRealTime();
+            });
+        }
+        
+        if (shapeWidthInput) {
+            shapeWidthInput.addEventListener('change', () => {
+                this.updateShapeInRealTime();
+            });
+        }
+        
+        if (shapeHeightInput) {
+            shapeHeightInput.addEventListener('change', () => {
+                this.updateShapeInRealTime();
+                this.previewHeightChanges();
+            });
+        }
+        
+        if (shapeRadiusInput) {
+            shapeRadiusInput.addEventListener('change', () => {
+                this.updateShapeInRealTime();
+            });
+        }
 
         // Prevent keyboard events from closing popup when typing in input fields
         const popup = document.getElementById('propertiesPopup');
@@ -11903,9 +12018,21 @@ Transform your 3D models into powerful energy analysis tools.`;
 
         // Color picker removed - color is now automatically determined by type
 
-        // Add continuous parameter change functionality for circles
-        this.setupContinuousParameterChange('circleDiameter', () => this.updateCircleInRealTime());
-        this.setupContinuousParameterChange('circleHeight', () => this.updateCircleInRealTime());
+        // Simple change listeners for circle diameter/height (allow easy typing of integers/decimals)
+        const circleDiameterInput = document.getElementById('circleDiameter');
+        const circleHeightInput = document.getElementById('circleHeight');
+
+        if (circleDiameterInput) {
+            circleDiameterInput.addEventListener('change', () => {
+                this.updateCircleInRealTime();
+            });
+        }
+
+        if (circleHeightInput) {
+            circleHeightInput.addEventListener('change', () => {
+                this.updateCircleInRealTime();
+            });
+        }
 
         // Prevent keyboard events from closing circle popup when typing in input fields
         const circlePopup = document.getElementById('circlePropertiesPopup');
@@ -12473,7 +12600,13 @@ Transform your 3D models into powerful energy analysis tools.`;
         }
         
         // Store selection state before removing from selection manager
-        const wasSelected = this.selectionManager && this.selectionManager.isSelected(shape);
+        // IMPORTANT: Check both shape and extrusion selection state
+        const wasShapeSelected = this.selectionManager && this.selectionManager.isSelected(shape);
+        const wasExtrusionSelected = oldExtrusion && this.selectionManager && 
+                                     this.selectionManager.isSelected(oldExtrusion);
+        const wasSelected = wasShapeSelected || wasExtrusionSelected;
+        
+        console.log(`[SELECTION_RESTORE] Rectangle update: shape=${shape.name}, wasShapeSelected=${wasShapeSelected}, wasExtrusionSelected=${wasExtrusionSelected}, wasSelected=${wasSelected}`);
         
         // Remove from selection manager before disposing
         if (this.selectionManager) {
@@ -12595,10 +12728,17 @@ Transform your 3D models into powerful energy analysis tools.`;
             this.selectionManager.addSelectableObject(newRectangle);
             
             // Restore selection if it was selected before
+            // IMPORTANT: Use setTimeout to ensure selection manager has finished adding the rectangle
             if (wasSelected && this.selectionManager) {
-                console.log(`[GEOMETRY_UPDATE_DEBUG] Restoring selection for ${newRectangle.name}, creating wireframe...`);
-                // IMPORTANT: Use selectObject with includeExtrusion=false to avoid issues
-                this.selectionManager.selectObject(newRectangle, false, false);
+                console.log(`[GEOMETRY_UPDATE_DEBUG] Restoring selection for ${newRectangle.name}, wasExtrusionSelected=${wasExtrusionSelected}`);
+                setTimeout(() => {
+                    // If extrusion was selected, select the extrusion; otherwise select the rectangle
+                    if (wasExtrusionSelected && newRectangle.extrusion) {
+                        this.selectionManager.selectObject(newRectangle.extrusion, false, false);
+                    } else {
+                        this.selectionManager.selectObject(newRectangle, false, false);
+                    }
+                }, 0);
             }
         }
         
@@ -16763,7 +16903,13 @@ Transform your 3D models into powerful energy analysis tools.`;
             if (needsConversion && polygon.userData?.points && polygon.userData.points.length >= 3) {
                 // Convert 3D polygon to 2D mesh
                 console.log(`[POLYGON_CONVERSION] Converting polygon "${polygon.name}" from 3D to 2D (type: ${type})`);
-                const wasSelected = this.selectionManager && this.selectionManager.isSelected(polygon);
+                // IMPORTANT: Check both polygon and extrusion selection state
+                const wasPolygonSelected = this.selectionManager && this.selectionManager.isSelected(polygon);
+                const oldExtrusion = polygon.extrusion;
+                const wasExtrusionSelected = oldExtrusion && this.selectionManager && 
+                                             this.selectionManager.isSelected(oldExtrusion);
+                const wasSelected = wasPolygonSelected || wasExtrusionSelected;
+                console.log(`[SELECTION_RESTORE] Polygon conversion: polygon=${polygon.name}, wasPolygonSelected=${wasPolygonSelected}, wasExtrusionSelected=${wasExtrusionSelected}, wasSelected=${wasSelected}`);
                 const currentName = polygon.name;
                 const currentMaterial = polygon.material;
                 const currentPoints = polygon.userData.points.map(p => 
@@ -16910,11 +17056,15 @@ Transform your 3D models into powerful energy analysis tools.`;
                 // Add to selection manager
                 if (this.selectionManager) {
                     this.selectionManager.addSelectableObject(newPolygon);
-                }
-                
-                // If polygon was selected, select the new one
-                if (wasSelected && this.selectionManager) {
-                    this.selectionManager.selectObject(newPolygon, false);
+                    
+                    // IMPORTANT: Use setTimeout to ensure selection manager has finished adding the polygon
+                    // If polygon was selected, select the new one
+                    if (wasSelected && this.selectionManager) {
+                        console.log(`[SELECTION_RESTORE] Restoring selection for polygon ${newPolygon.name}`);
+                        setTimeout(() => {
+                            this.selectionManager.selectObject(newPolygon, false, false);
+                        }, 0);
+                    }
                 }
                 
                 // Update currentShape reference

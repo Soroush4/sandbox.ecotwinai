@@ -171,10 +171,12 @@ class ObjectListManager {
             // Filter out system meshes, grid, default earth, trees, buildings, disabled meshes, and disposed meshes
             if (!mesh || !mesh.name || !mesh.isEnabled() || mesh.isDisposed()) return false;
             
-            // Exclude system meshes
+            // Exclude system meshes and helper meshes
             if (mesh.name.includes('__root__') || 
                 mesh.name.includes('grid') || 
-                mesh.name === 'earth') {
+                mesh.name === 'earth' ||
+                mesh.name === 'multiObjectCenter' ||
+                mesh.name === 'singleObjectCenter') {
                 return false;
             }
             
@@ -580,7 +582,9 @@ class ObjectListManager {
                 return;
             }
             e.stopPropagation();
-            this.selectObject(mesh);
+            // Check if Ctrl key is pressed for multi-select
+            const isMultiSelect = e.ctrlKey || e.metaKey; // Support both Ctrl (Windows/Linux) and Cmd (Mac)
+            this.selectObject(mesh, isMultiSelect);
         });
 
         // Double-click handler for zoom to extent
@@ -809,8 +813,10 @@ class ObjectListManager {
 
     /**
      * Select an object from the list
+     * @param {BABYLON.Mesh|BABYLON.TransformNode} mesh - The mesh to select
+     * @param {boolean} isMultiSelect - If true, add to selection instead of replacing it
      */
-    selectObject(mesh) {
+    selectObject(mesh, isMultiSelect = false) {
         // Don't allow selection of wireframes
         if (this.getObjectCategory(mesh) === 'wireframe') {
             console.log('Wireframes are not selectable');
@@ -824,11 +830,13 @@ class ObjectListManager {
             return;
         }
         
-        // Clear current selection
-        this.selectionManager.clearSelection();
+        // If not multi-select, clear current selection first
+        if (!isMultiSelect) {
+            this.selectionManager.clearSelection();
+        }
         
-        // Select the clicked object
-        this.selectionManager.selectObject(mesh);
+        // Select the clicked object (with multi-select flag)
+        this.selectionManager.selectObject(mesh, isMultiSelect);
         
         // Update list highlighting
         this.updateSelectionInList();
