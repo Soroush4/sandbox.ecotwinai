@@ -151,63 +151,113 @@ class SceneOperationsManager {
                 const uniqueId = `${timestamp}_${index}`;
 
                 // Check if this is an imported STL object
-                if (userData.isImportedSTL && userData.originalSTLData) {
+                // IMPORTANT: Check isImportedSTL flag, even if originalSTLData is missing or empty
+                if (userData.isImportedSTL) {
                     try {
-                        // Create a copy of the original STL data with a new name
-                        const stlDataCopy = JSON.parse(JSON.stringify(userData.originalSTLData));
+                        // IMPORTANT: Use clone() instead of recreating from STL data
+                        // This is faster and works even when originalSTLData.triangles is empty (for optimized buildings)
+                        // Clone the mesh directly
+                        clonedMesh = obj.clone(`${obj.name}_clone_${uniqueId}`);
+                        
+                        if (!clonedMesh) {
+                            console.error(`Failed to clone STL mesh for ${obj.name}`);
+                            return;
+                        }
                         
                         // Generate a unique name for the duplicate based on type
                         const objectType = userData.type || 'ground';
                         const newName = this.generateUniqueNameByType(objectType);
                         
-                        // Update the name in the STL data
-                        stlDataCopy.name = newName;
+                        // Update the name
+                        clonedMesh.name = newName;
                         
-                        // Create the mesh from STL data
-                        if (this.stlManager && this.stlManager.createMeshFromSTLObject) {
-                            clonedMesh = this.stlManager.createMeshFromSTLObject(stlDataCopy, scene);
-                        } else {
-                            console.error('STLManager or createMeshFromSTLObject not available');
-                            return;
-                        }
+                        // Set position, rotation, and scaling (clone preserves these, but we set explicitly to be sure)
+                        clonedMesh.position = position.clone();
+                        clonedMesh.rotation = rotation.clone();
+                        clonedMesh.scaling = scaling.clone();
                         
-                        if (clonedMesh) {
-                            // Set position, rotation, and scaling
-                            clonedMesh.position = position.clone();
-                            clonedMesh.rotation = rotation.clone();
-                            clonedMesh.scaling = scaling.clone();
+                        // IMPORTANT: Deep clone userData to preserve all properties
+                        if (obj.userData) {
+                            clonedMesh.userData = JSON.parse(JSON.stringify(obj.userData));
+                            clonedMesh.userData.name = newName;
                             
-                            // Update the name to match the duplicate naming
-                            clonedMesh.name = newName;
-                            if (clonedMesh.userData) {
-                                clonedMesh.userData.name = newName;
-                                // Preserve originalSTLData with the new name
-                                clonedMesh.userData.originalSTLData = stlDataCopy;
-                                // Preserve all other properties from original userData (type, shapeType, etc.)
-                                if (userData.type) {
-                                    clonedMesh.userData.type = userData.type;
-                                }
-                                if (userData.shapeType) {
-                                    clonedMesh.userData.shapeType = userData.shapeType;
-                                }
-                                // Copy any other properties that might exist
-                                Object.keys(userData).forEach(key => {
-                                    if (key !== 'isImportedSTL' && key !== 'originalSTLData' && key !== 'name') {
-                                        if (!clonedMesh.userData[key]) {
-                                            clonedMesh.userData[key] = userData[key];
-                                        }
-                                    }
-                                });
+                            // Preserve originalSTLData if it exists (update name in it)
+                            if (clonedMesh.userData.originalSTLData) {
+                                clonedMesh.userData.originalSTLData = JSON.parse(JSON.stringify(obj.userData.originalSTLData));
+                                clonedMesh.userData.originalSTLData.name = newName;
                             }
-                            
-                            console.log(`[Duplicate] Duplicated STL object: ${obj.name} -> ${clonedMesh.name}, type: ${clonedMesh.userData?.type || 'unknown'}`);
-                        } else {
-                            console.error(`Failed to create duplicate STL mesh for ${obj.name}`);
-                            return;
                         }
+                        
+                        // IMPORTANT: Clone material to avoid sharing material between original and duplicate
+                        if (obj.material && obj.material instanceof BABYLON.StandardMaterial) {
+                            const clonedMaterial = obj.material.clone(`${newName}Material`);
+                            clonedMesh.material = clonedMaterial;
+                        }
+                        
+                        // IMPORTANT: Add to selection manager if available
+                        if (this.selectionManager) {
+                            this.selectionManager.addSelectableObject(clonedMesh);
+                        }
+                        
+                        // IMPORTANT: Update shadows for the new mesh
+                        if (this.lightingManager && this.lightingManager.updateShadowsForNewObject) {
+                            this.lightingManager.updateShadowsForNewObject(clonedMesh);
+                        }
+                        
+                        // IMPORTANT: Add to duplicatedObjects array so it gets selected after duplication
+                        duplicatedObjects.push(clonedMesh);
+                        
+                        console.log(`[Duplicate] Duplicated STL object: ${obj.name} -> ${clonedMesh.name}, type: ${clonedMesh.userData?.type || 'unknown'}`);
                     } catch (error) {
                         console.error(`Error duplicating STL object ${obj.name}:`, error);
-                        return;
+                        // Fallback: try to recreate from STL data if originalSTLData has triangles
+                        if (userData.originalSTLData && userData.originalSTLData.triangles && userData.originalSTLData.triangles.length > 0) {
+                            try {
+                                console.log(`[Duplicate] Fallback: recreating from STL data for ${obj.name}`);
+                                const stlDataCopy = JSON.parse(JSON.stringify(userData.originalSTLData));
+                                const objectType = userData.type || 'ground';
+                                const newName = this.generateUniqueNameByType(objectType);
+                                stlDataCopy.name = newName;
+                                
+                                if (this.stlManager && this.stlManager.createMeshFromSTLObject) {
+                                    clonedMesh = this.stlManager.createMeshFromSTLObject(stlDataCopy, scene);
+                                    if (clonedMesh) {
+                                        clonedMesh.position = position.clone();
+                                        clonedMesh.rotation = rotation.clone();
+                                        clonedMesh.scaling = scaling.clone();
+                                        clonedMesh.name = newName;
+                                        if (clonedMesh.userData) {
+                                            clonedMesh.userData.name = newName;
+                                            clonedMesh.userData.originalSTLData = stlDataCopy;
+                                            // Copy all other properties
+                                            Object.keys(userData).forEach(key => {
+                                                if (key !== 'isImportedSTL' && key !== 'originalSTLData' && key !== 'name') {
+                                                    if (!clonedMesh.userData[key]) {
+                                                        clonedMesh.userData[key] = userData[key];
+                                                    }
+                                                }
+                                            });
+                                        }
+                                        
+                                        // IMPORTANT: Add to selection manager and duplicatedObjects
+                                        if (this.selectionManager) {
+                                            this.selectionManager.addSelectableObject(clonedMesh);
+                                        }
+                                        if (this.lightingManager && this.lightingManager.updateShadowsForNewObject) {
+                                            this.lightingManager.updateShadowsForNewObject(clonedMesh);
+                                        }
+                                        duplicatedObjects.push(clonedMesh);
+                                        
+                                        console.log(`[Duplicate] Fallback successful: ${obj.name} -> ${clonedMesh.name}`);
+                                    }
+                                }
+                            } catch (fallbackError) {
+                                console.error(`Error in fallback duplicate for STL object ${obj.name}:`, fallbackError);
+                                return;
+                            }
+                        } else {
+                            return;
+                        }
                     }
                 }
                 // Create new mesh from scratch based on shape type
